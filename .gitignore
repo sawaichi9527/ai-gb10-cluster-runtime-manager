@@ -1,6 +1,10 @@
 # Secrets / machine-local config — never commit
 tp2.env
 
+# Runtime state markers (node paths) — not meaningful in git
+state/last-runtime
+state/last-cluster-profile
+
 # Logs / transient
 *.log
 /tmp/

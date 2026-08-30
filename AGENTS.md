@@ -1,48 +1,49 @@
-# AGENTS.md — ai-gb10-cluster
+# AGENTS.md — ai-gb10-cluster-runtime-manager
 
-Rules for any agent/maintainer working in this repo.
+Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime manager).
 
-## Layout / placement
+## Facts (don't "fix" these)
 
-- Checkout this repo on **Node0 only** at **`~/ai-gb10-cluster/`** — under the home
-  dir, deliberately **outside `~/docker-stacks/`** so that directory stays purely
-  for deployed runtime stacks. This repo *manages* the cluster; it is not a stack
-  itself. Node0 orchestrates; the scripts reach Node1 over ssh. **Node1 does not
-  have the repo** — only the image, the model dirs
-  (`~/docker-stacks/aeon-vllm/models/...`), and sudo docker.
-- Model paths inside scripts default to the shared `~/docker-stacks/aeon-vllm/models`
-  on the *current* node (Node1 over ssh resolves its own copy of those dirs).
-
-## Cluster facts (don't "fix" these)
-
-- **Two asymmetric nodes, Node0 single-side orchestration.** All scripts run on
-  Node0 and reach Node1 via `ssh -i ~/.ssh/id_gb10_cluster eye@10.0.101.102`.
-- **No Ray, no LiteLLM.** TP2 uses vLLM's native `mp` backend
-  (`--nnodes 2 --node-rank 0|1 --master-addr ... --master-port ...`).
-- **RoCE v2 interconnect env is mandatory**: `NCCL_SOCKET_IFNAME`/`GLOO_SOCKET_IFNAME=enp1s0f0np0`,
-  `NCCL_IB_HCA=rocep1s0f0:1`, `NCCL_IB_GID_INDEX=3`. Indices are GID[3] = RoCE v2.
-- **`--disable-custom-all-reduce` is required** for the cross-node path — do not remove.
-- **Image slim must match on both nodes** (`sha256:e62ac10d…` for the verified image).
-- **GB10 NVML** reports util/mem = 0%/N/A. Real signals: SignDecoding acceptance,
-  KV pool GiB, concurrent throughput, `/health`.
-- **MoE 35b**: TP=2 splits globally; MoE experts additionally EP-split across nodes
-  (log shows EP rank 0/1). Drafter is `DFlashQwen3ForCausalLM`/`DFlashModel` (upstream now), not MTP.
-- **Reasoning models**: small `max_tokens` can hide content inside `reasoning_content`.
-  In smoke tests use generous `max_tokens` (>= 500).
-- **warm-up**: draft acceptance climbs after the first few generations; measure
-  after warm-up for real numbers.
+- **Two CLIs, both in `bin/`:**
+  - `gb10` = **cluster (TP2)** — thin layer over `scripts/tp2-*`. Default target is
+    the 2-node cluster; Node0 is the single side of control, Node1 is headless.
+  - `gb10-single` = **single-node** runtime manager. `node0` runs compose locally,
+    `node1` reaches it over `ssh -i ~/.ssh/id_gb10_cluster eye@10.0.101.102`.
+- **`tp2-common.sh` auto-resolves `REPO_DIR`** from its own path — the scripts are
+  portable and do NOT need the repo to live at a fixed path. Keep it that way.
+- **Compose = source of truth; CLI = convenience layer.** Day-to-day ops go through
+  `gb10`/`gb10-single`; compose files under `~/docker-stacks/` are the deploy contract.
+- **Cluster profiles (verified 2026-08-30):** 27b = body
+  `qwen3.8-27b-aeon-ultimate-uncensored-nvfp4` + drafter `qwen3.8-27b-dflash2` (dflash
+  n=7, maxlen 262144, GMU 0.85, num_seqs 8, API :8000); 35b = body
+  `qwen3.6-35b-a3b-heretic-nvfp4` + drafter `qwen3.6-35b-a3b-dflash` (n=11, maxlen
+  131072, GMU 0.80, num_seqs 16). Both on `:8000` through Node0.
+- **`scripts/tp2-*`**: `up [27b|35b]`, `down`, `status`, `smoke`, `load`. Never edit
+  silently — `gb10` just forwards to them.
+- **Placeholder runtimes** (`PLACEHOLDER=true` in conf): CLI skeleton only. `gb10` and
+  `gb10-single` must print "not deployed yet" and never touch a missing stack.
+- **Exclusive groups**: `runtimes.d/*.conf` use `MODE=exclusive` + `GROUP` for isolation
+  (llm vs image vs video). `use` switches within a group; `start` on an exclusive runtime behaves
+  like `use`. This mirrors the legacy behavior — don't rearchitect without a reason.
+- **Secrets**: `tp2.env`, `~/docker-stacks/*/.env`, keys — never commit. `.gitignore`
+  covers `tp2.env`, `state/last-runtime`, logs.
+- **Node1 doesn't host the repo.** Only Node0. Node1 needs image + model dirs + sudo docker.
+- **Cold start** for TP2 is ~7-15 min (weight load + FlashInfer autotune + torch.compile);
+  `tp2-up`/`gb10 use` waits for `/health` 200 and reports READY.
 
 ## Conventions
 
-- Keep the per-profile parameter table in `scripts/tp2-common.sh::set_profile`
-  and the README in sync. Add new profiles there, not scattered in each script.
-- `tp2.env` is gitignored; keep the template `tp2.env.example` the single source
-  of default knobs. Never commit real `VLLM_API_KEY` / `SUDO_PASS`.
-- Prefer stable interconnect IPs (`10.0.101.x`) over mgmt LAN IPs in scripts.
-- Node1 mgmt IP may change (192.168.23.129 → 192.168.23.216); scripts must not
-  depend on it.
+- Keep `runtimes.d/*.conf` in sync with what's actually deployed on the nodes. A conf
+  whose stack/model hasn't landed must be `PLACEHOLDER=true`, not a broken path.
+- `comfyui` is intentionally placeholder for now (new version pending); old
+  `comfyui-personal`/`comfyui-work` split is retired — do not resurrect it until the
+  new version defines the layout.
+- Scripts are LF, `#!/usr/bin/env bash`, `set -Eeuo pipefail`. No Windows CRLF.
+- `.env.example`/`tp2.env.example` are the sanitized templates; never add real keys.
 
-## Verify before claiming done
+## Handoff lineage
 
-- `scripts/tp2-up 27b` then `scripts/tp2-status` then `scripts/tp2-smoke`.
-- `scripts/tp2-down` must clean both nodes (repeat no-op is fine).
+Operational history lives in the sibling maintenance repo handoffs
+(`GB10_Docker_Stack_Deployment_Handoff_2026-08-2?3.md`, `...08-18.md`, `...08-10.md`)
+and this repo's `docs/TP2_DEPLOYMENT_2026-08-30.md` (verified cluster facts).
+`docs/RESTRUCTURE_2026-08-31.md` describes this repo's unification.

@@ -1,71 +1,92 @@
-# ai-gb10-cluster
+# ai-gb10-cluster-runtime-manager
 
-DGX Spark **GB10 2-node cluster TP2 deployment** (main branch). Cross-node vLLM
-tensor-parallel (TP=2) over a 200GbE RoCE interconnect, using the **native `mp`
-backend** — **no Ray, no LiteLLM**.
+DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節點 runtimes** 於單一 repo。
+
+- **`bin/gb10`** — TP2 叢集 CLI（thin layer 於 `scripts/tp2-*`）
+- **`bin/gb10-single`** — 單節點 CLI（`node0` 本機 / `node1` 經 ssh）
+- **`runtimes.d/*.conf`** — 兩者共用的單節點 runtime 定義
+- **`scripts/tp2-*`** — 叢集部署腳本（ver detail 見 `docs/TP2_DEPLOYMENT_2026-08-30.md`）
 
 ## Topology
 
 ```
-Node0  spark-25d5  (192.168.23.215 / 10.0.101.101 interconnect)   rank0 = API server :8000
-Node1  spark-8095  (192.168.23.129 / 10.0.101.102 interconnect)   rank1 = headless worker
+Node0  spark-25d5  (192.168.23.215 / 10.0.101.101 interconnect)  rank0 = API server :8000
+Node1  spark-8095  (192.168.23.129 / 10.0.101.102 interconnect)  rank1 = headless worker
 ```
 
-Node0 is the **single side of control**: every `tp2-*` script runs on Node0 and
+Node0 is single side of control: every `tp2-*`/`gb10` command runs on Node0 and
 orchestrates Node1 over `ssh -i ~/.ssh/id_gb10_cluster eye@10.0.101.102`.
+`gb10-single` can also drive single-node compose on `node0` (local) or `node1` (ssh).
 
-**Where the repo lives:** checkout `ai-gb10-cluster` on **Node0 only**, at
-**`~/ai-gb10-cluster/`** — under the home dir, deliberately *outside*
-`~/docker-stacks/` so that directory stays purely for deployed runtime stacks
-(aeon-vllm, ai-runtime-manager, comfyui-aeon). This repo *manages* the cluster, it
-is not a stack itself. **Node1 does not host the repo** — Node0 reaches it purely
-over ssh to launch/stop the headless worker; Node1 only needs the image + model
-dirs + sudo docker.
+**Where the repo lives:** checkout on **Node0 only**, at
+**`~/ai-gb10-cluster-runtime-manager/`** — under home, *outside* `~/docker-stacks/`
+(which stays purely for deployed runtime stacks). Node1 does **not** host the repo;
+Node0 reaches it over ssh. Node1 only needs the image + model dirs + sudo docker.
 
-## Profiles (verified 2026-08-30)
-
-| profile | body | drafter | dflash n | max-model-len | GMU | num-seqs | API |
-|---|---|---:|---:|---:|---:|---:|---|
-| **27b** (default) | `qwen3.8-27b-aeon-ultimate-uncensored-nvfp4` | `qwen3.8-27b-dflash2` | 7 | 262144 | 0.85 | 8 | 8000 |
-| **35b** | `qwen3.6-35b-a3b-heretic-nvfp4` | `qwen3.6-35b-a3b-dflash` | 11 | 131072 | 0.80 | 16 | 8000 |
-
-## Quick start
+## Cluster CLI — `gb10`
 
 ```bash
-# 1. configure (never commit real secrets)
-cp tp2.env.example tp2.env && $EDITOR tp2.env   # set IMG, keys; export SUDO_PASS
-
-# 2. bring up (27B default; or pass 35b)
-scripts/tp2-up            # 27B
-scripts/tp2-up 35b        # 35B-A3B
-
-# 3. operate
-scripts/tp2-status        # both nodes, RDMA, KV, health
-scripts/tp2-smoke         # chat smoke (+ reasoning token note)
-scripts/tp2-load          # 8-way x 3 concurrent load
-scripts/tp2-down          # stop & remove both containers
+gb10 list                     # profile list (27b/35b + placeholders)
+gb10 use 27b                  # default; TP2 up (cold ~7-15 min), waits /health
+gb10 use 35b                  # switch exclusive cluster profile
+gb10 stop                     # tp2-down (both nodes)
+gb10 restart [27b|35b]
+gb10 status                   # both nodes, RDMA, KV, health
+gb10 logs                     # follow tp2-node0
+gb10 smoke                    # chat smoke
+gb10 load                     # concurrent load
+gb10 doctor
 ```
 
-> Cold start is ~10-15 min (weight load + FlashInfer autotune + torch.compile).
-> `tp2-up` waits for `/health` 200 and reports READY.
+## Single-node CLI — `gb10-single`
 
-## Key non-negotiables (see docs/TP2_DEPLOYMENT_2026-08-30.md)
+```bash
+gb10-single list [node0|node1]
+gb10-single use {node0|node1} <runtime>     # exclusive switch
+gb10-single start {node0|node1} <runtime>   # start
+gb10-single stop {node0|node1} [runtime]
+gb10-single restart {node0|node1} [runtime]
+gb10-single status [node]
+gb10-single logs {node0|node1} <runtime>
+gb10-single doctor
+```
 
-- **Same image slim on BOTH nodes** — must be byte-identical for TP2 to work.
-- RoCE v2 interconnect env: `NCCL_SOCKET_IFNAME`/`GLOO_SOCKET_IFNAME=enp1s0f0np0`,
-  `NCCL_IB_HCA=rocep1s0f0:1`, `NCCL_IB_GID_INDEX=3`.
-- `--disable-custom-all-reduce` is load-bearing for the cross-node path.
-- `--kv-cache-dtype fp8_e4m3` (DFlash/DFlash2 non-causal drafter cannot use NVFP4 KV).
-- MoE model: TP split is global, EP splits MoE experts across both nodes (rank0/1 **+ EP rank0/1**).
-- GB10 `nvidia-smi` reports util/mem = 0%/N/A — trust engine metrics instead
-  (SignDecoding acceptance, KV pool, concurrent throughput).
+Runtimes (`runtimes.d/*`):
+
+| conf | id | group | status |
+|---|---|---|---|
+| `27b.conf` | 27b | llm (exclusive) | deployed (MTP) |
+| `35b.conf` | 35b | llm (exclusive) | deployed (DFlash) |
+| `deepseek.conf` | deepseek | llm | **placeholder** |
+| `qwen38flash.conf` | qwen38flash | llm | **placeholder** |
+| `glm53flash.conf` | glm53flash | llm | **placeholder** |
+| `comfyui.conf` | comfyui | image | **placeholder** (new version pending) |
+| `minimaxh3.conf` | minimaxh3 | video | **placeholder** |
+
+Placeholders print "not deployed yet"; they are CLI skeletons until models/versions land.
+
+## Config
+
+- `tp2.env` (gitignored) — cluster knobs: `IMG`, `MASTER_ADDR/PORT`, `NODE0/1_IP`,
+  `NCCL_*`, `API_PORT`, `VLLM_API_KEY`, `SUDO_PASS`. Copy from `tp2.env.example`.
+- Single-node compose files live under `~/docker-stacks/` on each host (referenced
+  by `runtimes.d/*.conf` via `STACK_DIR`/`COMPOSE_FILE`).
+
+## Non-negotiables (see docs/TP2_DEPLOYMENT_2026-08-30.md)
+
+- Same image slim **byte-identical on BOTH nodes** for TP2.
+- RoCE v2 env as pinned in `tp2.env`/`tp2-common.sh`.
+- `--disable-custom-all-reduce` load-bearing cross-node.
+- `--kv-cache-dtype fp8_e4m3` (DFlash/DFlash2 non-causal drafter can't use NVFP4 KV).
+- GB10 `nvidia-smi` is unreliable — trust engine metrics.
 
 ## Layout
 
 ```
-scripts/          tp2-up|down|status|smoke|load + tp2-common.sh
-docs/             TP2_DEPLOYMENT_2026-08-30.md (verified results & facts)
-tp2.env.example   machine-local knobs (NEVER commit real values)
+bin/            gb10 (cluster), gb10-single (single-node)
+scripts/        tp2-up|down|status|smoke|load + tp2-common.sh
+runtimes.d/     *.conf runtime definitions (shared by gb10-single)
+state/          last-runtime markers (gitignored)
+docs/           TP2_DEPLOYMENT_2026-08-30.md + RESTRUCTURE notes
+tp2.env.example cluster config template (NEVER commit real values)
 ```
-
-Single-node deployments live in the sibling repo **`829522/gb10-single`**.

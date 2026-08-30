@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# =====================================================================
+# gb10 — DGX Spark GB10 2-node cluster (TP2) runtime manager.
+#
+# Thin convenience layer over scripts/tp2-* (the authoritative TP2
+# deployment scripts). Sibling gb10-single manages single-node runtimes.
+#
+#   gb10 use <profile>        # switch exclusive cluster profile (27b|35b)
+#   gb10 start <profile>      # same as use (cluster profiles are exclusive)
+#   gb10 stop                 # tp2-down
+#   gb10 restart [profile]    # down + up
+#   gb10 status               # tp2-status
+#   gb10 logs                 # follow tp2-node0 logs
+#   gb10 smoke                # tp2-smoke chat test
+#   gb10 load                 # tp2-load concurrent load test
+#   gb10 list                 # list cluster profiles
+#   gb10 doctor               # validate both nodes / image / models
+#   gb10 help
+# =====================================================================
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+SCRIPTS="${REPO_DIR}/scripts"
+
+die(){ echo "ERROR: $*" >&2; exit 1; }
+
+usage(){
+cat <<'HELP'
+gb10 - DGX Spark GB10 2-node cluster (TP2) helper
+
+  gb10 list
+  gb10 use <profile>          # 27b (default) | 35b | deepseek | qwen38flash | glm53flash
+  gb10 start <profile>        # same as use (cluster profiles are exclusive)
+  gb10 stop                   # stop & remove both cluster containers
+  gb10 restart [profile]      # down then up
+  gb10 status                 # both nodes, RDMA, KV, health
+  gb10 logs                   # follow tp2-node0 logs
+  gb10 smoke                  # chat smoke test
+  gb10 load                   # concurrent load test
+  gb10 doctor                 # validate image/models on both nodes
+
+Single-node runtimes are managed with the sibling command: gb10-single
+HELP
+}
+
+PROFILES_BY_NAME="27b:35b:deepseek:qwen38flash:glm53flash"
+
+valid_profile(){
+  case ":$PROFILES_BY_NAME:" in
+    *":$1:"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+UP_PROFILE="27b"
+down(){ "${SCRIPTS}/tp2-down"; }
+
+up(){
+  "${SCRIPTS}/tp2-up" "$1"
+}
+
+case "${1:-help}" in
+  list)
+    echo "Cluster (TP2) profiles:"
+    echo "  27b  [default]  Qwen3.8 27B (body + DFlash2 drafter)"
+    echo "  35b             Qwen3.6 35B-A3B (body + DFlash drafter)"
+    echo "  deepseek        (placeholder - not deployed)"
+    echo "  qwen38flash     (placeholder - not deployed)"
+    echo "  glm53flash      (placeholder - not deployed)"
+    ;;
+  use|start)
+    P="${2:-27b}"
+    valid_profile "$P" || die "unknown profile: $P"
+    case "$P" in
+      27b|35b)
+        down
+        up "$P"
+        ;;
+      *)
+        die "profile '$P' not deployed yet (placeholder)"
+        ;;
+    esac
+    ;;
+  stop)
+    down
+    ;;
+  restart)
+    P="${2:-$(cat "${REPO_DIR}/state/last-cluster-profile" 2>/dev/null || echo 27b)}"
+    valid_profile "$P" || die "unknown profile: $P"
+    case "$P" in
+      27b|35b) down; up "$P" ;;
+      *) die "profile '$P' not deployed yet (placeholder)" ;;
+    esac
+    ;;
+  status)
+    exec "${SCRIPTS}/tp2-status"
+    ;;
+  logs)
+    docker logs -f --tail=150 tp2-node0
+    ;;
+  smoke)
+    exec "${SCRIPTS}/tp2-smoke"
+    ;;
+  load)
+    exec "${SCRIPTS}/tp2-load"
+    ;;
+  doctor)
+    "$REPO_DIR/tp2.env" >/dev/null 2>&1 || true
+    [[ -f "${REPO_DIR}/tp2.env" ]] || die "missing tp2.env (cp tp2.env.example tp2.env)"
+    echo "Node0: $(hostname)"
+    docker version --format 'node0 docker {{.Server.Version}}' 2>/dev/null || echo "node0 docker: unavailable (sudo?)"
+    echo "Node data dirs:"
+    ls -d "$HOME"/docker-stacks/aeon-vllm/models/*/ 2>/dev/null || true
+    ;;
+  help|-h|--help) usage ;;
+  *) usage; exit 2 ;;
+esac
