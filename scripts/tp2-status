@@ -10,9 +10,11 @@ source "${SCRIPT_DIR}/tp2-common.sh"
 echo "===== Node0 ($(hostname)) ====="
 sdk docker ps -a --filter name=tp2-node0 --format '{{.Names}} {{.Status}}' 2>/dev/null
 echo "-- RDMA/NET lines from node0 boot --"
-grep -aE "NET/IB|Using network|NET/Socket|using RDMA|IB devices" /tmp/tp2-node0.log 2>/dev/null | head -5 || true
+# vLLM logs live in `docker logs tp2-node0` (the docker-run stdout file only
+# holds the container hash for a detached run).
+sdk docker logs tp2-node0 2>/dev/null | grep -aE "NET/IB|Using network|NET/Socket|using RDMA|IB devices" | head -5 || true
 echo "-- KV / world size from node0 log --"
-grep -aiE "tensor_parallel_size|Available KV|cpu_memory_utilization|world_size|node_rank" /tmp/tp2-node0.log 2>/dev/null | tail -8 || true
+sdk docker logs tp2-node0 2>/dev/null | grep -aiE "tensor_parallel_size|Available KV|cpu_memory_utilization|world_size|node_rank" | tail -8 || true
 
 echo ""
 echo "===== Node1 (${NODE1_SSH_USER}@${NODE1_IP}) ====="
