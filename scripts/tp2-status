@@ -14,7 +14,10 @@ echo "-- RDMA/NET lines from node0 boot --"
 # holds the container hash for a detached run).
 sdk docker logs tp2-node0 2>/dev/null | grep -aE "NET/IB|Using network|NET/Socket|using RDMA|IB devices" | head -5 || true
 echo "-- KV / world size from node0 log --"
-sdk docker logs tp2-node0 2>/dev/null | grep -aiE "tensor_parallel_size|Available KV|cpu_memory_utilization|world_size|node_rank" | tail -8 || true
+# vLLM prints its engine config as giant single-line dicts; those lines carry
+# 'model' (quoted) and would flood the report. Drop them and show only the
+# short status lines (parallel_state membership + Available KV cache).
+sdk docker logs tp2-node0 2>/dev/null | grep -aiE "Available KV cache|world_size=[0-9]+ rank=[0-9]+|node_rank=[0-9]+" | grep -av "'model'" | tail -8 || true
 
 echo ""
 echo "===== Node1 (${NODE1_SSH_USER}@${NODE1_IP}) ====="
