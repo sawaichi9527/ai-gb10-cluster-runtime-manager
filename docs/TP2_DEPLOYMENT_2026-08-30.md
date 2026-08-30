@@ -19,7 +19,7 @@ future change contradicts anything here, update this doc in the same change.
 
 Node0→Node1: `ssh -i ~/.ssh/id_gb10_cluster eye@10.0.101.102`.
 
-Repo placement: checkout `gb10-cluster` on **Node0 only** at **`~/gb10-cluster/`**
+Repo placement: checkout `ai-gb10-cluster` on **Node0 only** at **`~/ai-gb10-cluster/`**
 (deliberately outside `~/docker-stacks/`, which stays purely for runtime stacks).
 Node1 does not host the repo — Node0 orchestrates it purely over ssh; Node1 needs
 only the image (same slim), the model dirs, and sudo docker.

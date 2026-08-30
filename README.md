@@ -1,4 +1,4 @@
-# gb10-cluster
+# ai-gb10-cluster
 
 DGX Spark **GB10 2-node cluster TP2 deployment** (main branch). Cross-node vLLM
 tensor-parallel (TP=2) over a 200GbE RoCE interconnect, using the **native `mp`
@@ -14,8 +14,8 @@ Node1  spark-8095  (192.168.23.129 / 10.0.101.102 interconnect)   rank1 = headle
 Node0 is the **single side of control**: every `tp2-*` script runs on Node0 and
 orchestrates Node1 over `ssh -i ~/.ssh/id_gb10_cluster eye@10.0.101.102`.
 
-**Where the repo lives:** checkout `gb10-cluster` on **Node0 only**, at
-**`~/gb10-cluster/`** — under the home dir, deliberately *outside*
+**Where the repo lives:** checkout `ai-gb10-cluster` on **Node0 only**, at
+**`~/ai-gb10-cluster/`** — under the home dir, deliberately *outside*
 `~/docker-stacks/` so that directory stays purely for deployed runtime stacks
 (aeon-vllm, ai-runtime-manager, comfyui-aeon). This repo *manages* the cluster, it
 is not a stack itself. **Node1 does not host the repo** — Node0 reaches it purely

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =====================================================================
-# tp2-common.sh — shared env load + profile table for gb10-cluster
+# tp2-common.sh — shared env load + profile table for ai-gb10-cluster
 # Sourced by every scripts/tp2-* entrypoint. NOT meant to be run alone.
 # =====================================================================
 set -Eeuo pipefail

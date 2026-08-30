@@ -1,10 +1,10 @@
-# AGENTS.md — gb10-cluster
+# AGENTS.md — ai-gb10-cluster
 
 Rules for any agent/maintainer working in this repo.
 
 ## Layout / placement
 
-- Checkout this repo on **Node0 only** at **`~/gb10-cluster/`** — under the home
+- Checkout this repo on **Node0 only** at **`~/ai-gb10-cluster/`** — under the home
   dir, deliberately **outside `~/docker-stacks/`** so that directory stays purely
   for deployed runtime stacks. This repo *manages* the cluster; it is not a stack
   itself. Node0 orchestrates; the scripts reach Node1 over ssh. **Node1 does not
