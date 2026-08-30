@@ -1,0 +1,6 @@
+# Secrets / machine-local config — never commit
+tp2.env
+
+# Logs / transient
+*.log
+/tmp/

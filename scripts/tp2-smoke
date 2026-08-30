@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# =====================================================================
+# tp2-smoke — chat completion smoke test against the TP2 API.
+# Dumps finish_reason / content / reasoning / usage.
+# NOTE: reasoning (Qwen3/MoE) models consume tokens into thinking first,
+# so use a generous max_tokens to surface content.
+# =====================================================================
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/tp2-common.sh"
+
+PROMPT="${SMOKE_PROMPT:-Reply with exactly: HELLO-TP2-OK}"
+MAX_TOKENS="${SMOKE_MAX_TOKENS:-500}"
+
+curl -fsS -m 180 "http://localhost:${API_PORT}/v1/chat/completions" \
+  -H 'Content-Type: application/json' \
+  -d "{\"model\":\"aeon\",\"messages\":[{\"role\":\"user\",\"content\":\"${PROMPT}\"}],\"max_tokens\":${MAX_TOKENS},\"temperature\":0}" \
+  -o /tmp/tp2-resp.json -w "http=%{http_code}\n"
+
+python3 - <<'PY'
+import json
+d = json.load(open('/tmp/tp2-resp.json'))
+ch = d['choices'][0]
+msg = ch['message']
+print('finish_reason:', ch.get('finish_reason'))
+print('content:', repr(msg.get('content')))
+print('reasoning_content[:120]:', repr((msg.get('reasoning_content') or '')[:120]))
+print('tool_calls:', msg.get('tool_calls'))
+print('usage:', d.get('usage'))
+PY
+echo "smoke DONE"

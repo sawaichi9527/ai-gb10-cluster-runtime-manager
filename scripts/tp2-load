@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# =====================================================================
+# tp2-load — real cross-node concurrent load: 8-way x 3 rounds.
+# =====================================================================
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/tp2-common.sh"
+
+ROUNDS="${LOAD_ROUNDS:-3}"
+WORKERS="${LOAD_WORKERS:-8}"
+
+python3 - "$API_PORT" "$ROUNDS" "$WORKERS" <<'PY'
+import json, sys, urllib.request, concurrent.futures, time
+port, rounds, workers = int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3])
+URL = f"http://localhost:{port}/v1/chat/completions"
+
+def req(i):
+    body = json.dumps({
+        "model": "aeon",
+        "messages": [{"role": "user", "content": f"Count from 1 to 10 (round {i})."}],
+        "max_tokens": 80, "temperature": 0.7,
+    }).encode()
+    r = urllib.request.Request(URL, data=body, headers={"Content-Type": "application/json"})
+    t0 = time.time()
+    d = json.load(urllib.request.urlopen(r, timeout=120))
+    dt = time.time() - t0
+    u = d["usage"]
+    return u["prompt_tokens"], u["completion_tokens"], dt, d.get("model")
+
+with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+    for rnd in range(rounds):
+        t0 = time.time()
+        futs = [ex.submit(req, i + rnd * workers) for i in range(workers)]
+        res = [f.result() for f in futs]
+        wall = time.time() - t0
+        pt = sum(r[0] for r in res); ct = sum(r[1] for r in res); dt = sum(r[2] for r in res)
+        print(f"round {rnd+1}: wall={wall:.2f}s prompt_tok={pt} comp_tok={ct} model={res[0][3]}")
+print("load DONE")
+PY
