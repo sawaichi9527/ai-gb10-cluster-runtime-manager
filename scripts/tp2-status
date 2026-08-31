@@ -36,5 +36,5 @@ fi
 echo "===== API endpoint ====="
 echo "http://${NODE0_MGMT}:${API_PORT}/v1  (auth: $([[ -n "${VLLM_API_KEY:-}" && "${VLLM_API_KEY}" != "EMPTY" ]] && echo "Bearer key set" || echo "disabled"))"
 echo "===== /v1/models ====="
-curl -fsS -m 5 $(api_auth) "http://localhost:${API_PORT}/v1/models" 2>/dev/null | head -c 300 || echo "(no models)"
+api_curl "http://localhost:${API_PORT}/v1/models" -m 5 2>/dev/null | head -c 300 || echo "(no models)"
 echo ""

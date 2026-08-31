@@ -23,7 +23,7 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   and both nodes' `docker-stacks/aeon-vllm/.env`. TP2 and node0 single LLM share the
   port → they are **mutually exclusive**: `gb10 use` frees node0+node1 singles;
   `gb10-single use/start` on either node tears down TP2 first. `scripts/tp2-smoke/load/
-  status` pass the bearer via `api_auth()` when a key is configured.
+   status` pass the bearer via `api_curl()` (or their own header) when a key is configured.
 - **`scripts/tp2-*`**: `up [27b|35b]`, `down`, `status`, `smoke`, `load`. Never edit
   silently — `gb10` just forwards to them.
 - **Placeholder runtimes** (`PLACEHOLDER=true` in conf): CLI skeleton only. `gb10` and
