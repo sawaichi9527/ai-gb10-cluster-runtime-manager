@@ -663,3 +663,76 @@ Flux 2 Dev 是 **diffusion model** → 用 `UNETLoader`（**非** `CheckpointLoa
 
 - **Stage 2**：TP2 time-sharing switch（Node0↔Node1 時分共用）。
 - **Stage 3**：TP2-xDiT CLI pipeline（Qwen-Image 20B，bare-diffusers + torchrun）。⚠️ xdit-poc 用 bf16；Node0 現存 Qwen-Image 為 fp8/nvfp4，與 xdit-poc sm_121a NaN 疑點尚未解決（open），落地前需先確認。
+
+# 18. 2026-08-31 雙向自動保護（做法 B 完整自動）— TP2 ↔ Node1 單機 runtime 互斥
+
+> 依主管指令：Node1 的 ComfyUI 單機 runtime 與 TP2（跨節點 LLM）之間建立**雙向自動保護**（做法 B 完整自動）——`gb10` 停 Node1 單機 runtime、`gb10-single use node1 <runtime>` 停 TP2。經 Forgejo PR → Node0 pull 部署，實機端到端驗證完成。
+
+## 18.1 互斥設計（方向 A / B）
+
+| 方向 | 觸發 | 行為 |
+|---|---|---|
+| **A**（Node1 runtime 優先） | `gb10-single use node1 comfyui` | 自動拆除 TP2（兩節點停機）→ 啟動 comfyui |
+| **B**（TP2 優先） | `gb10 use 27b\|35b` | `up()` 內 `free_node1_singles()` = `gb10-single free node1` → 自動停掉 Node1 單機 runtime → 啟 TP2 |
+
+- 方向 B 觸發鏈：`gb10 use ...` → `up()` → `free_node1_singles()` = `gb10-single free node1` → 逐 profile 停（`bin/gb10` L63-70）。
+- `gb10-single` 已收錄 **7 個 profiles**（27b/35b/comfyui/deepseek/glm53flash/minimaxh3/qwen38flash），僅 `comfyui` 為真實啟動之單機 runtime，其餘 placeholder。
+
+## 18.2 修復的 3 個根因（PR #3 / #4 / #5）
+
+| PR | 根因 | 修法 |
+|---|---|---|
+| **#3**（`e620d6f`） | `n1()` SSH 吃掉 `while read ... < <(profiles)` 的 process-substitution 串流 → `free_node` 只處理第一筆 27b，迴圈 abort | `n1()` 內 `"${sshcmd[@]}" "$@" </dev/null`；`stop_group_except`/`free_node` 尾端 `[[ ]] && stop_file` 改 `if/then` → 8 次 read、7 profiles 全迭代 |
+| **#4**（`60e5280`） | `inspect_q` node1 分支 `n1 bash -c 'docker inspect -f "{{.State.Status}}" "NAME"'` 因 ssh space-join 使 go-template/容器名被拆散 → docker usage → `|| echo ""` 吞掉 → 永遠 empty → `state_of` 誤判 `inactive` | node1 改用 jq：`docker inspect "$cname" \| jq -r ".[0].State.Status"`；compose project label → `.[0].Config.Labels["com.docker.compose.project"]` |
+| **#5**（`ab51b6b`） | **systemic**：所有 `n1 bash -c '<多字元 script>'` 皆壞（ssh 空白 join → 遠端只跑第一個 token、內層引號遺失）→ 影響 `compose_node`、`inspect_q`、`node_ps_q`、`health_of`、`wait_ready`、`logs` 全部 node1 路徑 | 全部改**單一字串參數**：`n1 "docker inspect 'NAME' ... \| jq -r 'FILTER'"`（單引號字串 = ssh 單一 arg 完整保留）。`</dev/null` 保留（擋 ssh 吃 stdin）。實機驗證 status/project/`compose ps` 全對 |
+
+- **關鍵診斷**（`/tmp/sshtest.sh` 實測 ssh execution 樣式）：
+  - `ssh host 'echo HI'`（單一 quoted string）→ **works**
+  - `ssh host bash -c 'echo HI'` → **empty**（ssh 空白 join → remote `bash -c echo HI`，script 只有 `echo`）
+  - `ssh host bash -s <<EOF`（無 `</dev/null`）→ **works**（heredoc 餵 bash -s via stdin）
+  - `n1` 加 `</dev/null` 後 heredoc stdin 被蓋 → **broken**（故保留 `</dev/null` 時唯一可用樣式 = 單一字串參數，即 PR #5 採用）
+- `run_node()`（`n1 bash -s "$@"`）為 dead code（定義於 L117 但無呼叫者）——故 `</dev/null` 不再與任何 active heredoc 衝突。
+
+## 18.3 實機端到端驗證（Node0 部署 PR #5 後）
+
+```text
+# PR #5 前的 blocker：gb10-single status node1 對 comfyui 顯示 inactive（實則 Up healthy）
+#                        gb10-single free node1 停不掉 comfyui  →  方向 B 失效
+
+# PR #5 後 —— status 判別恢復正確：
+gb10-single status node1
+# comfyui  → running  READY   ✅（jq + 單字串 ssh 修好）
+# 27b/35b  → null（未載入）
+
+# 方向 B 核心：free node1 真的停掉 comfyui ✅
+Combining: comfyui-spark Up 8 minutes (healthy)
+gb10-single free node1
+# Stopping comfyui on node1...  Container comfyui-spark Stopped/Removed  Network removed
+# 之後 docker ps -a --filter name=comfyui → 空  ✅
+
+# 方向 A 回歸：use node1 comfyui 啟動 + wait_ready READY ✅
+gb10-single use node1 comfyui
+# comfyui-spark Started → waiting... status=running restart=0 → READY (healthy)
+
+# 方向 B E2E：comfyui running 前提下 gb10 use 27b → comfyui 自動停 + TP2 啟動 ✅
+gb10 use 27b
+# == stopping Node1 (headless) == / == stopping Node0 (API) == / TP2 down complete.
+# free_node1_singles: 27b/35b/comfyui: not active on node1.（comfyui 已自動停）
+# == launching Node1 headless worker (rank1) == / == launching Node0 API server (rank0) ==
+# == waiting for API health on :8000 (cold start ~10-15 min) ==   ← TP2 正常暖機中
+```
+
+- **方向 A**（`use node1 comfyui` 停 TP2）於先前已測通過；本次 PR #5 後以 `use node1 comfyui` 回歸重測亦通過（comfyui READY）。
+- **方向 B**（`gb10 use ...` 停 Node1 單機）本次完整實測通過（comfyui 被 free_node1_singles 自動停、TP2 接著正常啟動、仍在 API health 暖機）。
+
+## 18.4 部署與 commit
+
+- Node0 部署目錄：`/home/eye/ai-gb10-cluster-runtime-manager`（`git pull --ff-only`）；`~/bin/gb10*` symlink 繼承。
+- Node0 目前 HEAD：`ab51b6b`（PR #5）。
+- Node1：`192.168.23.216`（`tp2.env` NODE1_MGMT）；SSH key `~/.ssh/id_gb10_cluster`。
+
+## 18.5 後續
+
+- TP2 27B 冷啟動完成後可 `gb10 smoke 27b` / `gb10 load 27b`；**Stage 2**（TP2 time-sharing switch）即為本雙向互斥之正式包裝。
+- 保留 `</dev/null` 於 `n1()`；**禁止**恢復任何 `n1 bash -c '...'` 樣式（一律單一字串參數）。
+- 臨時診斷檔（`/tmp/n1test*.sh`、`/tmp/sshtest.sh`、`/tmp/free-fix*.log`、`/tmp/qtest.sh`、`/tmp/use27b.log`）已隨驗證完成清理（或待清）。
