@@ -110,7 +110,7 @@ NODE1_SSH_KEY="${NODE1_SSH_KEY:-$HOME/.ssh/id_gb10_cluster}"
 
 n1(){ # run a command on node1; n1 bash -s <<EOF ... EOF
   local sshcmd=(ssh -o BatchMode=yes -o StrictHostKeyChecking=no -i "${NODE1_SSH_KEY}" "${NODE1_SSH_USER}@${NODE1_IP}")
-  "${sshcmd[@]}" "$@"
+  "${sshcmd[@]}" "$@" </dev/null
 }
 
 # run <node> <bash-script-via-stdin>
@@ -302,7 +302,7 @@ stop_group_except(){
     load "$f"
     [[ "$PLACEHOLDER" == true ]] && continue
     [[ "$GROUP" == "$g" && "$RUNTIME_ID" != "$id" ]] || continue
-    [[ "$(state_of "$node" "$f")" != inactive ]] && stop_file "$node" "$f"
+    if [[ "$(state_of "$node" "$f")" != inactive ]]; then stop_file "$node" "$f"; fi
   done < <(profiles)
 }
 
@@ -314,7 +314,7 @@ free_node(){
     [[ -n "$f" ]] || continue
     load "$f"
     [[ "$PLACEHOLDER" == true ]] && continue
-    [[ "$(state_of "$node" "$f")" != inactive ]] && stop_file "$node" "$f"
+    if [[ "$(state_of "$node" "$f")" != inactive ]]; then stop_file "$node" "$f"; fi
   done < <(profiles)
   return 0
 }
