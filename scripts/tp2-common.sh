@@ -41,12 +41,18 @@ SUDO_PASS="$(_sudo_pass)"
 # ---- docker helper (sudo on local Node0) ----
 sdk(){ echo "$SUDO_PASS" | sudo -S "$@" 2>/dev/null; }
 
-# ---- auth header for the vLLM API (_API_KEY != EMPTY means auth required) ----
-# Returns the curl -H ... extra args (empty when no auth). All /v1/* callers
-# (smoke/load/status) MUST append $(api_auth) so the shared key is honoured.
-api_auth(){
+# ---- auth for the vLLM API (_API_KEY != EMPTY means auth required) ----
+# api_curl <url> [curl args...] — run curl with the optional Bearer header.
+# All /v1/* callers (smoke/load/status) MUST go through this (or set the
+# header themselves) so the shared key is honoured. Do NOT emit a bare
+# `-H Authorization: Bearer ...` via unquoted $(...) expansion: word-splitting
+# would break it into separate args and curl would fail.
+api_curl(){
+  local url="$1"; shift
   if [[ -n "${VLLM_API_KEY:-}" && "${VLLM_API_KEY}" != "EMPTY" ]]; then
-    printf -- '-H %s ' "Authorization: Bearer ${VLLM_API_KEY}"
+    curl -fsS -H "Authorization: Bearer ${VLLM_API_KEY}" "$@" "${url}"
+  else
+    curl -fsS "$@" "${url}"
   fi
 }
 

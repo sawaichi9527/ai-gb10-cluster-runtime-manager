@@ -13,9 +13,9 @@ source "${SCRIPT_DIR}/tp2-common.sh"
 PROMPT="${SMOKE_PROMPT:-Reply with exactly: HELLO-TP2-OK}"
 MAX_TOKENS="${SMOKE_MAX_TOKENS:-500}"
 
-curl -fsS -m 180 "http://localhost:${API_PORT}/v1/chat/completions" \
+api_curl "http://localhost:${API_PORT}/v1/chat/completions" \
+  -m 180 \
   -H 'Content-Type: application/json' \
-  $(api_auth) \
   -d "{\"model\":\"aeon\",\"messages\":[{\"role\":\"user\",\"content\":\"${PROMPT}\"}],\"max_tokens\":${MAX_TOKENS},\"temperature\":0}" \
   -o /tmp/tp2-resp.json -w "http=%{http_code}\n"
 
