@@ -12,7 +12,7 @@ future change contradicts anything here, update this doc in the same change.
 | host | spark-25d5 | spark-8095 |
 | mgmt LAN | 192.168.23.215 | 192.168.23.216 |
 | interconnect | 10.0.101.101 | 10.0.101.102 |
-| role | rank0, API :8000 | rank1, headless |
+| role | rank0, API :1234 | rank1, headless |
 | OS | Ubuntu 24.04 ARM64 | Ubuntu 24.04 ARM64 |
 | interconnect | rocep1s0f0 200GbE, MTU 4096, RoCE v2 GID[3] |
 | image | `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-08-24-v0.27.1-omni` (same slim e62ac10d on both) |
@@ -38,7 +38,7 @@ docker run -d --name tp2-node0|tp2-node1 \
   --device /dev/infiniband --cap-add IPC_LOCK --ulimit memlock=-1:-1 \
   -v <body>:/model:ro -v <drafter>:/drafter:ro \
   --entrypoint vllm "$IMG" serve /model \
-    --served-model-name aeon --host 0.0.0.0 [--port 8000 | --headless] \
+    --served-model-name aeon --host 0.0.0.0 [--port 1234 | --headless] \
     --tensor-parallel-size 2 --nnodes 2 --node-rank {0,1} \
     --master-addr 10.0.101.101 --master-port 29501 \
     --quantization compressed-tensors --kv-cache-dtype fp8_e4m3 \
@@ -51,7 +51,7 @@ docker run -d --name tp2-node0|tp2-node1 \
     --trust-remote-code
 ```
 
-Node1 adds `--headless --node-rank 1` and omits `--port`/HTTP; Node0 uses `--port 8000`.
+Node1 adds `--headless --node-rank 1` and omits `--port`/HTTP; Node0 uses `--port 1234`.
 
 ### 27B + DFlash2 (default profile)
 

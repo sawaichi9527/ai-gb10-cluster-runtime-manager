@@ -60,15 +60,20 @@ valid_profile(){
 UP_PROFILE="27b"
 down(){ "${SCRIPTS}/tp2-down"; }
 
-# Direction B: before TP2 comes up, free node1's GPU of any single-node
-# runtime (e.g. comfyui). gb10-single `free node1` stops all active ones.
-# TP2 occupies both nodes — node1 single runtimes must never coexist.
-free_node1_singles(){
-  "${SCRIPT_DIR}/gb10-single" free node1
+# Direction B: before TP2 comes up, free BOTH nodes' GPUs of any single-
+# node runtime (e.g. comfyui, single LLM). TP2 occupies both nodes and
+# shares port 1234 with the single-node LLMs, so a node0 single LLM must
+# also be stopped or it would collide on the port. gb10-single `free nodeX`
+# stops all active runtimes on that node.
+free_singles(){
+  local n
+  for n in node0 node1; do
+    "${SCRIPT_DIR}/gb10-single" free "$n"
+  done
 }
 
 up(){
-  free_node1_singles
+  free_singles
   "${SCRIPTS}/tp2-up" "$1"
 }
 

@@ -47,8 +47,9 @@ Runtimes (runtimes.d/*.conf):
   27b 35b comfyui      deployed
   deepseek qwen38flash glm53flash minimaxh3   placeholder (not deployed)
 
-Auto-protection (做法 B): `use/start node1 <runtime>` auto-tears down an
-active TP2 cluster first (TP2 occupies both nodes' GPUs).
+Auto-protection (做法 B): `use/start node0|node1 <runtime>` auto-tears down
+an active TP2 cluster first (TP2 occupies both nodes' GPUs and shares port
+1234 with the single-node LLMs on node0).
 HELP
 }
 
@@ -372,7 +373,7 @@ tp2_active(){
 
 ensure_tp2_down(){
   if tp2_active; then
-    echo "TP2 cluster is running; tearing it down before starting on node1..."
+    echo "TP2 cluster is running; tearing it down before starting a single-node runtime..."
     "${REPO_DIR}/scripts/tp2-down"
   fi
 }
@@ -392,9 +393,11 @@ case "$cmd" in
     [[ $# == 3 ]] || die "usage: gb10-single $cmd <node0|node1> <runtime>"
     node="$2"; node_is_valid "$node" || die "unknown node: $node"
     f="$(resolve "$3")"; load "$f"
-    # Direction A: starting/exclusive-runtime on node1 must free the GPU from TP2.
-    # Skip when the target is already running (nothing new would be started).
-    if [[ "$node" == "node1" && "$PLACEHOLDER" != true ]] && \
+    # Direction A: starting/exclusive-runtime on EITHER node must free the
+    # GPU from TP2 (TP2 occupies both nodes AND shares port 1234 with the
+    # single-node LLMs on node0). Skip when the target is already running
+    # (nothing new would be started).
+    if [[ "$PLACEHOLDER" != true ]] && \
        { [[ "$MODE" != exclusive ]] || ! active_loaded "$node" || ! [[ "$(health_of "$node" "$f")" == READY ]]; }; then
       ensure_tp2_down
     fi

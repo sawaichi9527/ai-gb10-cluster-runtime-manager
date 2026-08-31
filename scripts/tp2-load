@@ -10,18 +10,25 @@ source "${SCRIPT_DIR}/tp2-common.sh"
 ROUNDS="${LOAD_ROUNDS:-3}"
 WORKERS="${LOAD_WORKERS:-8}"
 
-python3 - "$API_PORT" "$ROUNDS" "$WORKERS" <<'PY'
+python3 - "$API_PORT" "$ROUNDS" "$WORKERS" "${VLLM_API_KEY:-}" <<'PY'
 import json, sys, urllib.request, concurrent.futures, time
 port, rounds, workers = int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3])
+api_key = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] and sys.argv[4] != "EMPTY" else ""
 URL = f"http://localhost:{port}/v1/chat/completions"
 
-def req(i):
+def mkreq(i):
     body = json.dumps({
         "model": "aeon",
         "messages": [{"role": "user", "content": f"Count from 1 to 10 (round {i})."}],
         "max_tokens": 80, "temperature": 0.7,
     }).encode()
-    r = urllib.request.Request(URL, data=body, headers={"Content-Type": "application/json"})
+    hdrs = {"Content-Type": "application/json"}
+    if api_key:
+        hdrs["Authorization"] = f"Bearer {api_key}"
+    return urllib.request.Request(URL, data=body, headers=hdrs)
+
+def req(i):
+    r = mkreq(i)
     t0 = time.time()
     d = json.load(urllib.request.urlopen(r, timeout=120))
     dt = time.time() - t0

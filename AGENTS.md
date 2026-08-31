@@ -15,9 +15,15 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   `gb10`/`gb10-single`; compose files under `~/docker-stacks/` are the deploy contract.
 - **Cluster profiles (verified 2026-08-30):** 27b = body
   `qwen3.8-27b-aeon-ultimate-uncensored-nvfp4` + drafter `qwen3.8-27b-dflash2` (dflash
-  n=7, maxlen 262144, GMU 0.85, num_seqs 8, API :8000); 35b = body
+  n=7, maxlen 262144, GMU 0.85, num_seqs 8, API :1234); 35b = body
   `qwen3.6-35b-a3b-heretic-nvfp4` + drafter `qwen3.6-35b-a3b-dflash` (n=11, maxlen
-  131072, GMU 0.80, num_seqs 16). Both on `:8000` through Node0.
+  131072, GMU 0.80, num_seqs 16). Both on `:1234` through Node0.
+- **Unified LLM endpoint**: all LLM runtimes (TP2 + single, node0 & node1) serve the
+  OpenAI API on **port 1234** sharing one `VLLM_API_KEY`. Set the same key in `tp2.env`
+  and both nodes' `docker-stacks/aeon-vllm/.env`. TP2 and node0 single LLM share the
+  port → they are **mutually exclusive**: `gb10 use` frees node0+node1 singles;
+  `gb10-single use/start` on either node tears down TP2 first. `scripts/tp2-smoke/load/
+  status` pass the bearer via `api_auth()` when a key is configured.
 - **`scripts/tp2-*`**: `up [27b|35b]`, `down`, `status`, `smoke`, `load`. Never edit
   silently — `gb10` just forwards to them.
 - **Placeholder runtimes** (`PLACEHOLDER=true` in conf): CLI skeleton only. `gb10` and
