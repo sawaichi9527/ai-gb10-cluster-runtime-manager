@@ -316,6 +316,7 @@ free_node(){
     [[ "$PLACEHOLDER" == true ]] && continue
     [[ "$(state_of "$node" "$f")" != inactive ]] && stop_file "$node" "$f"
   done < <(profiles)
+  return 0
 }
 
 start_file(){
