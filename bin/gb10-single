@@ -141,7 +141,7 @@ compose_node(){
   if [[ "$node" == "node0" ]]; then
     (cd "$STACK_DIR" && docker compose -p "$PROJECT" -f "$COMPOSE_FILE" "$@")
   else
-    n1 bash -c 'cd "'"$STACK_DIR"'" && docker compose -p "'"$PROJECT"'" -f "'"$COMPOSE_FILE"'" '"$(printf '%q ' "$@")"
+    n1 "cd '$STACK_DIR' && docker compose -p '$PROJECT' -f '$COMPOSE_FILE' $(printf '%q ' "$@")"
   fi
 }
 
@@ -171,7 +171,7 @@ inspect_q(){
       '{{index .Config.Labels "com.docker.compose.project"}}') jqf='.[0].Config.Labels["com.docker.compose.project"]' ;;
       *) jqf='.[0]' ;;
     esac
-    n1 bash -c 'docker inspect "'"$cname"'" 2>/dev/null | jq -r "'"$jqf"'"'
+    n1 "docker inspect '$cname' 2>/dev/null | jq -r '$jqf'"
   fi
 }
 
@@ -180,7 +180,7 @@ node_ps_q(){
   if [[ "$node" == "node0" ]]; then
     docker inspect "$cname" 2>/dev/null | jq -r --argjson s "false" '.[0]'
   else
-    n1 bash -c 'docker inspect "'"$cname"'" 2>/dev/null | jq -c ".[0]"'
+    n1 "docker inspect '$cname' 2>/dev/null | jq -c '.[0]'"
   fi
 }
 
@@ -218,7 +218,7 @@ health_of(){
       curl -fsS --connect-timeout 2 --max-time 5 "$HEALTH_URL" >/dev/null 2>&1 \
         && echo READY || echo LOADING
     else
-      n1 bash -c 'curl -fsS --connect-timeout 2 --max-time 5 "'"$HEALTH_URL"'" >/dev/null 2>&1 && echo READY || echo LOADING'
+      n1 "curl -fsS --connect-timeout 2 --max-time 5 '$HEALTH_URL' >/dev/null 2>&1 && echo READY || echo LOADING"
     fi
   )
 }
@@ -277,15 +277,15 @@ wait_ready(){
       fi
       st="$(docker inspect -f 'status={{.State.Status}} restart={{.RestartCount}}' "$CONTAINER" 2>/dev/null || echo missing)"
     else
-      if n1 bash -c 'curl -fsS -m 5 "'"$HEALTH_URL"'" >/dev/null 2>&1'; then
+      if n1 "curl -fsS -m 5 '$HEALTH_URL' >/dev/null 2>&1"; then
         echo "$(date '+%F %T') $RUNTIME_ID: READY"; return
       fi
-      st="$(n1 bash -c 'docker inspect -f "status={{.State.Status}} restart={{.RestartCount}}" "'"$CONTAINER"'" 2>/dev/null || echo missing')"
+      st="$(n1 "docker inspect -f 'status={{.State.Status}} restart={{.RestartCount}}' '$CONTAINER' 2>/dev/null || echo missing")"
     fi
     echo "$(date '+%F %T') $RUNTIME_ID: loading... $st"
     [[ "$st" == status=running* ]] || {
       [[ "$node" == "node0" ]] && docker logs --tail=300 "$CONTAINER" 2>/dev/null || \
-        n1 bash -c 'docker logs --tail=300 "'"$CONTAINER"'" 2>/dev/null' || true
+        n1 "docker logs --tail=300 '$CONTAINER' 2>/dev/null" || true
       return 1
     }
     sleep 10
@@ -431,7 +431,7 @@ case "$cmd" in
     [[ $# == 3 ]] || die "usage: gb10-single logs <node0|node1> <runtime>"
     node="$2"; f="$(resolve "$3")"; load "$f"
     if [[ "$node" == "node0" ]]; then docker logs -f --tail=150 "$CONTAINER"
-    else n1 bash -c 'docker logs -f --tail=150 "'"$CONTAINER"'"'; fi
+    else n1 "docker logs -f --tail=150 '$CONTAINER'"; fi
     ;;
   doctor)
     echo "Node0: $(hostname)"
