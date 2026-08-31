@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-31
 **Runtime:** `comfyui` (`runtimes.d/comfyui.conf`, GROUP=image, MODE=exclusive)
-**Host:** Node1 (spark-8095, 192.168.23.129) — dedicated, no shared storage with Node0
+**Host:** Node1 (spark-8095, 192.168.23.216) — dedicated, no shared storage with Node0
 **Image:** `ghcr.io/aeon-7/aeon-spark:slim` (digest pinned `7fda74d7af1d`, matches Node0)
 **Result:** ✅ Verified — Flux 2 Dev t2i image produced (`flux2_n1_verify_00001_.png`, 1,332,159 bytes)
 
@@ -115,5 +115,5 @@ TIMEOUT="900"
 
 ## 6. Notes / follow-ups
 
-- `GROUP=image` means `gb10-single use node1 comfyui` does **not** stop TP2 (GROUP=llm) — teardown is via `scripts/tp2-down`.
+- `GROUP=image` means `gb10-single use node1 comfyui` does **not** stop other group=image single-node runtimes, but **auto-tears down TP2** first (做法 B: `ensure_tp2_down` runs `scripts/tp2-down` if `tp2-node0` is active). Reverse direction: `gb10 use 27b|35b` auto-frees node1 (`gb10-single free node1`) before TP2 up.
 - Stage 3 (TP2-xDiT CLI pipeline, Qwen-Image 20B) pending: bf16-only xdit-poc may conflict with Node0's fp8/nvfp4 models (sm_121 NaN note still open).

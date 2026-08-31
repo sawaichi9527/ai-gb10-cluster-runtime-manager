@@ -10,7 +10,7 @@ future change contradicts anything here, update this doc in the same change.
 | | Node0 | Node1 |
 |---|---|---|
 | host | spark-25d5 | spark-8095 |
-| mgmt LAN | 192.168.23.215 | 192.168.23.129 (→216) |
+| mgmt LAN | 192.168.23.215 | 192.168.23.216 |
 | interconnect | 10.0.101.101 | 10.0.101.102 |
 | role | rank0, API :8000 | rank1, headless |
 | OS | Ubuntu 24.04 ARM64 | Ubuntu 24.04 ARM64 |

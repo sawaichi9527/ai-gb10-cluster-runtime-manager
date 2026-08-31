@@ -37,6 +37,7 @@ gb10-single - DGX Spark GB10 single-node runtime manager
   gb10-single use {node0|node1} <runtime>      # exclusive switch
   gb10-single start {node0|node1} <runtime>    # start add-on/exclusive
   gb10-single stop {node0|node1} [runtime]
+  gb10-single free {node0|node1}            # stop ALL active runtimes on a node
   gb10-single restart {node0|node1} [runtime]
   gb10-single status [node0|node1]
   gb10-single logs {node0|node1} <runtime>
@@ -45,6 +46,9 @@ gb10-single - DGX Spark GB10 single-node runtime manager
 Runtimes (runtimes.d/*.conf):
   27b 35b comfyui      deployed
   deepseek qwen38flash glm53flash minimaxh3   placeholder (not deployed)
+
+Auto-protection (做法 B): `use/start node1 <runtime>` auto-tears down an
+active TP2 cluster first (TP2 occupies both nodes' GPUs).
 HELP
 }
 
@@ -302,6 +306,18 @@ stop_group_except(){
   done < <(profiles)
 }
 
+# free_node <node> — stop EVERY active single-node runtime on a node.
+# Used by the cluster CLI (方向 B) to free node1's GPU before TP2 comes up.
+free_node(){
+  local node="$1" f
+  while read -r f; do
+    [[ -n "$f" ]] || continue
+    load "$f"
+    [[ "$PLACEHOLDER" == true ]] && continue
+    [[ "$(state_of "$node" "$f")" != inactive ]] && stop_file "$node" "$f"
+  done < <(profiles)
+}
+
 start_file(){
   local node="$1" f="$2"
   load "$f"; NODE="$node"
@@ -338,6 +354,21 @@ default_file(){
   resolve "$last"
 }
 
+# ---- cross-protection: single-node runtime on node1 vs TP2 cluster ----
+# TP2 occupies BOTH nodes. Starting a single-node runtime on node1 needs
+# node1's GPU, so it must never coexist with an active TP2 cluster. This
+# hook auto-tears TP2 down before a node1 runtime comes up (做法 B).
+tp2_active(){
+  docker ps -q -f name=tp2-node0 2>/dev/null | grep -q . && return 0 || return 1
+}
+
+ensure_tp2_down(){
+  if tp2_active; then
+    echo "TP2 cluster is running; tearing it down before starting on node1..."
+    "${REPO_DIR}/scripts/tp2-down"
+  fi
+}
+
 # ---- dispatch ----
 cmd="${1:-help}"
 case "$cmd" in
@@ -353,6 +384,12 @@ case "$cmd" in
     [[ $# == 3 ]] || die "usage: gb10-single $cmd <node0|node1> <runtime>"
     node="$2"; node_is_valid "$node" || die "unknown node: $node"
     f="$(resolve "$3")"; load "$f"
+    # Direction A: starting/exclusive-runtime on node1 must free the GPU from TP2.
+    # Skip when the target is already running (nothing new would be started).
+    if [[ "$node" == "node1" && "$PLACEHOLDER" != true ]] && \
+       { [[ "$MODE" != exclusive ]] || ! active_loaded "$node" || ! [[ "$(health_of "$node" "$f")" == READY ]]; }; then
+      ensure_tp2_down
+    fi
     if [[ "$cmd" == "use" ]]; then
       [[ "$MODE" == exclusive ]] && use_file "$node" "$f" || die "use: gb10-single start $node $RUNTIME_ID"
     else
@@ -363,6 +400,11 @@ case "$cmd" in
     [[ $# == 3 ]] && node="$2" f="$(resolve "$3")" || { node="${2:-node0}"; f="$(default_file "$node")"; }
     node_is_valid "$node" || die "unknown node: $node"
     stop_file "$node" "$f"
+    ;;
+  free|ensure-free)
+    [[ $# == 2 ]] || die "usage: gb10-single free <node0|node1>"
+    node="$2"; node_is_valid "$node" || die "unknown node: $node"
+    free_node "$node"
     ;;
   restart)
     [[ $# == 3 ]] && node="$2" f="$(resolve "$3")" || { node="${2:-node0}"; f="$(default_file "$node")"; }
