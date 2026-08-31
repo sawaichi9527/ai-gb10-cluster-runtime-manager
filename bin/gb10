@@ -41,6 +41,9 @@ gb10 - DGX Spark GB10 2-node cluster (TP2) helper
   gb10 load                   # concurrent load test
   gb10 doctor                 # validate image/models on both nodes
 
+Auto-protection (做法 B): `use/start 27b|35b` frees node1 of any active
+single-node runtime (gb10-single free node1) before TP2 comes up.
+
 Single-node runtimes are managed with the sibling command: gb10-single
 HELP
 }
@@ -57,7 +60,15 @@ valid_profile(){
 UP_PROFILE="27b"
 down(){ "${SCRIPTS}/tp2-down"; }
 
+# Direction B: before TP2 comes up, free node1's GPU of any single-node
+# runtime (e.g. comfyui). gb10-single `free node1` stops all active ones.
+# TP2 occupies both nodes — node1 single runtimes must never coexist.
+free_node1_singles(){
+  "${SCRIPT_DIR}/gb10-single" free node1
+}
+
 up(){
+  free_node1_singles
   "${SCRIPTS}/tp2-up" "$1"
 }
 

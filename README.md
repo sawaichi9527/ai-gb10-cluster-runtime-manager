@@ -11,7 +11,7 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 
 ```
 Node0  spark-25d5  (192.168.23.215 / 10.0.101.101 interconnect)  rank0 = API server :8000
-Node1  spark-8095  (192.168.23.129 / 10.0.101.102 interconnect)  rank1 = headless worker
+Node1  spark-8095  (192.168.23.216 / 10.0.101.102 interconnect)  rank1 = headless worker
 ```
 
 Node0 is single side of control: every `tp2-*`/`gb10` command runs on Node0 and
@@ -60,7 +60,7 @@ Runtimes (`runtimes.d/*`):
 | `deepseek.conf` | deepseek | llm | **placeholder** |
 | `qwen38flash.conf` | qwen38flash | llm | **placeholder** |
 | `glm53flash.conf` | glm53flash | llm | **placeholder** |
-| `comfyui.conf` | comfyui | image | **placeholder** (new version pending) |
+| `comfyui.conf` | comfyui | image | deployed (Node1, Flux 2 Dev) |
 | `minimaxh3.conf` | minimaxh3 | video | **placeholder** |
 
 Placeholders print "not deployed yet"; they are CLI skeletons until models/versions land.
