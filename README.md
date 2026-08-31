@@ -10,9 +10,23 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 ## Topology
 
 ```
-Node0  spark-25d5  (192.168.23.215 / 10.0.101.101 interconnect)  rank0 = API server :8000
+Node0  spark-25d5  (192.168.23.215 / 10.0.101.101 interconnect)  rank0 = API server :1234
 Node1  spark-8095  (192.168.23.216 / 10.0.101.102 interconnect)  rank1 = headless worker
 ```
+
+**Unified LLM endpoint convention** — all LLM runtimes serve the OpenAI-compatible
+API on **port 1234, sharing one `VLLM_API_KEY`** (set the same value in `tp2.env`
+and both nodes' `docker-stacks/aeon-vllm/.env`):
+
+| runtime | endpoint | notes |
+|---|---|---|
+| TP2 cluster (rank0) | `http://192.168.23.215:1234/v1` | this repo, `API_PORT=1234` |
+| Node0 single LLM | `http://192.168.23.215:1234/v1` | `gb10-single use node0 27b\|35b` |
+| Node1 single LLM | `http://192.168.23.216:1234/v1` | `gb10-single use node1 27b\|35b` |
+
+TP2 and the single-node LLMs are **mutually exclusive** (same port):
+`gb10 use` frees both nodes' singles; a `gb10-single use/start` on either node
+tears down TP2 first. Image/video runtimes (ComfyUI / MiniMaxH3) are out of scope.
 
 Node0 is single side of control: every `tp2-*`/`gb10` command runs on Node0 and
 orchestrates Node1 over `ssh -i ~/.ssh/id_gb10_cluster eye@10.0.101.102`.

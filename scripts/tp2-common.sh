@@ -22,7 +22,7 @@ fi
 : "${IMG:?tp2.env missing IMG}"
 : "${MASTER_ADDR:?tp2.env missing MASTER_ADDR}"
 : "${MASTER_PORT:?tp2.env missing MASTER_PORT}"
-: "${API_PORT:=8000}"
+: "${API_PORT:=1234}"
 
 # ---- SUDO_PASS: prefer env, else prompt (never stored in repo) ----
 _sudo_pass(){
@@ -40,6 +40,15 @@ SUDO_PASS="$(_sudo_pass)"
 
 # ---- docker helper (sudo on local Node0) ----
 sdk(){ echo "$SUDO_PASS" | sudo -S "$@" 2>/dev/null; }
+
+# ---- auth header for the vLLM API (_API_KEY != EMPTY means auth required) ----
+# Returns the curl -H ... extra args (empty when no auth). All /v1/* callers
+# (smoke/load/status) MUST append $(api_auth) so the shared key is honoured.
+api_auth(){
+  if [[ -n "${VLLM_API_KEY:-}" && "${VLLM_API_KEY}" != "EMPTY" ]]; then
+    printf -- '-H %s ' "Authorization: Bearer ${VLLM_API_KEY}"
+  fi
+}
 
 # =====================================================================
 # Profile -> runtime parameters (verified 2026-08-30)
