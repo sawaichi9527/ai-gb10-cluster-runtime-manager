@@ -164,7 +164,14 @@ inspect_q(){
   if [[ "$node" == "node0" ]]; then
     docker inspect -f "$tmpl" "$cname" 2>/dev/null || echo ""
   else
-    n1 bash -c 'docker inspect -f "'"$tmpl"'" "'"$cname"'" 2>/dev/null || echo ""'
+    # {{ }} go-template quoting is lost over ssh; use jq instead.
+    local jqf
+    case "$tmpl" in
+      '{{.State.Status}}') jqf='.[0].State.Status' ;;
+      '{{index .Config.Labels "com.docker.compose.project"}}') jqf='.[0].Config.Labels["com.docker.compose.project"]' ;;
+      *) jqf='.[0]' ;;
+    esac
+    n1 bash -c 'docker inspect "'"$cname"'" 2>/dev/null | jq -r "'"$jqf"'"'
   fi
 }
 
