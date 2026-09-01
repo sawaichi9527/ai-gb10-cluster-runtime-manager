@@ -4,7 +4,10 @@
 **Runtime:** `minimaxh3` (`runtimes.d/minimaxh3.conf`, GROUP=video, MODE=exclusive)
 **Host:** Node1 (spark-8095, 192.168.23.216) — single-node vLLM-Omni FP8 (no TP2/shared storage with Node0)
 **Image:** `minimax-h3-dgx-spark:sm121-fp8` (base pinned `vllm/vllm-omni:minimax-h3@sha256:e930db8e225162d01e17a49dddc43fd0e844208908d8356a028e5c4e7357696e`)
-**Status:** ⏳ downloaded & provisioned — bring-up (Phase 5) awaits operator go (TP2 currently running on Node1)
+**Status:** ✅ **DEPLOYED & VERIFIED (2026-09-01)**
+- Node1: `minimax-h3-fl2va` running, `/health` = `200` (cold start ≈ 11.9 min), smoke `t2va` PASS (H.264 768×448@24fps + AAC).
+- Node0: failover mirror rsync in progress (`~/.ssh/id_gb10_cluster`, interconnect `10.0.101.x`).
+- TP2 torn down first (operator-approved Phase 5).
 
 ---
 
@@ -52,7 +55,7 @@ Source: HF `MiniMaxAI/MiniMax-H3` (`FL2VA/*` subset = **81 files**, 144,051,000,
 - ffmpeg: `~/bin/ffmpeg-master-latest-linuxarm64-gpl/bin/ffmpeg` (N-126342, BtbN linuxarm64-gpl),
   symlinked `~/.local/bin/ffmpeg`; `DL_OK`. Upstream static asset 404s on the `latest` main file — this release asset works.
 
-## 4. CLI / config changes ✅ (committed `1e36235` + `ab2eba4`, Node0 synced to `ab2eba4`)
+## 4. CLI / config changes ✅ (committed `1e36235` + `ab2eba4`; docs `f950a24`; Node0 synced to `f950a24`)
 
 - `bin/gb10-single` `stop_group_except`: stops every OTHER active **exclusive** runtime on the node,
   **across groups** (skips placeholders and the target itself; TP2 handled by `ensure_tp2_down`).
@@ -75,26 +78,52 @@ HEALTH_URL="http://127.0.0.1:8000/health"
 TIMEOUT="2400"        # cold start ~9 min + margin
 ```
 
-## 5. Launch & verify — ⏳ pending operator go (Phase 5)
+## 5. Launch & verify — ✅ DONE (2026-09-01)
 
 ```bash
-# on Node0 (dispatches docker compose to Node1); auto-tears down TP2 (做法 B) and frees other
-# exclusive runtimes first (e.g. comfyui if ever live there — none today)
-bash bin/gb10-single use node1 minimaxh3
+# on Node0 (dispatches docker compose to Node1); tears down TP2 (approved) and frees exclusive runtimes
+bash bin/gb10-single use node1 minimaxh3      # reference; see execution notes below
 ```
 
-- Preflight/`make build` is **deferred** until after tp2-down: preflight memory gate requires
-  ≥105 GiB MemAvailable when the container isn't running (Node1 currently ~8 GiB free under TP2).
-  `make build` = preflight + `docker compose build`; base image is pinned + only patch COPY layers → fast.
-- Wait: `HEALTH_URL` `/health` on 127.0.0.1:8000 (vLLM `/health` is auth-free; `/v1/*` requires bearer).
-  Smoke via recipe script; expect cold start 519–543 s, peak ~93 GB → produce 768×448 / 24fps / H.264+AAC clip.
-- Verify `/health`, `/v1/...` with bearer: `Authorization: Bearer ${H3_API_KEY}` (key lives only on Node1 `.env`).
-- After success: Node0 replica = rsync/scp `/home/eye/docker-stacks/minimax-h3` via `~/.ssh/id_gb10_cluster`.
+**Execution notes (MCP-driven):**
+
+- TP2 removed first: `docker rm -f tp2-node1` (Node1) + `docker rm -f tp2-node0` (Node0) —
+  eye has docker.sock group access on both nodes, so the `sudo`+`SUDO_PASS` path was never needed
+  (Node0 `tp2.env` has no `SUDO_PASS`, non-interactive `sudo` would fail).
+  MemAvailable on Node1 → 117 GiB, preflight memory gate (≥105 GiB) satisfied.
+- `make build`: preflight passed; image `minimax-h3-dgx-spark:sm121-fp8` = **32 GB** built
+  (base layers ~10 GB streamed; BuildKit `docker compose build`).
+- Launched via `docker compose -p minimax-h3-dgx-spark -f …/compose.yaml up -d` (equivalent to the CLI
+  path; `gb10-single status node1 minimaxh3` reflects **running / READY** via container inspect).
+  MCP note: interactive sessions do not self-exec the open-session `command` — dispatch through
+  `run-command(session=…)`; long builds/waits need `nohup … </dev/null &` inside a session because a
+  60 s tool-timeout kills the process tree.
+- Cold start: container up ≈14:57 → app startup complete 15:09:20 UTC (`/health` 200) ≈ **11.9 min**;
+  weights (13 shards) took 157.9 s; `serving_time_to_first_output` 130.7 s on first request.
+- Smoke: `POST /v1/videos/sync` (768×448, 20 steps, 24fps, 2.0 s, seed 42) → HTTP 200, elapsed 132.2 s.
+- Verify (`verify-output.sh …/output/smoke-t2va.mp4`) — **full_decode=passed**:
+  - Video: H.264 Constrained Baseline, 768×448, yuv420p, 24/1 fps, 56 frames, 2.333 s, ~2.0 Mbps
+  - Audio: AAC-LC, 32 kHz, stereo, 2.357 s, ~125 kbps (audio_flow_shift 3.0 — model-generated audio)
+  - size 628,877 B · sha256 `52e7e54703b24341685c8f5e3076844541a4422589019ba9bc4b2451b1bb9dce`
+- Cosmetic: vLLM-Omni 0.1.dev2381 vs vLLM 0.26.0 mismatch RuntimeWarning at startup (base-image noise,
+  non-fatal). `status node1` shows STATE `null` for other non-running runtimes (display quirk only).
+- `/health` is auth-free (confirmed), `/v1/*` requires `Authorization: Bearer ${H3_API_KEY}` (Node1 `.env`).
+
+**Node0 replica (in progress):**
+
+```bash
+rsync -aAX --partial --exclude 'models/MiniMax-H3/.cache' \
+  -e 'ssh -i /home/eye/.ssh/id_gb10_cluster' \
+  eye@10.0.101.102:/home/eye/docker-stacks/minimax-h3/ \
+  /home/eye/docker-stacks/minimax-h3/
+```
 
 ## 6. Notes / follow-ups
 
 - `GROUP=video` vs comfyui `GROUP=image`: cross-group exclusive stop = operator-approved general rule
   (comfyui.conf stays `PLACEHOLDER=true` intentionally — new version pending; Node1 currently hosts only
-  `tp2-node1`, no comfyui container).
-- `/health` auth & wait_ready behavior to be confirmed once, at first bring-up.
-- xet stage `.cache/huggingface` (~4.6 GB) removable post-success.
+  `minimaxh3` after TP2 teardown).
+- `/health` auth & wait_ready behavior confirmed: `/health` auth-free; READY gate works via container inspect.
+- xet stage `.cache/huggingface` (~4.3 GB) moved to `/tmp/minimax-h3-xet-cache.trash` (post-success cleanup).
+- ffprobe PATH fix: `~/.local/bin` not in tooling PATH → `smoke-t2va.sh` + `verify-output.sh` now prepend
+  it when present (no-root alternative to `/usr/local/bin` symlink, which would need server sudo).
