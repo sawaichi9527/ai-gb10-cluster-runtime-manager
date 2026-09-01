@@ -835,3 +835,165 @@ Qwen3.8-27B 為 hybrid GDN（48 linear + 16 full attention），`mamba_cache_mod
 4. 若 hits 卡 0 或僅 ~43%（1648 損失仍存）或出現損壞 → 維持關閉。
 
 **紀錄位置**：本 ADR（handoff.md §20）；`scripts/tp2-common.sh` L125 與 `docs/TP2_DEPLOYMENT_2026-08-30.md` 目前無理由說明——可於下次改 flag 時一併補 `# ADR-20: DFlash2 下刻意關閉` 於 L125。
+
+# 21. 2026-09-01 MiniMax H3（FL2VA 影片模型）部署計畫 — Node1 單機
+
+> 目標：於 **Node1 (`spark-8095`, 192.168.23.216)** 以**單機 vLLM-Omni FP8** 路線部署 MiniMax H3 33B 影片模型（FL2VA；Ref2VA 暫不部署）。**不做 TP2/雙機**。Node0 保留 standalone 彈性，Node1 為主要執行節點。
+> **本輪範圍僅「不動 TP2」的準備**：下載 FL2VA 權重至 Node1 + stack/CLI/文件準備。**H3 bring-up、驗證、Node0 備援複製皆等主管另行通知。**
+
+## 21.1 已定案決策（主管同意）
+
+```text
+1. gb10-single 修改：exclusive runtime 於同機跨 GROUP 全停（H3 GROUP=video vs comfyui GROUP=image 不同
+   GROUP，載入 H3 不會自動停 ComfyUI；兩者記憶體不容共存，需修 CLI）——已同意。
+2. H3 API 綁 0.0.0.0（LAN）+ H3_ALLOW_REMOTE_API=true + 強 H3_API_KEY（openssl rand -hex 32）。
+3. Node0 備援：只等 Node1 部署成功後，用專用連線複製整個 ~/docker-stacks/minimax-h3（含 models）。
+   本輪只下載 Node1。
+4. ⚠️ 目前 TP2 正在跑 27B 推理 → 本輪完全不能動 TP2；H3 起跑與驗證等後續通知。
+```
+
+## 21.2 目錄配置（Node1，專用）
+
+```text
+~/docker-stacks/minimax-h3/                      # STACK_DIR（recipe repo clone 於此）
+├── compose.yaml          # joeynyc/MiniMax-H3-DGX-Spark 單機 recipe（非 docker-compose.yml）
+├── .env                  # MINIMAX_H3_MODEL_DIR / HF_CACHE_DIR / H3_BIND_HOST / H3_API_KEY ...
+├── Dockerfile  patches/  scripts/               # SM121 patch（make build 用）
+├── .cache/huggingface/                          # HF_CACHE_DIR
+├── output/               # 驗證產出的短片
+└── models/MiniMax-H3/FL2VA/                     # 模型 checkpoint（hf download 直接落此，~134.2 GiB）
+    ├── model_index.json
+    ├── transformer/  text_encoder/  video_vae/  audio_vae/
+    └── .cache/huggingface/download/             # 續傳 *.incomplete 暫存
+```
+
+## 21.3 recipe 與模型來源
+
+```text
+recipe GitHub：joeynyc/MiniMax-H3-DGX-Spark（compose.yaml 為單機；service minimax-h3、
+  container minimax-h3-fl2va、image minimax-h3-dgx-spark:sm121-fp8、
+  base pinned vllm/vllm-omni:minimax-h3@sha256:e930db8e225162d01e17a49dddc43fd0e844208908d8356a028e5c4e7357696e、
+  network_mode: host、shm_size: 8gb、gpus: all）
+模型 HF：MiniMaxAI/MiniMax-H3（gated=false，license minimax-h3-community-license-agreement）
+  FL2VA 精確總量 144,051,000,000 bytes = 144.05 GB ≈ 134.2 GiB（HF API tree 加總）
+  ~191 檔、27 個 LFS safetensors（transformer 13 / text_encoder 14 / video_vae source 1 / audio_vae 1）
+  注意：watchdog 中斷即重跑同一指令（冪等）；續傳前不刪 .incomplete。
+```
+
+## 21.4 下載設計（續傳 + 定期進度回報）
+
+```bash
+# Node1 背景 session（log 至 ~/logs/h3-fl2va-dl.log）
+hf download MiniMaxAI/MiniMax-H3 --include "FL2VA/*" \
+  --local-dir ~/docker-stacks/minimax-h3/models/MiniMax-H3/FL2VA
+# 續傳：hf 內建 ETag / .incomplete resume（目標路徑固定即續傳）
+# 進度：每 5 min 快照 du -sb ÷ 144051000000 → % / MB/s / ETA
+# 完成判定：exit 0 ＋ 檔案樹比對（與驅動列表一致）＋ 最大 safetensors sha256 抽驗
+```
+
+## 21.5 記憶體/效能門檻（先前實測基準）
+
+```text
+載入 89.1659 GiB、峰值 ~93 GB → 啟動前需 MemAvailable ≥105–110 GiB（Node1 需 tp2-down + ComfyUI 停止）
+冷啟動 519–543s（~9–10 分）；warm ~111s（full-compute）/ ~80.6s（balanced）
+輸出規格 768×448 / 24fps / H.264+AAC
+```
+
+## 21.6 執行階段（本次開始）
+
+```text
+Phase 0  前置複驗：Node1 SSH host key、df（需 ≥135 GB）、ffmpeg/docker 就緒        ✓
+Phase 1  下載 FL2VA（續傳＋每 5 min 進度；不動 TP2）                              ✓ 完成＋驗證 PASS
+Phase 2  建 ~/docker-stacks/minimax-h3（clone recipe + .env + make preflight/build） ✓
+         （.env 已寫入並 docker compose config --quiet 驗證；build 刻意延後 Phase 5）✓
+Phase 3  改 bin/gb10-single 跨 GROUP 互斥；改寫 runtimes.d/minimaxh3.conf          ✓
+         commits 1e36235 + ab2eba4，Node0 已 pull 至 ab2eba4                       ✓
+Phase 4  docs/MINIMAX_H3_DEPLOYMENT_2026-09-01.md                                ✓ commit+push f950a24
+Phase 5  主管同意 → tp2-down→ build → compose up → /health 200 → smoke PASS        ✓ 本節完成
+          （Phase 5 執行紀錄見 §21.9；Node0 rsync 餘波待確認）
+```
+
+## 21.7 minimaxh3.conf 目標值（取代 placeholder）
+
+```text
+PLACEHOLDER=false
+STACK_DIR=${HOME}/docker-stacks/minimax-h3        # 專用目錄（非沿用 aeon-vllm）
+COMPOSE_FILE=compose.yaml                          # joeynyc 單機 recipe
+PROJECT=minimax-h3-dgx-spark
+SERVICE=minimax-h3
+CONTAINER=minimax-h3-fl2va
+HEALTH_URL=http://127.0.0.1:8000/health            # vLLM readiness（若需 auth 帶 bearer）
+TIMEOUT=2400                                       # 冷啟動 ~9 分鐘有餘裕
+GROUP=video                                        # 與 comfyui GROUP=image 同機需互斥修補
+ALIASES="minimax mm-h3 h3"                          # 已加 h3；DISPLAY_NAME 去掉 (placeholder)
+```
+
+## 21.8 安全與維護
+
+```text
+H3_API_KEY 每次產生（openssl rand -hex 32）；寫入 ~/docker-stacks/minimax-h3/.env（gitignored）
+API 暴露 0.0.0.0:8000 → 外連需 H3_ALLOW_REMOTE_API=true + key；vLLM /health 免 auth（--api-key 只管 /v1/*），
+compose.yaml 無 container healthcheck（僅 CLI HEALTH_URL 外部探測）、VLLM_API_KEY=${H3_API_KEY:-}（起跑時照樣驗一次）
+Node0→Node1 專用連線複製：rsync/scp 經 ~/.ssh/id_gb10_cluster（互連 10.0.101.x 或管理網）
+```
+
+## 21.9 本次執行紀錄（2026-09-01）
+
+```text
+下載：初版 PID 1352308，2026-09-01 17:03:23 起（hf download MiniMaxAI/MiniMax-H3 --include FL2VA/*
+      --local-dir .../models/MiniMax-H3；注意勿用 .../FL2VA 作 local-dir，會雙層嵌套）。
+      快照 16,337,774,166 bytes ≈ 11.3%。
+      ⚠️ 17:56:47 起暫停 ~6 分鐘（log 凍結、sockets ESTAB 但 MQ=0、du ×4 皆 0 delta）→
+      18:03 SIGTERM 舊 PID（exit=143）並以 launch-download.sh 重啟，新 PID 1380290，
+      已恢復寫入；快照 39,438,499,000 bytes ≈ 27.4%（36.73 GiB）。續傳機制正常（.incomplete 保留）。
+      進度量測須 du -sb 父目錄 models/MiniMax-H3（.incomplete 在 .cache/huggingface/download/ 下，
+      du FL2VA 會誤判 0）；log 進度列卡住≠停滯，磁碟成長才是真信號（反之 socket 全 idle + 多次 0 delta = 真停）。
+.env：sftp-upload 後 server 端 chmod 600 + openssl rand -hex 32 + sed 替換（key 未外洩），
+      docker compose config --quiet 通過；H3_BIND_HOST=0.0.0.0、H3_API_PORT=8000、
+      H3_ALLOW_REMOTE_API=true、H3_VIDEO_SYNC_TIMEOUT=7200、MINIMAX_H3_MODEL_DIR、
+      HF_CACHE_DIR 已指到專用路徑；port 8000 目前 free。
+preflight：license/arch(aarch64)/docker/GPU gates 過；model_index.json+transformer/ 等下載完；
+      network security 經 security-common.sh 判 0.0.0.0+remote+key → 過；記憶體 gate ≥105 GiB
+      僅在 container 未運行時檢查 → TP2 運行中 make build 必失敗 → base pull/build 刻意延後 Phase 5。
+ffmpeg：~/bin/ffmpeg.tar.xz 背景重試下載中（BtbN linuxarm64-gpl，status 檔 ~/logs/ffmpeg-dl.status）；
+      comet curl 主檔仍 404（上游無 linuxarm64 asset），用 repo asset 兜底可行。
+comfyui：conf 仍 PLACEHOLDER=true（AGENTS.md：新版未定，intentionally placeholder，勿翻）；
+      Node1 目前無 comfyui 容器（僅 tp2-node1）→ Phase 5 無即時衝突；跨 GROUP 機制等 comfyui
+      解除 placeholder 後自動生效。（註：README 尚寫 comfyui deployed(Node1)，與 conf 不一致，
+      屬既有文件爭議，未動。）
+git：runtime-manager 兩筆 commit → push（35c856c..ab2eba4）→ Node0 `git pull --ff-only` 已同步：
+      1e36235 feat: exclusive use frees other exclusive runtimes on the node across groups
+              （bin/gb10-single stop_group_except 改全 active exclusive 停 + header/usage/AGENTS/README/docs）
+      ab2eba4 feat: deploy minimaxh3 runtime conf (FL2VA video single-node)
+              （runtimes.d/minimaxh3.conf 全部目標值）
+待辦：Phase 4 文件（docs/MINIMAX_H3_DEPLOYMENT_2026-09-01.md 已撰，待 commit+push）；
+      下載完成判定的確證（見下）；Phase 5 待主管通知；/health 是否需 bearer 於起跑時實測。
+下載完成判定✅：重跑 hf download → rc=0、81/81 ✓ Downloaded；最大 3 檔（10,415,548,320 /
+      5,227,812,968 / 5,164,578,896 bytes）sha256 全數與 HF API list_repo_tree lfs 一致；
+      find FL2VA -type f = 81；du -sb FL2VA = 144,051,182,625（≈ API 144,051,000,000）。
+ffmpeg✅：~/bin/ffmpeg.tar.xz 109,683,916 bytes（status DL_OK），解壓至
+      ~/bin/ffmpeg-master-latest-linuxarm64-gpl/bin/ffmpeg（N-126342 BtbN linuxarm64-gpl），
+      symlink ~/.local/bin/ffmpeg（preflight 01-ffmpeg.sh 用 command -v ffmpeg）。
+殘留：models/MiniMax-H3/.cache 約 4.6 GB（xet staging/快取）→ 已於 Phase 5 成功後搬移至
+      /tmp/minimax-h3-xet-cache.trash（rm 需 destructive 權限被拒，僅 mv 立即生效）。
+      verify-h3-download.py 留於 stack dir 供復驗。
+Phase 5（執行紀錄，2026-09-01）：
+  tp2-down：docker rm -f tp2-node1（Node1）/tp2-node0（Node0）——eye 具兩節點 docker.sock 群組，
+      不需 sudo（Node0 tp2.env 無 SUDO_PASS，非互動 sudo 必敗）。TP2 移除後 Node1 MemAvailable=117 GiB。
+  build：make build（preflight 全過，記憶體 gate 因 117 GiB OK）→ image minimax-h3-dgx-spark:sm121-fp8
+      = 32 GB 建置完成。MCP 教訓：open-session interactive 不會自動執行 command，需再以
+      run-command(session=…) 送入；60s tool timeout 會殺 process tree → 長時間任務一律先開
+      interactive session 再 nohup ... </dev/null & 交付。
+  launch：docker compose -p minimax-h3-dgx-spark -f …/compose.yaml up -d（= use 路徑等價；
+      gb10-single status node1 minimaxh3 → running/READY）。冷啟動 ~11.9 min（14:57 up → 15:09:20
+      UTC app startup complete → /health 200）；13 shards 載入 157.9s；首次 TTFT 130.7s。
+  smoke：/v1/videos/sync（768×448/20 steps/24fps/2.0s/seed42，t2va）HTTP 200、elapsed_ms=132202；
+      verify-output.sh full_decode=passed：H.264 Constrained Baseline 768×448@24fps 56f/2.333s 2.0Mbps
+      + AAC-LC 32k 立體聲 2.357s 125kbps；628,877 B；sha256 52e7e547…b9dce。生成本身成功；
+      初次 make smoke 誤報 non-video 因 ~/.local/bin 不在 PATH（ffprobe 缺失）→ 於 smoke 與
+      verify-output 兩 script 前綴 export PATH=~/.local/bin（免 root，註記需要的話）。
+  Node0 備援：rsync -aAX --partial --exclude 'models/MiniMax-H3/.cache' -e 'ssh -i ~/.ssh/
+      id_gb10_cluster' eye@10.0.101.102:…/minimax-h3/ → 本機（已起，傳輸中；互連網直通）。
+  雜項：vLLM-Omni 0.1.dev2381 vs vLLM 0.26.0 版本 mismatch RuntimeWarning（base 內建，cosmetic）；
+      status node1 對其他未運行 runtime 顯示 STATE=null（顯示 quirk，不影響 use/status）。
+```
