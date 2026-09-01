@@ -1027,3 +1027,35 @@ git：Node0 runtime-manager commit 1d4fe96
 備註：Node0 目前運行 27b READY。push 認證沿用 Windows Credential Manager 的
     git:http://192.168.23.167:3000 憑證（username=829522，GCM 回傳即 token），用後即清。
 ```
+
+## 21.11 node1 remote 管理驗收 + restart bug 修補（2026-09-02）
+
+```text
+架構確認：runtime-manager 一律在 Node0 使用；node1 由 Node0 經 ssh 遙控
+    （n1() → ssh -i ~/.ssh/id_gb10_cluster eye@10.0.101.102）。node1 本機不需要
+    runtime-manager repo（compose 指令整段經 ssh 送過去、遠端 $STACK_DIR 解析）。
+    node0 = local，node1 = remote（node_is_remote）。
+發現 bug：gb10-single restart <node> <runtime> 分支缺 NODE="$node" 設定 →
+    validate_loaded()（local node="$NODE"，set -u）以「NODE: 未綁定的變數」中止，
+    在改動任何東西前就退出。use/start 不受影響（走 start_file，有設 NODE）。
+修法：restart 分支在 validate_loaded 前補 NODE="$node"（bin/gb10-single line 429）。
+    Node0 commit f02eed1 "fix: restart sets NODE before validate_loaded/wait_ready"
+    → push（1d4fe96..f02eed1）。
+端到端遙控驗收（全部通過，皆從 Node0 發起）：
+    Layer A（部署管理）：
+        1) gb10-single status node1（send ssh 遙控）→ minimaxh3 running/READY
+        2) gb10-single restart node1 minimaxh3 → Recreate→Started→等 /health→READY
+           （冷啟動 ~9 分鐘；先前 12 分鐘因含下載/編譯）。其他未運行 runtime
+           顯示 STATE=null 為現有顯示 quirk（不影響 use/status）。
+    Layer B（影片生成功能，Node0 經 ssh 觸發 Node1 的 smoke-t2va.sh）：
+        HTTP 200、elapsed_ms=139533；full_decode=passed
+        （H.264 768×448@24fps + AAC-LC 32k，2.357s，628,877 B）
+        sha256 52e7e547…b9dce → 與 Phase 5 首次 hash 完全一致。
+教訓（ssh 背景任務）：`ssh host 'nohup cmd >log 2>&1 </dev/null &'` 在 ssh 通道仍開
+    且 remote 背景 job fd 未全關時會卡住（即使 ssh 本側 stdin </dev/null）→ tool 60s
+    timeout 會「看似失敗」但远端其實已啟動背景 job，導致多次重試時重複啟動併發進程
+    （本次曾 3 個 smoke 同時跑、互踩同一 .part；用 pkill -f smoke-t2va 清乾淨）。
+    保險寫法：`ssh host "( setsid nohup cmd </dev/null >log 2>&1 & ) ; exit 0"` 立即回傳
+    （本次驗證可用且不會卡 ssh 通道）。
+順帶：Node1 scripts/verify-output.sh 先前無執行權限（-rw-r--r--）→ 已 chmod +x。
+```
