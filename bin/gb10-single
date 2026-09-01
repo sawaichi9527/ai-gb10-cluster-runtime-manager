@@ -426,6 +426,7 @@ case "$cmd" in
     node_is_valid "$node" || die "unknown node: $node"
     load "$f"
     if [[ "$PLACEHOLDER" == true ]]; then echo "$RUNTIME_ID: placeholder (not deployed)."; exit 0; fi
+    NODE="$node"
     validate_loaded
     if active_loaded "$node"; then
       echo "Restarting $RUNTIME_ID on $node..."; compose_node "$node" up -d --force-recreate
