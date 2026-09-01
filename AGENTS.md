@@ -37,6 +37,9 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
 - **Cold start** for TP2 is ~7-15 min (weight load + FlashInfer autotune + torch.compile);
   `tp2-up`/`gb10 use` waits for `/health` 200 and reports READY.
 
+- **Prefix caching is DELIBERATELY OFF for the TP2 27B (DFlash2) runtime.** See
+  docs/ADR_2026-09-01_prefix_caching_dflash2.md for rationale + the pre-requisites
+  (vLLM #53479/#52244/#50457/#50897/#53420/#53426) to check before a new image re-enables it.
 ## Conventions
 
 - Keep `runtimes.d/*.conf` in sync with what's actually deployed on the nodes. A conf
@@ -53,3 +56,5 @@ Operational history lives in the sibling maintenance repo handoffs
 (`GB10_Docker_Stack_Deployment_Handoff_2026-08-2?3.md`, `...08-18.md`, `...08-10.md`)
 and this repo's `docs/TP2_DEPLOYMENT_2026-08-30.md` (verified cluster facts).
 `docs/RESTRUCTURE_2026-08-31.md` describes this repo's unification.
+
+`docs/ADR_2026-09-01_prefix_caching_dflash2.md` records why TP2 27B prefix caching is off (and when to re-evaluate).
