@@ -736,3 +736,102 @@ gb10 use 27b
 - TP2 27B 冷啟動完成後可 `gb10 smoke 27b` / `gb10 load 27b`；**Stage 2**（TP2 time-sharing switch）即為本雙向互斥之正式包裝。
 - 保留 `</dev/null` 於 `n1()`；**禁止**恢復任何 `n1 bash -c '...'` 樣式（一律單一字串參數）。
 - 臨時診斷檔（`/tmp/n1test*.sh`、`/tmp/sshtest.sh`、`/tmp/free-fix*.log`、`/tmp/qtest.sh`、`/tmp/use27b.log`）已隨驗證完成清理（或待清）。
+
+# 19. 2026-08-31 統一 LLM 端口 :1234 + 共享 API key + 全節點互斥（PR #6 / #7）
+
+> 依主管指令：將所有 LLM 服務端點統一為 `host:1234/v1`（OpenAI 相容），並共用同一 `VLLM_API_KEY`：**TP2 與 Node0 單機 LLM 皆在 `192.168.23.215:1234/v1`**；未來 Node1 單機 LLM 在 `192.168.23.216:1234/v1`。TP2 與單機 LLM 共用 port 1234 → **Node0 + Node1 全節點互斥**（無法同時存在）。Image/video（ComfyUI/MiniMaxH3）依進度暫緩。經 Forgejo PR #6/#7 → Node0 pull 部署，實機端到端驗證全部完成。
+
+## 19.1 統一端點 / 共享 key（PR #6，`c4392db`）
+
+- **端口**：`API_PORT` 8000 → **1234**（`scripts/tp2-common.sh` 預設、`tp2.env[.example]`、`tp2-up` 自動帶 `--port ${API_PORT}`）。
+- **共享 key**：`VLLM_API_KEY=d47cd7...680b`（tp2.env gitignored 已設，單機 `docker-stacks/aeon-vllm/.env` 同值）。vLLM `/v1/*` 需要 bearer、`/health` 免 auth。
+- **endpoint 約定表**（寫入 `tp2.env.example` / `README.md` / `AGENTS.md`）：
+  - TP2 → `http://192.168.23.215:1234/v1`
+  - Node0 單機 LLM → `http://192.168.23.215:1234/v1`
+  - 未來 Node1 單機 LLM → `http://192.168.23.216:1234/v1`
+- **全節點互斥**：`bin/gb10` 方向 B `free_node1_singles()` → **`free_singles()`**（loop node0 + node1）；`bin/gb10-single` 方向 A guard 由 node1-only 放寬為**任一 node**（node0 單機 LLM 也先拆 TP2，因其共用 port 1234）。
+- `tp2-status` 新增 **API endpoint 顯示行**（`http://${NODE0_MGMT}:${API_PORT}/v1` + auth 狀態）。
+- 文件中全部 `:8000 → :1234`（README / AGENTS / docs/TP2_DEPLOYMENT_2026-08-30.md 3 處）。
+
+## 19.2 auth helper bug（PR #7，`d2af93c`）
+
+- **發現**：`$_` `api_auth()` 輸出多字 `-H Authorization: Bearer <key>`，未加引號 `$(api_auth)` 被 word-split 成 `-H  Authorization:  Bearer  <key>`（`Bearer`+key 成 2 個假 URL）→ `tp2-status` 永遠 `(no models)`、`tp2-smoke` 無法過 auth。
+- **修法**：`api_auth()` → **`api_curl <url> [curl args...]`**（`tp2-common.sh`），內部組單一 `-H "Authorization: Bearer ${VLLM_API_KEY}"` 並轉傳其餘 args + URL（GET for status / POST for smoke）。`tp2-load` 的 python client 已正確（`hdrs["Authorization"]=Bearer <key>`）不動。
+- **教訓**：**禁止**以`$(func)` 展開多字 `-H` 給 curl——一律走 `api_curl`（註記寫入 `tp2-common.sh` / `AGENTS.md`）。
+
+## 19.3 實機端到端驗證（Node0 HEAD `d2af93c`）
+
+```text
+# TP2 冷啟動至 READY on :1234（--port 1234 --api-key <shared key> 已生效）
+gb10 status   → API endpoint http://192.168.23.215:1234/v1 (auth set) + /v1/models aeon
+gb10 smoke 27b → http=200 finish_reason=stop content '\n\nHELLO-TP2-OK'
+gb10 load     → 8 併發 ×3 rounds 全過 (wall ~2.5s/round) EXIT=0 model=aeon
+# auth 驗證（localhost + mgmt IP）
+GET /health            → 200（免 auth）
+GET /v1/models 無 auth  → 401
+GET /v1/models 帶 bearer→ 200（內部一致）
+curl http://192.168.23.215:1234/v1/models -H "Authorization: Bearer <key>" → 200 （mgmt LAN 外部可達，bind 0.0.0.0:1234）
+
+# 互斥 E2E —— 方向 A（Node0）✅
+gb10-single start node0 27b
+# "TP2 cluster is running; tearing it down before starting a single-node runtime..."
+# tp2-node0/node1 移除 → aeon-vllm 起 → READY；僅 1 個 aeon-vllm 容器 bind 0.0.0.0:1234
+# 單機 27b 亦 serve 192.168.23.215:1234/v1（含 bearer）驗證通過
+
+# 互斥 E2E —— 方向 B（Node0）✅（還原 TP2 時自動停 node0 單機）
+gb10 use 27b
+# "Stopping 27b on node0..." → aeon-vllm Stopped/Removed → 啟 tp2-node0/node1 → wait :1234
+```
+
+- **還原完成並驗證（最終狀態）**：`gb10 use 27b` 冷啟動 TP2 完成 → `tp2-node0` Up 世界大小 2、KV 85.73 GiB、`/health` no-auth 200、mgmt `192.168.23.215:1234/v1/models` 帶 bearer 200、`gb10 smoke 27b` → `HELLO-TP2-OK`。**叢集處於日常預設（TP2 27b on `:1234`）**。Node0 管理 `192.168.23.215`、互連 `10.0.101.101`；Node1 管理 `192.168.23.216`、互連 `10.0.101.102`。
+- **後續（Node1 單機）**：Node1 單機 LLM 已備妥（同 stack + 同 key + 同 port）可 `gb10-single use node1 27b|35b`（需先停 TP2，方向 A 自動）。opencode 本地 `opencode.jsonc` 的 `DGX Spark` 亦已驗證與本次統一端點一致（baseURL `http://192.168.23.215:1234/v1` + 共享 key）。
+
+# 20. 2026-09-01 ADR：TP2 27B（DFlash2）刻意關閉 prefix caching + 新版 image 檢查指引
+
+> 決策紀錄，避免日後被當作「無意遺漏」而誤開。**本節 ADR**：TP2 27B 組合（DFlash2 n=7 / fp8_e4m3 KV / TRITON_ATTN / v0.27.1-omni）維持 `--no-enable-prefix-caching`。
+> 對照：單節點 27B（`docker-compose.27b.yml`）用 **MTP k=3** + `--enable-prefix-caching` —— **兩者 drafter 不同，屬不同 decision class，非不一致**。
+
+## 20.1 現況（2026-09-01 實地確認）
+
+| 面向 | 單節點 27B | TP2 27B（運行中） |
+|---|---|---|
+| spec decoding | **MTP** k=3 | **DFlash2** k=7 (block 8) |
+| prefix caching | `--enable-prefix-caching` | `--no-enable-prefix-caching` |
+| image | omni | `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-08-24-v0.27.1-omni` |
+| 位置 | `docker-compose.27b.yml` | `scripts/tp2-common.sh` L125 |
+
+- 兩者皆跑 **v0.27.1-era** build。TP2 關閉 APC 之原因過去**無文件**，本 ADR 補上。
+
+## 20.2 為何維持關閉（v0.27.1 世代 + DFlash2 + hybrid GDN 的實證）
+
+Qwen3.8-27B 為 hybrid GDN（48 linear + 16 full attention），`mamba_cache_mode=align`。DFlash/MTP 對 prefix-cache 有已知相容性問題（vLLM issue #54360 / #53670 / #54027 / #53504，PR #50457）：
+
+1. **hash unit 隨 spec depth 改變**（v0.27.1 實測 #54360）：K=0 → 1568、K=3(MTP) → 1600、K=7(DFlash2) → 1648 tokens。重複長 prompt 命中率：無 spec 69.4% → **DFlash2 K=7 僅 43.3%**（且每 hit 掉一整個 1648-token block）。
+2. **每一 hit 至少損失最後一整個 hash block**（EAGLE last-block drop，#53670）→ prefix-reuse 工作負載 c=8 吞吐 **-30~40%**（327→206 tok/s）。disable drop 後回到 322（-1.6%）。
+3. **有 KV 損壞 / 靜默失效風險**（#50457：#42971 共用 prefix block 寫入、#41884 IndexError；#53505 附 KV connector 時 hybrid Mamba align 損壞）。官方 workaround 即 `--no-enable-prefix-caching`。
+4. **YaRN 超長場景可完全歸零**（#54027：DFlash2 K=7 + YaRN 1.04M prompt，byte-identical 重送 hits=0）。
+
+**工作負載判斷**：實際併發 3~4（低）、256K 長 context、`tp2-load` 用唯一短 prompt（不吃 prefix cache）。開啟 APC 的增益被 ~43% 上限 + 每 hit 噴 1648 tokens 抵銷，卻承擔吞吐退化 + KV 損壞風險；記憶體已緊（~6 GiB RAM free）。
+
+→ **維持 `--no-enable-prefix-caching` 為正確防禦性選擇。勿改。**
+
+## 20.3 新版 image release 之檢查指引（何時可重新評估開啟）
+
+當 aeon-7 釋出**新版 `aeon-vllm-ultimate` image**（升級 vLLM 基底），先比對 release note / 上游 vLLM changelog 是否**已合入**下列修復，**全部到位**才值得做 A/B 實測重新評估 APC：
+
+| vLLM 上游 | 修復「DFlash/MT + hybrid GDN + APC」哪一項 |
+|---|---|
+| **#53479** | Mamba align 於每個 boundary 落地 + 捨棄 speculative one-block back-off（消除 1648-token 損失主因） |
+| **#52244** | 還原 hybrid GDN 於 MTP spec-decode 的 prefix-cache hits |
+| **#50457** | 讓 DFlash（全部/混 sliding）drafter 可在 APC 下正確運行（修 #42971 共用 prefix block 寫入 / #41884 IndexError / mixed-drafter hits=0） |
+| **#50897** | successor-aware 保留最後一個 EAGLE/MTP block（正確性路徑） |
+| **#53420/#53426** | tiered K=0 時 skip draft（K=0 consumer 不需讀 draft-layer KV） |
+| **#53504 workaround** | `--prefix-cache-retention-interval <block_size>`（first-repeat miss 之 config 級 workaround） |
+
+**A/B 驗證門（cluster 環境，皆採共用 `:1234` + bearer）**：
+1. 記錄目前 `vllm:prefix_cache_hits_total`（關閉下應為 0）。
+2. 臨時改 `tp2-common.sh` L125 為 `--enable-prefix-caching`，`gb10 use 27b` 重啟，送**byte-identical 長 prompt** 兩次。
+3. 檢查 `gb10 status` KV / `/metrics` `prefix_cache_hits_total` 是否 >0 且重複 prompt TTFT 下降；**並確認無 KV 損壞 / crash**（併發 8 下）。
+4. 若 hits 卡 0 或僅 ~43%（1648 損失仍存）或出現損壞 → 維持關閉。
+
+**紀錄位置**：本 ADR（handoff.md §20）；`scripts/tp2-common.sh` L125 與 `docs/TP2_DEPLOYMENT_2026-08-30.md` 目前無理由說明——可於下次改 flag 時一併補 `# ADR-20: DFlash2 下刻意關閉` 於 L125。
