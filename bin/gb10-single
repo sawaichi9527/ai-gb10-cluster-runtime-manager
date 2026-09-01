@@ -15,8 +15,8 @@
 #   gb10-single logs {node0|node1} [runtime]
 #   gb10-single doctor
 #
-# Runtimes: 27b, 35b, comfyui (deployed) ; deepseek, qwen38flash,
-# glm53flash, minimaxh3 (placeholders - not deployed yet).
+# Runtimes: 27b, 35b, comfyui, minimaxh3 (deployed) ; deepseek,
+# qwen38flash, glm53flash (placeholders - not deployed yet).
 # =====================================================================
 set -Eeuo pipefail
 
@@ -44,8 +44,8 @@ gb10-single - DGX Spark GB10 single-node runtime manager
   gb10-single doctor
 
 Runtimes (runtimes.d/*.conf):
-  27b 35b comfyui      deployed
-  deepseek qwen38flash glm53flash minimaxh3   placeholder (not deployed)
+  27b 35b comfyui minimaxh3   deployed
+  deepseek qwen38flash glm53flash   placeholder (not deployed)
 
 Auto-protection (做法 B): `use/start node0|node1 <runtime>` auto-tears down
 an active TP2 cluster first (TP2 occupies both nodes' GPUs and shares port
@@ -302,14 +302,18 @@ stop_file(){
   else echo "$RUNTIME_ID: not active on $node."; fi
 }
 
+# stop_group_except — stop every OTHER active EXCLUSIVE runtime on the node.
+# An exclusive runtime monopolises the node, so `use` also frees runtimes in
+# OTHER groups (e.g. minimaxh3 video vs comfyui image). Placeholders and the
+# target itself are skipped. TP2 is torn down by ensure_tp2_down, never here.
 stop_group_except(){
-  local node="$1" target="$2" g id f
-  load "$target"; g="$GROUP"; id="$RUNTIME_ID"
+  local node="$1" target="$2" id f
+  load "$target"; id="$RUNTIME_ID"
   while read -r f; do
     [[ -n "$f" ]] || continue
     load "$f"
     [[ "$PLACEHOLDER" == true ]] && continue
-    [[ "$GROUP" == "$g" && "$RUNTIME_ID" != "$id" ]] || continue
+    [[ "$MODE" == exclusive && "$RUNTIME_ID" != "$id" ]] || continue
     if [[ "$(state_of "$node" "$f")" != inactive ]]; then stop_file "$node" "$f"; fi
   done < <(profiles)
 }

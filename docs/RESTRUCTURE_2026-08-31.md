@@ -33,7 +33,7 @@
 
 尚未部署的模型/版本一律在 conf 標 `PLACEHOLDER=true`，CLI 遇到時印
 「not deployed yet」並退出，**不得**觸碰不存在的 stack。目前 placeholder：
-`deepseek`、`qwen38flash`、`glm53flash`、`minimaxh3`。
+`deepseek`、`qwen38flash`、`glm53flash`。
 
 ## 主機部署
 
@@ -44,5 +44,5 @@ Repo 僅存在 **Node0** `~/ai-gb10-cluster-runtime-manager/`。`~/bin/gb10` 與
 ## 待辦 / 風險
 
 - Node1 已部署 `comfyui-aeon` stack（`gb10-single use node1 comfyui`，Flux 2 Dev，見 `docs/ComfyUI_DEPLOYMENT_2026-08-31.md`）。
-- 新模型（deepseek/glm5/minimax）落地後需把 placeholder conf 補上 STACK/COMPOSE 並取消 `PLACEHOLDER`.
+- 新模型（deepseek/glm5）落地後需把 placeholder conf 補上 STACK/COMPOSE 並取消 `PLACEHOLDER`.
 - `gb10-single node1` 依賴 `~/.ssh/id_gb10_cluster`（沿用 TP2 key）。

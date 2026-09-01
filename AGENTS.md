@@ -29,8 +29,12 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
 - **Placeholder runtimes** (`PLACEHOLDER=true` in conf): CLI skeleton only. `gb10` and
   `gb10-single` must print "not deployed yet" and never touch a missing stack.
 - **Exclusive groups**: `runtimes.d/*.conf` use `MODE=exclusive` + `GROUP` for isolation
-  (llm vs image vs video). `use` switches within a group; `start` on an exclusive runtime behaves
+  (llm vs image vs video). `use` switches *within a group*; `start` on an exclusive runtime behaves
   like `use`. This mirrors the legacy behavior — don't rearchitect without a reason.
+- **User-approved exception (2026-09-01, MiniMax H3)**: an exclusive `use` frees every OTHER
+  active *exclusive* runtime on the same node **across groups** (minimaxh3 `video` vs comfyui
+  `image`). Placeholders stay untouched and TP2 is handled by `ensure_tp2_down`, never the
+  exclusive stop loop.
 - **Secrets**: `tp2.env`, `~/docker-stacks/*/.env`, keys — never commit. `.gitignore`
   covers `tp2.env`, `state/last-runtime`, logs.
 - **Node1 doesn't host the repo.** Only Node0. Node1 needs image + model dirs + sudo docker.

@@ -75,8 +75,11 @@ Runtimes (`runtimes.d/*`):
 | `qwen38flash.conf` | qwen38flash | llm | **placeholder** |
 | `glm53flash.conf` | glm53flash | llm | **placeholder** |
 | `comfyui.conf` | comfyui | image | deployed (Node1, Flux 2 Dev) |
-| `minimaxh3.conf` | minimaxh3 | video | **placeholder** |
+| `minimaxh3.conf` | minimaxh3 | video (exclusive) | deployed (FL2VA) |
 
+`use` on an exclusive runtime frees every OTHER active exclusive runtime on that
+node across groups (e.g. starting `minimaxh3` on node1 also stops a running
+`comfyui` there) and auto-tears down an active TP2 cluster first (做法 B).
 Placeholders print "not deployed yet"; they are CLI skeletons until models/versions land.
 
 ## Config
