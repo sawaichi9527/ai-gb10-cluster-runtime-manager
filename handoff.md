@@ -997,3 +997,33 @@ Phase 5（執行紀錄，2026-09-01）：
   雜項：vLLM-Omni 0.1.dev2381 vs vLLM 0.26.0 版本 mismatch RuntimeWarning（base 內建，cosmetic）；
       status node1 對其他未運行 runtime 顯示 STATE=null（顯示 quirk，不影響 use/status）。
 ```
+
+## 21.10 27b/35b 互斥修補（2026-09-02，Node0）
+
+```text
+問題根因：27b 與 35b conf 原共用同一 aeon-vllm container 名稱/PROJECT/port 1234 →
+    gb10-single 的 state_of/active_loaded/health_of 對兩者都命中同一容器 →
+    `use` 變成 no-op、`status` 兩者皆誤報 running。（TP2 走另一套 bin/gb10/scripts/tp2-*，
+    不受影響也不共享互斥。）
+修法：共用 ${AEON_IMAGE}（omni）但 compose/project/container 各別化：
+    · docker-compose.27b.yml   → container_name: aeon-vllm-27b
+    · docker-compose.35b.yml   → container_name: aeon-vllm-35b（image 改 ${AEON_IMAGE}，
+      不再鎖死舊版 2026-08-16-v0.27.1；omni 是否載得起 35b 本次實測驗證為可）
+    · runtimes.d/27b.conf      → PROJECT=aeon-vllm-27b、CONTAINER=aeon-vllm-27b
+    · runtimes.d/35b.conf      → PROJECT=aeon-vllm-35b、CONTAINER=aeon-vllm-35b
+    腳本本體不需改：靠 conf 的 project/container 拆分，既有 stop_group_except/use_file/
+    state_of/active_loaded 邏輯天然正確。
+雙向實測（全部通過）：
+    use node0 35b → 自動停 aeon-vllm-27b(Removed)→ 起 aeon-vllm-35b；omni 掛
+        qwen3.6-35b-a3b-heretic-nvfp4(/model)＋-dflash(/drafter)；首載 autotune
+        (fused_moe+fp4_gemm)較慢；READY 後 /v1/chat/completions 推理 OK
+        (reasoning 模型，輸出在 message.reasoning、content 需足夠 max_tokens 才出現)；
+        status node0 → 35b running/READY、27b inactive。
+    use node0 27b → 自動停 aeon-vllm-35b(Removed)→ 起 aeon-vllm-27b；READY；
+        status node0 → 27b running/READY、35b inactive。
+git：Node0 runtime-manager commit 1d4fe96
+    "fix: 27b/35b node0 exclusive via distinct compose project+container" → push
+    (0ffbc0c..1d4fe96)。本機 merge-target clone 的兩個 conf 已同步更新。
+備註：Node0 目前運行 27b READY。push 認證沿用 Windows Credential Manager 的
+    git:http://192.168.23.167:3000 憑證（username=829522，GCM 回傳即 token），用後即清。
+```
