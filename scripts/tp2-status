@@ -22,7 +22,7 @@ sdk docker logs tp2-node0 2>/dev/null | grep -aiE "Available KV cache|world_size
 echo ""
 echo "===== Node1 (${NODE1_SSH_USER}@${NODE1_IP}) ====="
 n1 bash -s <<EOF
-$(printf 'export SUDO_PASS=%q\n' "${SUDO_PASS}")
+$(printf 'export SUDO_PASS=%q\n' "$(sudo_pass)")
 echo "\$SUDO_PASS" | sudo -S docker ps -a --filter name=tp2-node1 --format '{{.Names}} {{.Status}}' 2>/dev/null || true
 EOF
 

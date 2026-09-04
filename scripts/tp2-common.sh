@@ -1,13 +1,21 @@
 #!/usr/bin/env bash
 # =====================================================================
-# tp2-common.sh — shared env load + profile table for ai-gb10-cluster
-# Sourced by every scripts/tp2-* entrypoint. NOT meant to be run alone.
+# tp2-common.sh — shared env load + data-driven cluster-profile loader
+# for ai-gb10-cluster. Sourced by every scripts/tp2-* entrypoint.
+# NOT meant to be run alone.
+#
+# Architecture:
+#   cluster-profiles.d/<id>.conf  = authoritative per-profile data
+#     (image, model rels, context/concurrency/GMU, model-specific vLLM
+#      args). TP2 orchestration layer stays model-agnostic; it only
+#      consumes the resolved profile.
 # =====================================================================
 set -Eeuo pipefail
 
 # ---- resolve this script dir (repo root/scripts) independent of CWD ----
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PROFILE_DIR="${REPO_DIR}/cluster-profiles.d"
 
 # ---- load tp2.env if present (gitignored) else defaults from example ----
 ENV_FILE="${REPO_DIR}/tp2.env"
@@ -19,14 +27,19 @@ else
   source "${REPO_DIR}/tp2.env.example"
 fi
 
-: "${IMG:?tp2.env missing IMG}"
 : "${MASTER_ADDR:?tp2.env missing MASTER_ADDR}"
 : "${MASTER_PORT:?tp2.env missing MASTER_PORT}"
 : "${API_PORT:=1234}"
+# Cluster-global default image (fallback; a cluster profile may override).
+: "${IMG:=ghcr.io/aeon-7/aeon-vllm-ultimate:2026-08-24-v0.27.1-omni}"
 
-# ---- SUDO_PASS: prefer env, else prompt (never stored in repo) ----
+# ---- SUDO_PASS: prefer env, else prompt on first docker use (lazy) ----
+# Lazy so read-only/registry commands (gb10 list|inspect|help, profiles)
+# never hang on a password prompt. Only sdk()/sudo_pass() trigger it.
 _sudo_pass(){
-  if [[ -n "${SUDO_PASS:-}" ]]; then echo "$SUDO_PASS"; return; fi
+  if [[ -n "${SUDO_PASS:-}" || "${_SUDO_DONE:-}" == "1" ]]; then
+    echo "$SUDO_PASS"; return
+  fi
   if [[ -t 0 ]]; then
     read -rsp "sudo password for docker on both nodes: " SUDO_PASS
     echo >&2 ""
@@ -34,19 +47,16 @@ _sudo_pass(){
     echo "ERROR: SUDO_PASS is required (export it or add to tp2.env)" >&2
     exit 1
   fi
+  _SUDO_DONE=1
   echo "$SUDO_PASS"
 }
-SUDO_PASS="$(_sudo_pass)"
+sudo_pass(){ _sudo_pass; }
 
 # ---- docker helper (sudo on local Node0) ----
-sdk(){ echo "$SUDO_PASS" | sudo -S "$@" 2>/dev/null; }
+sdk(){ echo "$(sudo_pass)" | sudo -S "$@" 2>/dev/null; }
 
 # ---- auth for the vLLM API (_API_KEY != EMPTY means auth required) ----
 # api_curl <url> [curl args...] — run curl with the optional Bearer header.
-# All /v1/* callers (smoke/load/status) MUST go through this (or set the
-# header themselves) so the shared key is honoured. Do NOT emit a bare
-# `-H Authorization: Bearer ...` via unquoted $(...) expansion: word-splitting
-# would break it into separate args and curl would fail.
 api_curl(){
   local url="$1"; shift
   if [[ -n "${VLLM_API_KEY:-}" && "${VLLM_API_KEY}" != "EMPTY" ]]; then
@@ -56,56 +66,96 @@ api_curl(){
   fi
 }
 
-# =====================================================================
-# Profile -> runtime parameters (verified 2026-08-30)
-#  profile    body model                          drafter
-#  ---------  ----------------------------------  ---------------------
-#  default 27b  qwen3.8-27b-aeon-ultimate-...nvfp4  qwen3.8-27b-dflash2 (dflash n=7)
-#  35b        qwen3.6-35b-a3b-heretic-nvfp4         qwen3.6-35b-a3b-dflash (dflash n=11)
-# =====================================================================
 MODELS_BASE="${NODE0_MODELS_BASE:-$HOME/docker-stacks/aeon-vllm/models}"
 
-# set_profile <27b|35b>  -> sets PROFILE, BODY, DRAF, MAXLEN, NUMSEQ,
-#                           BATCHED, GMU, NSPEC
-set_profile(){
-  case "${1:-27b}" in
-    27b|a|A)
-      PROFILE="27b"
-      BODY="${MODELS_BASE}/qwen3.8-27b-aeon-ultimate-uncensored-nvfp4"
-      DRAF="${MODELS_BASE}/qwen3.8-27b-dflash2"
-      MAXLEN=262144; NUMSEQ=8; BATCHED=16384; GMU=0.85; NSPEC=7
-      ;;
-    35b|b|B)
-      PROFILE="35b"
-      BODY="${MODELS_BASE}/qwen3.6-35b-a3b-heretic-nvfp4"
-      DRAF="${MODELS_BASE}/qwen3.6-35b-a3b-dflash"
-      MAXLEN=131072; NUMSEQ=16; BATCHED=16384; GMU=0.80; NSPEC=11
-      ;;
-    *)
-      echo "ERROR: unknown profile '$1' (use 27b [default] or 35b)" >&2
-      exit 2
-      ;;
-  esac
+# =====================================================================
+# Cluster profile registry (data-driven) — replaces the old hard-coded
+# set_profile() case table.
+# =====================================================================
+
+# list_cluster_profiles -> sorted list of PROFILE_IDs from cluster-profiles.d
+list_cluster_profiles(){
+  local f id
+  ( shopt -s nullglob
+    for f in "${PROFILE_DIR}"/*.conf; do
+      id="$(basename "$f" .conf)"
+      [[ -n "$id" ]] && echo "$id"
+    done
+  ) | sort -u
 }
 
-# Common vLLM args shared by rank0 and rank1 for a profile.
-# USAGE: build_vllm_args rank  (rank=0|1) -> echoes array via $VLLM_ARGS
+# valid_cluster_profile <id>
+valid_cluster_profile(){
+  local id
+  for id in $(list_cluster_profiles); do
+    [[ "$id" == "$1" ]] && return 0
+  done
+  return 1
+}
+
+# load_profile <id> — source the conf, resolve BODY/DRAF and per-profile
+# image into PROFILE_* state. Fails safely on unknown/placeholder.
+# Resolved outputs:
+#   PROFILE   PROFILE_ID
+#   BODY DRAF (absolute model dirs)
+#   IMG       (resolved per-profile image)
+#   MAXLEN NUMSEQ BATCHED GMU NSPEC
+#   KV_DTYPE ATTN_BACKEND ... (model-specific settings)
+load_profile(){
+  local id="$1"
+  local conf="${PROFILE_DIR}/${id}.conf"
+  if [[ ! -f "$conf" ]]; then
+    echo "ERROR: unknown cluster profile '$id' (known: $(list_cluster_profiles | tr '\n' ' '))" >&2
+    exit 2
+  fi
+  # reset state so a partial conf can't leak a previous profile
+  unset PROFILE_ID DISPLAY_NAME PLACEHOLDER IMAGE BODY_REL DRAF_REL \
+        MAXLEN NUMSEQ BATCHED GMU NSPEC \
+        KV_DTYPE ATTN_BACKEND LINEAR_BACKEND MOE_BACKEND \
+        SPEC_METHOD SPEC_ATTN_BACKEND NSPEC GRAPH_MODE \
+        REASONING_PARSER TOOL_CALL_PARSER ENABLE_AUTO_TOOL_CHOICE \
+        ENABLE_CHUNKED_PREFILL ENABLE_PREFIX_CACHING 2>/dev/null || true
+  # shellcheck disable=SC1090
+  source "$conf"
+  PROFILE="${PROFILE_ID:?cluster profile missing PROFILE_ID}"
+  if [[ "${PLACEHOLDER:-false}" == "true" ]]; then
+    PROFILE_PLACEHOLDER="true"
+  else
+    PROFILE_PLACEHOLDER="false"
+  fi
+  # Per-profile image override; fall back to cluster-global tp2.env IMG.
+  if [[ -n "${IMAGE:-}" ]]; then
+    IMG="$IMAGE"
+  fi
+  # Resolve model dirs from MODELS_BASE + relative rels.
+  if [[ "${PROFILE_PLACEHOLDER}" == "true" ]]; then
+    BODY="${BODY_REL:-}"
+    DRAF="${DRAF_REL:-}"
+    return 0
+  fi
+  : "${BODY_REL:?cluster profile $PROFILE missing BODY_REL}"
+  : "${DRAF_REL:?cluster profile $PROFILE missing DRAF_REL}"
+  : "${IMG:?cluster profile $PROFILE has no image; set IMAGE or tp2.env IMG}"
+  BODY="${MODELS_BASE}/${BODY_REL}"
+  DRAF="${MODELS_BASE}/${DRAF_REL}"
+  export PROFILE PROFILE_PLACEHOLDER
+}
+
+# =====================================================================
+# build_vllm_args <rank> -> sets VLLM_ARGS (bash array)
+#   rank=0 : API server (port + reasoning/tool parsers + api-key)
+#   rank=1 : headless worker (no parser / no api-key)
+# Both ranks consume the SAME resolved profile data; only rank-specific
+# fields differ. Model-specific settings are profile-owned, never
+# re-hard-coded here.
+# =====================================================================
 build_vllm_args(){
   local rank="$1"
-  local ib_ifname ib_hca ib_gid host_ip
-  if [[ "$rank" == "0" ]]; then
-    host_ip="${NODE0_IP}"; ib_ifname="${NODE0_SOCKET_IFNAME:-$NCCL_SOCKET_IFNAME}"
-    ib_hca="${NODE0_IB_HCA:-$NCCL_IB_HCA}"; ib_gid="${NODE0_IB_GID_INDEX:-$NCCL_IB_GID_INDEX}"
-  else
-    host_ip="${NODE1_IP}"; ib_ifname="${NODE1_SOCKET_IFNAME:-$NCCL_SOCKET_IFNAME}"
-    ib_hca="${NODE1_IB_HCA:-$NCCL_IB_HCA}"; ib_gid="${NODE1_IB_GID_INDEX:-$NCCL_IB_GID_INDEX}"
-  fi
 
-  VLLM_ARGS=(
-    --served-model-name aeon
-    --host 0.0.0.0
-  )
-  [[ "$rank" == "0" ]] && VLLM_ARGS+=(--port "${API_PORT}")
+  VLLM_ARGS=(--served-model-name aeon)
+  # rank0 serves the API (binds 0.0.0.0:<port>); rank1 is a headless worker.
+  # --host/--port are rank0-only, matching the verified pre-refactor argv.
+  [[ "$rank" == "0" ]] && VLLM_ARGS+=(--host 0.0.0.0 --port "${API_PORT}")
   [[ "$rank" == "1" ]] && VLLM_ARGS+=(--headless)
   VLLM_ARGS+=(
     --tensor-parallel-size 2
@@ -114,30 +164,37 @@ build_vllm_args(){
     --master-addr "${MASTER_ADDR}"
     --master-port "${MASTER_PORT}"
     --quantization compressed-tensors
-    --kv-cache-dtype fp8_e4m3
-    --attention-backend TRITON_ATTN
+    --kv-cache-dtype "${KV_DTYPE:-fp8_e4m3}"
+    --attention-backend "${ATTN_BACKEND:-TRITON_ATTN}"
     --max-model-len "${MAXLEN}"
     --max-num-seqs "${NUMSEQ}"
     --max-num-batched-tokens "${BATCHED}"
     --gpu-memory-utilization "${GMU}"
     --disable-custom-all-reduce
-    --enable-chunked-prefill
-    --no-enable-prefix-caching
-    --compilation-config '{"cudagraph_mode":"FULL_AND_PIECEWISE"}'
-    --speculative-config "{\"method\":\"dflash\",\"model\":\"/drafter\",\"num_speculative_tokens\":${NSPEC},\"attention_backend\":\"TRITON_ATTN\"}"
-    --reasoning-parser qwen3
-    --tool-call-parser qwen3_coder
-    --enable-auto-tool-choice
-    --trust-remote-code
   )
-  if [[ "${VLLM_API_KEY:-EMPTY}" != "EMPTY" && -n "${VLLM_API_KEY:-}" ]]; then
+  [[ "${ENABLE_CHUNKED_PREFILL:-true}" == "true" ]] && VLLM_ARGS+=(--enable-chunked-prefill)
+  [[ "${ENABLE_PREFIX_CACHING:-false}" == "true" ]] && VLLM_ARGS+=(--enable-prefix-caching) \
+    || VLLM_ARGS+=(--no-enable-prefix-caching)
+  VLLM_ARGS+=(
+    --compilation-config "{\"cudagraph_mode\":\"${GRAPH_MODE:-FULL_AND_PIECEWISE}\"}"
+    --speculative-config "{\"method\":\"${SPEC_METHOD:-dflash}\",\"model\":\"/drafter\",\"num_speculative_tokens\":${NSPEC},\"attention_backend\":\"${SPEC_ATTN_BACKEND:-TRITON_ATTN}\"}"
+  )
+  # API-serving rank only: parsers + optional tool choice.
+  if [[ "$rank" == "0" ]]; then
+    [[ -n "${REASONING_PARSER:-}" ]] && VLLM_ARGS+=(--reasoning-parser "${REASONING_PARSER}")
+    [[ -n "${TOOL_CALL_PARSER:-}" ]] && VLLM_ARGS+=(--tool-call-parser "${TOOL_CALL_PARSER}")
+    [[ "${ENABLE_AUTO_TOOL_CHOICE:-false}" == "true" ]] && VLLM_ARGS+=(--enable-auto-tool-choice)
+  fi
+  VLLM_ARGS+=(--trust-remote-code)
+  if [[ "$rank" == "0" && "${VLLM_API_KEY:-EMPTY}" != "EMPTY" && -n "${VLLM_API_KEY:-}" ]]; then
     VLLM_ARGS+=(--api-key "${VLLM_API_KEY}")
   fi
   export VLLM_ARGS
 }
 
-# Common docker run fragments for a profile at given rank.
-# USAGE: build_docker_env rank  -> sets DOCKER_ENV_EXTRA (array), DOCKER_MOUNTS
+# =====================================================================
+# build_docker_env <rank> -> sets DOCKER_ENV_EXTRA (array), DOCKER_MOUNTS
+# =====================================================================
 build_docker_env(){
   local rank="$1"
   local host_ip ib_hca ib_gid
@@ -159,6 +216,34 @@ build_docker_env(){
     -v "${DRAF}:/drafter:ro"
   )
   export DOCKER_ENV_EXTRA DOCKER_MOUNTS
+}
+
+# =====================================================================
+# inspect_profile <id> — dry-run resolver: prints SANITIZED resolved
+# profile values. NEVER prints API keys or sudo passwords.
+# =====================================================================
+inspect_profile(){
+  local id="$1"
+  load_profile "$id"
+  echo "profile:  ${PROFILE}$([[ "${PROFILE_PLACEHOLDER}" == "true" ]] && echo " (placeholder)")"
+  echo "display:  ${DISPLAY_NAME:-<unset>}"
+  echo "image:    ${IMG:-<unresolved>}"
+  if [[ "${PROFILE_PLACEHOLDER}" == "true" ]]; then
+    echo "status:   not deployed (placeholder)"
+    echo "model:    <none>"
+    echo "drafter:  <none>"
+    echo "note:     fails safe; no image/model resolution, no container start"
+    return 0
+  fi
+  echo "body:     ${BODY}"
+  echo "drafter:  ${DRAF}"
+  echo "args:     maxlen=${MAXLEN:-?} numseq=${NUMSEQ:-?} batched=${BATCHED:-?} gmu=${GMU:-?} nspec=${NSPEC:-?}"
+  echo "kv:       ${KV_DTYPE:-fp8_e4m3}  attn: ${ATTN_BACKEND:-TRITON_ATTN}"
+  echo "spec:     method=${SPEC_METHOD:-dflash} n=${NSPEC:-?} (model=/drafter)"
+  echo "graph:    ${GRAPH_MODE:-FULL_AND_PIECEWISE}"
+  echo "parsers:  reasoning=${REASONING_PARSER:-none} tool=${TOOL_CALL_PARSER:-none} autotool=${ENABLE_AUTO_TOOL_CHOICE:-false}"
+  echo "prefill:  chunked=${ENABLE_CHUNKED_PREFILL:-true} prefix_cache=${ENABLE_PREFIX_CACHING:-false}"
+  echo "auth:     $([[ -n "${VLLM_API_KEY:-}" && "${VLLM_API_KEY}" != "EMPTY" ]] && echo "Bearer set (rank0)" || echo "disabled")"
 }
 
 # ---- remote execution on Node1 (headless worker) over interconnect ssh ----

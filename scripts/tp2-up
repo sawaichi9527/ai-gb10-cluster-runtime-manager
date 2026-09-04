@@ -4,12 +4,17 @@
 #
 #   scripts/tp2-up            # 27B (default)
 #   scripts/tp2-up 35b        # 35B-A3B
+#   scripts/tp2-up deepseek   # placeholder -> safe-fail, no containers
 #
 # Flow (Node0 single-side orchestration):
-#   1. resolve profile params (shared, verified 2026-08-30)
-#   2. Node0 -> ssh -> Node1 : launch headless rank1 worker
-#   3. Node0                     launch API server rank0 (port API_PORT)
-#   4. wait for Node0 /health 200
+#   1. resolve cluster profile from cluster-profiles.d/<id>.conf
+#   2. Node0 (sole argv builder) resolves BOTH ranks' model-specific
+#      argv from the SAME profile data, then shell-escapes (%q) each
+#      rank1 argv element and ships it to Node1 for direct execution.
+#      Node1 never re-derives model args (no duplicated copy, no eval
+#      of a serialized-array env string).
+#   3. Node1 launches headless rank1 worker; Node0 launches API rank0.
+#   4. wait for Node0 /health 200.
 # =====================================================================
 set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,55 +22,56 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/tp2-common.sh"
 
 PROFILE_ARG="${1:-27b}"
-set_profile "${PROFILE_ARG}"
+load_profile "${PROFILE_ARG}"
+
+# Placeholder must fail safely: never start containers, never touch a
+# missing stack/model/image.
+if [[ "${PROFILE_PLACEHOLDER}" == "true" ]]; then
+  echo "profile '${PROFILE}' not deployed yet (placeholder)"
+  exit 0
+fi
 
 node_up
 
 # ------------------------------------------------------------------
-# Node1 headless worker (rank1). Param values are computed here on
-# Node0 and passed to Node1 via environment over ssh — Node1 does NOT
-# need the repo or tp2-common.sh.
+# Node1 headless worker (rank1). Node0 resolves the full rank1 argv via
+# build_vllm_args 1 (identical profile data as rank0), then %q-escapes
+# each element and emits them as bash array literals in the remote
+# script. Node1 executes the passed argv verbatim.
 # ------------------------------------------------------------------
-REMOTE=$(cat <<'RSCRIPT'
-set -Eeuo pipefail
-echo "$SUDO_PASS" | sudo -S docker rm -f tp2-node1 >/dev/null 2>&1 || true
-echo "$SUDO_PASS" | sudo -S docker run -d --name tp2-node1 \
+build_vllm_args 1
+_escaped=()
+for a in "${VLLM_ARGS[@]}"; do _escaped+=( "$(printf '%q' "$a")" ); done
+_RANK1_ARGV_LITERAL="${_escaped[*]}"
+
+REMOTE=$(cat <<RSCRIPT
+set -Eeo pipefail
+echo "\$SUDO_PASS" | sudo -S docker rm -f tp2-node1 >/dev/null 2>&1 || true
+RANK1_ARGS=( ${_RANK1_ARGV_LITERAL} )
+rc=0
+echo "\$SUDO_PASS" | sudo -S docker run -d --name tp2-node1 \
     --gpus all --ipc=host --shm-size=16g --net=host \
-    -e "VLLM_HOST_IP=${RHOST_IP}" \
-    -e "NCCL_SOCKET_IFNAME=${R_NCCL_SOCKET_IFNAME}" \
-    -e "GLOO_SOCKET_IFNAME=${R_NCCL_SOCKET_IFNAME}" \
-    -e "NCCL_IB_HCA=${R_IB_HCA}" \
-    -e "NCCL_IB_GID_INDEX=${R_IB_GID}" \
+    -e "VLLM_HOST_IP=\${RHOST_IP}" \
+    -e "NCCL_SOCKET_IFNAME=\${R_NCCL_SOCKET_IFNAME}" \
+    -e "GLOO_SOCKET_IFNAME=\${R_NCCL_SOCKET_IFNAME}" \
+    -e "NCCL_IB_HCA=\${R_IB_HCA}" \
+    -e "NCCL_IB_GID_INDEX=\${R_IB_GID}" \
     -e "PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True" \
     --device /dev/infiniband --cap-add IPC_LOCK --ulimit memlock=-1:-1 \
-    -v "${R_BODY}:/model:ro" \
-    -v "${R_DRAF}:/drafter:ro" \
-    --entrypoint vllm "${R_IMG}" serve /model \
-        --served-model-name aeon \
-        --headless \
-        --tensor-parallel-size 2 --nnodes 2 --node-rank 1 \
-        --master-addr "${R_MASTER_ADDR}" --master-port "${R_MASTER_PORT}" \
-        --quantization compressed-tensors --kv-cache-dtype fp8_e4m3 \
-        --attention-backend TRITON_ATTN \
-        --max-model-len "${R_MAXLEN}" --max-num-seqs "${R_NUMSEQ}" \
-        --max-num-batched-tokens "${R_BATCHED}" \
-        --gpu-memory-utilization "${R_GMU}" \
-        --disable-custom-all-reduce \
-        --enable-chunked-prefill --no-enable-prefix-caching \
-        --compilation-config '{"cudagraph_mode":"FULL_AND_PIECEWISE"}' \
-        --speculative-config "{\"method\":\"dflash\",\"model\":\"/drafter\",\"num_speculative_tokens\":${R_NSPEC},\"attention_backend\":\"TRITON_ATTN\"}" \
-        --trust-remote-code \
-    > /tmp/tp2-node1.log 2>&1
-rc=$?
-echo "DEBUG node1 docker run rc=$rc"
-echo "$SUDO_PASS" | sudo -S docker ps --filter name=tp2-node1 --format '{{.Names}} {{.Status}}' 2>/dev/null || true
+    -v "\${R_BODY}:/model:ro" \
+    -v "\${R_DRAF}:/drafter:ro" \
+    --entrypoint vllm "\${R_IMG}" serve /model \
+    "\${RANK1_ARGS[@]}" \
+    > /tmp/tp2-node1.log 2>&1 || rc=\$?
+echo "DEBUG node1 docker run rc=\$rc"
+echo "\$SUDO_PASS" | sudo -S docker ps --filter name=tp2-node1 --format '{{.Names}} {{.Status}}' 2>/dev/null || true
 exit 0
 RSCRIPT
 )
 
 echo "== launching Node1 headless worker (rank1, profile=${PROFILE}) =="
 n1 bash -s <<EOF
-$(printf 'export SUDO_PASS=%q\n' "${SUDO_PASS}")
+$(printf 'export SUDO_PASS=%q\n' "$(sudo_pass)")
 export RHOST_IP='${NODE1_IP}'
 export R_NCCL_SOCKET_IFNAME='${NCCL_SOCKET_IFNAME}'
 export R_IB_HCA='${NODE1_IB_HCA:-${NCCL_IB_HCA}}'
@@ -73,13 +79,6 @@ export R_IB_GID='${NODE1_IB_GID_INDEX:-${NCCL_IB_GID_INDEX}}'
 export R_BODY='${BODY}'
 export R_DRAF='${DRAF}'
 export R_IMG='${IMG}'
-export R_MASTER_ADDR='${MASTER_ADDR}'
-export R_MASTER_PORT='${MASTER_PORT}'
-export R_MAXLEN='${MAXLEN}'
-export R_NUMSEQ='${NUMSEQ}'
-export R_BATCHED='${BATCHED}'
-export R_GMU='${GMU}'
-export R_NSPEC='${NSPEC}'
 ${REMOTE}
 EOF
 
@@ -91,6 +90,7 @@ build_vllm_args 0
 echo "== launching Node0 API server (rank0, profile=${PROFILE}) =="
 sdk docker rm -f tp2-node0 >/dev/null 2>&1 || true
 # shellcheck disable=SC2145
+rc=0
 sdk docker run -d --name tp2-node0 \
     --gpus all --ipc=host --shm-size=16g --net=host \
     "${DOCKER_ENV_EXTRA[@]}" \
@@ -98,8 +98,8 @@ sdk docker run -d --name tp2-node0 \
     "${DOCKER_MOUNTS[@]}" \
     --entrypoint vllm "${IMG}" serve /model \
     "${VLLM_ARGS[@]}" \
-    > /tmp/tp2-node0.log 2>&1
-echo "node0 docker run rc=$?"
+    > /tmp/tp2-node0.log 2>&1 || rc=$?
+echo "node0 docker run rc=$rc"
 
 # ------------------------------------------------------------------
 # wait for health

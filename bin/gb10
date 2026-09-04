@@ -68,7 +68,7 @@ down(){ "${SCRIPTS}/tp2-down"; }
 free_singles(){
   local n
   for n in node0 node1; do
-    "${SCRIPT_DIR}/gb10-single" free "$n"
+    "${REPO_DIR}/bin/gb10-single" free "$n"
   done
 }
 
