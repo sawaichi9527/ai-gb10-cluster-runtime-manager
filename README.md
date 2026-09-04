@@ -9,7 +9,7 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 
 ## Topology
 
-```
+```text
 Node0  spark-25d5  (192.168.23.215 / 10.0.101.101 interconnect)  rank0 = API server :1234
 Node1  spark-8095  (192.168.23.216 / 10.0.101.102 interconnect)  rank1 = headless worker
 ```
@@ -52,6 +52,53 @@ gb10 load                     # concurrent load
 gb10 doctor
 ```
 
+Current deployed TP2 profiles are 27B and 35B. `deepseek`, `qwen38flash`, and
+`glm53flash` are placeholders until their model/image/runtime contracts are actually validated.
+
+### Active TP2 architecture work (2026-09-04)
+
+Before DeepSeek-V4-Flash-0731 is deployed, the TP2 profile layer is being changed from
+hard-coded `set_profile()` logic to a **data-driven cluster profile registry**.
+
+Target layout:
+
+```text
+cluster-profiles.d/
+  27b.conf
+  35b.conf
+  deepseek.conf   # safe placeholder first
+```
+
+The purpose is to support **per-profile image selection and per-model vLLM arguments** while
+keeping rank0/rank1 orchestration, SSH, RoCE/NCCL, API/auth and resource exclusion generic.
+The existing 27B and 35B serves are the regression controls and must retain their effective
+launch behavior during the refactor.
+
+Implementation handoff for the remote-maintenance OpenCode agent:
+
+**`docs/DEEPSEEK_V4_TP2_PROFILE_REFACTOR_HANDOFF_2026-09-04.md`**
+
+Important separation of concerns:
+
+```text
+image / kernel patches
+        !=
+cluster profile / model settings
+        !=
+TP2 orchestration / networking
+```
+
+The DeepSeek image work is a **separate follow-up** after the structural refactor is merged and
+27B/35B are revalidated. Planned base/derived lineage:
+
+```text
+ghcr.io/aeon-7/aeon-vllm-ultimate:2026-08-24-v0.27.1-omni
+    -> 2026-09-04-v0.27.1-omni-ds4flash0731-r1
+```
+
+`deepseek` is intended as a **TP2 cluster profile** for DeepSeek-V4-Flash-0731, not as a
+single-node deployable runtime.
+
 ## Single-node CLI — `gb10-single`
 
 ```bash
@@ -71,7 +118,7 @@ Runtimes (`runtimes.d/*`):
 |---|---|---|---|
 | `27b.conf` | 27b | llm (exclusive) | deployed (MTP) |
 | `35b.conf` | 35b | llm (exclusive) | deployed (DFlash) |
-| `deepseek.conf` | deepseek | llm | **placeholder** |
+| `deepseek.conf` | deepseek | llm | **legacy placeholder; planned cluster-only target** |
 | `qwen38flash.conf` | qwen38flash | llm | **placeholder** |
 | `glm53flash.conf` | glm53flash | llm | **placeholder** |
 | `comfyui.conf` | comfyui | image | deployed (Node1, Flux 2 Dev) |
@@ -81,29 +128,36 @@ Runtimes (`runtimes.d/*`):
 node across groups (e.g. starting `minimaxh3` on node1 also stops a running
 `comfyui` there) and auto-tears down an active TP2 cluster first (做法 B).
 Placeholders print "not deployed yet"; they are CLI skeletons until models/versions land.
+The legacy single-node `deepseek` placeholder should not be promoted to a runnable stack; the
+planned DeepSeek-V4-Flash-0731 deployment belongs to the TP2 cluster profile registry.
 
 ## Config
 
-- `tp2.env` (gitignored) — cluster knobs: `IMG`, `MASTER_ADDR/PORT`, `NODE0/1_IP`,
-  `NCCL_*`, `API_PORT`, `VLLM_API_KEY`, `SUDO_PASS`. Copy from `tp2.env.example`.
+- `tp2.env` (gitignored) — cluster/site knobs: `MASTER_ADDR/PORT`, `NODE0/1_IP`,
+  `NCCL_*`, `API_PORT`, `VLLM_API_KEY`, `SUDO_PASS`. Today it also carries the shared
+  `IMG`; the active TP2 refactor will allow a cluster profile to override/select its own image.
 - Single-node compose files live under `~/docker-stacks/` on each host (referenced
   by `runtimes.d/*.conf` via `STACK_DIR`/`COMPOSE_FILE`).
 
 ## Non-negotiables (see docs/TP2_DEPLOYMENT_2026-08-30.md)
 
-- Same image slim **byte-identical on BOTH nodes** for TP2.
+- Same resolved image **byte-identical on BOTH nodes** for TP2.
 - RoCE v2 env as pinned in `tp2.env`/`tp2-common.sh`.
 - `--disable-custom-all-reduce` load-bearing cross-node.
-- `--kv-cache-dtype fp8_e4m3` (DFlash/DFlash2 non-causal drafter can't use NVFP4 KV).
+- Existing Qwen TP2 profiles use `--kv-cache-dtype fp8_e4m3`; do not generalize that into a
+  universal rule for future model families. DeepSeek gets its own profile policy.
+- Prefix caching remains deliberately OFF for TP2 27B DFlash2; see
+  `docs/ADR_2026-09-01_prefix_caching_dflash2.md`.
 - GB10 `nvidia-smi` is unreliable — trust engine metrics.
 
 ## Layout
 
-```
+```text
 bin/            gb10 (cluster), gb10-single (single-node)
 scripts/        tp2-up|down|status|smoke|load + tp2-common.sh
-runtimes.d/     *.conf runtime definitions (shared by gb10-single)
+runtimes.d/     *.conf single-node runtime definitions
+cluster-profiles.d/  planned data-driven TP2 profile registry (active refactor)
 state/          last-runtime markers (gitignored)
-docs/           TP2_DEPLOYMENT_2026-08-30.md + RESTRUCTURE notes
-tp2.env.example cluster config template (NEVER commit real values)
+docs/           deployment notes, ADRs, restructure + active handoffs
+tp2.env.example cluster/site config template (NEVER commit real values)
 ```
