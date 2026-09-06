@@ -94,7 +94,8 @@ tokens; TURN2 stop, 8 comp tokens. Spec-decode counters from `/metrics`:
 | C4 | 4×400 | 61.72 | 1600 | 25.92 | 6.48 |
 
 Controlling expectation (design §9.3): **native 256 > A' 512-padded probe ≈ 11.4 tok/s** —
-11.57 > 11.40 ⇒ **PASS**.
+11.57 > 11.40 ⇒ **PASS** *for the design's A'-relative gate only*. See §10 — this does NOT
+clear the r1-relative performance target, so the DSpark K5 performance dimension FAILs.
 
 ⚠ Comparative note: r1 baseline C1/C2/C4 = 18.7 / 39.2 / 67.2 agg were measured with
 **SPEC_METHOD=none** (no drafter, spec OFF). This run has DSpark K=5 ACTIVE by design, so
@@ -117,14 +118,27 @@ path (64K budget) through the new kernel.
 Not run — optional per design §9.5; mirrors upstream's (32,256,133). Skipped this round
 (GPU busy serving; no correctness dependence on the other gates).
 
-## §10 Phase A → B unlock status
+## §10 Phase A classification (2026-09-06, owner decision)
 
-| item | status |
+| dimension | verdict |
 |---|---|
-| design doc + §4 hunk diff on review branch | committed `bbcf024` (`docs/DEEPSEEK_V4_FLASH_0731_R2_DSPARK_K5_TOPK256_BACKPORT_DESIGN_2026-09-06.md`) |
-| §8 stale-JIT + dispatch gates green on **both** nodes (v2) | ✅ (8.1/8.2/8.3 PASS, incl. boot-produced artifact) |
-| §9 functional + perf gates | ✅ 9.1 / 9.2 / 9.3 / 9.4 PASS; 9.5 optional-skipped |
-| Phase B (AOT production image) | **UNLOCKED** — produced artifact must re-pass §8.1 + §8.2 before being pinned as the r2 image per §8 |
+| topk256 kernel / backport correctness | **PASS** (§8.1/8.2/8.3 green on both nodes, incl. boot-produced artifact) |
+| DSpark K5 functional | **PASS** (§9.1 boot / §9.2 gen + spec counters / §9.4 needles) |
+| DSpark K5 performance | **FAIL** (native topk256 C1 ≈ 11.57 tok/s essentially unchanged from A' padded-512 ≈ 11.4, materially below r1 no-spec baseline ≈ 18.7–20) |
+
+**Consequence: AOT production image remains BLOCKED** — Phase A did not clear the
+performance bar, so Phase B is NOT unlocked by this validation despite the functional
+PASS. The functional unlock is retained as the correctness/backport baseline for the
+next kernel or scheduling iteration; AOT build only resumes once a candidate meets the
+performance gate (kernel/backport + functional + performance all PASS) and re-passes
+§8.1 + §8.2 on the produced artifact.
+
+### 9.3 note (amended)
+Native topk256 C1 ≈ 11.57 tok/s ≈ A' padded-512 ≈ 11.4 tok/s — the topk=256 entry itself
+does not regress vs the A' shim, but both sit materially below the r1 no-spec C1 ≈
+18.7–20 tok/s. The DSpark K=5 spec-decode overhead (~3% acceptance) is the dominant
+gap; the §9.3 A'-relative expectation was met but the r1-relative performance target was
+NOT, which is the basis of the performance FAIL above.
 
 ## Artifacts retained
 
