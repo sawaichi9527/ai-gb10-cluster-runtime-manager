@@ -182,9 +182,18 @@ build_vllm_args(){
   [[ "${ENABLE_PREFIX_CACHING:-false}" == "true" ]] && VLLM_ARGS+=(--enable-prefix-caching) \
     || VLLM_ARGS+=(--no-enable-prefix-caching)
   VLLM_ARGS+=(--compilation-config "{\"cudagraph_mode\":\"${GRAPH_MODE:-FULL_AND_PIECEWISE}\"}")
-  # Speculative decode only when profile sets a method AND a drafter.
-  if [[ -n "${SPEC_METHOD:-}" && "${SPEC_METHOD}" != "none" && -n "${DRAF:-}" ]]; then
-    VLLM_ARGS+=(--speculative-config "{\"method\":\"${SPEC_METHOD}\",\"model\":\"/drafter\",\"num_speculative_tokens\":${NSPEC:-1},\"attention_backend\":\"${SPEC_ATTN_BACKEND:-TRITON_ATTN}\"}")
+  # Speculative decode — two profile-owned forms (method set, != "none"):
+  #   1) external drafter (DRAF set): model=/drafter + attention backend.
+  #   2) embedded / same-checkpoint draft (DRAF empty, e.g. DeepSeek-V4
+  #      MTP/DSpark): NO model key (SpeculativeConfig resolves the target
+  #      model path) and NO attention_backend (draft reuses the target
+  #      DSV4 attention backend).
+  if [[ -n "${SPEC_METHOD:-}" && "${SPEC_METHOD}" != "none" ]]; then
+    if [[ -n "${DRAF:-}" ]]; then
+      VLLM_ARGS+=(--speculative-config "{\"method\":\"${SPEC_METHOD}\",\"model\":\"/drafter\",\"num_speculative_tokens\":${NSPEC:-1},\"attention_backend\":\"${SPEC_ATTN_BACKEND:-TRITON_ATTN}\"}")
+    else
+      VLLM_ARGS+=(--speculative-config "{\"method\":\"${SPEC_METHOD}\",\"num_speculative_tokens\":${NSPEC:-1}}")
+    fi
   fi
   # API-serving rank only: parsers + optional tool choice.
   if [[ "$rank" == "0" ]]; then
@@ -244,7 +253,15 @@ inspect_profile(){
   echo "drafter:  ${DRAF:-<none>}"
   echo "args:     maxlen=${MAXLEN:-?} numseq=${NUMSEQ:-?} batched=${BATCHED:-?} gmu=${GMU:-?}"
   echo "kv:       ${KV_DTYPE:-fp8_e4m3}  attn: ${ATTN_BACKEND:-auto}  linear: ${LINEAR_BACKEND:-auto}  moe: ${MOE_BACKEND:-auto}"
-  echo "spec:     ${SPEC_METHOD:-none}$([[ -n "${DRAF:-}" && -n "${SPEC_METHOD:-}" && "${SPEC_METHOD}" != "none" ]] && echo " n=${NSPEC:-?} (model=/drafter)")"
+  local _spec_suffix=""
+  if [[ -n "${SPEC_METHOD:-}" && "${SPEC_METHOD}" != "none" ]]; then
+    if [[ -n "${DRAF:-}" ]]; then
+      _spec_suffix=" n=${NSPEC:-?} (external drafter /drafter)"
+    else
+      _spec_suffix=" n=${NSPEC:-?} (embedded, same checkpoint)"
+    fi
+  fi
+  echo "spec:     ${SPEC_METHOD:-none}${_spec_suffix}"
   echo "graph:    ${GRAPH_MODE:-FULL_AND_PIECEWISE}"
   echo "parsers:  reasoning=${REASONING_PARSER:-none} tool=${TOOL_CALL_PARSER:-none} autotool=${ENABLE_AUTO_TOOL_CHOICE:-false}"
   echo "prefill:  chunked=${ENABLE_CHUNKED_PREFILL:-true} prefix_cache=${ENABLE_PREFIX_CACHING:-false}"
