@@ -9,7 +9,7 @@ source "${SCRIPT_DIR}/tp2-common.sh"
 
 echo "== stopping Node1 (headless) =="
 n1 bash -s <<EOF
-$(printf 'export SUDO_PASS=%q\n' "${SUDO_PASS}")
+$(printf 'export SUDO_PASS=%q\n' "$(sudo_pass)")
 echo "\$SUDO_PASS" | sudo -S docker rm -f tp2-node1 >/dev/null 2>&1 || true
 echo "\$SUDO_PASS" | sudo -S docker ps -a --filter name=tp2-node1 --format '{{.Names}} {{.Status}}' 2>/dev/null || true
 exit 0
