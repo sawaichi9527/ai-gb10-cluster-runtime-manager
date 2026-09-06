@@ -134,10 +134,13 @@ load_profile(){
     return 0
   fi
   : "${BODY_REL:?cluster profile $PROFILE missing BODY_REL}"
-  : "${DRAF_REL:?cluster profile $PROFILE missing DRAF_REL}"
   : "${IMG:?cluster profile $PROFILE has no image; set IMAGE or tp2.env IMG}"
   BODY="${MODELS_BASE}/${BODY_REL}"
-  DRAF="${MODELS_BASE}/${DRAF_REL}"
+  # Drafter is optional (empty DRAF_REL => no /drafter mount, no spec decode).
+  DRAF=""
+  if [[ -n "${DRAF_REL:-}" ]]; then
+    DRAF="${MODELS_BASE}/${DRAF_REL}"
+  fi
   export PROFILE PROFILE_PLACEHOLDER
 }
 
@@ -165,20 +168,24 @@ build_vllm_args(){
     --master-port "${MASTER_PORT}"
     --quantization compressed-tensors
     --kv-cache-dtype "${KV_DTYPE:-fp8_e4m3}"
-    --attention-backend "${ATTN_BACKEND:-TRITON_ATTN}"
     --max-model-len "${MAXLEN}"
     --max-num-seqs "${NUMSEQ}"
     --max-num-batched-tokens "${BATCHED}"
     --gpu-memory-utilization "${GMU}"
     --disable-custom-all-reduce
   )
+  # Profile-owned backend overrides (empty/unset => vLLM auto default).
+  [[ -n "${ATTN_BACKEND:-}" ]] && VLLM_ARGS+=(--attention-backend "${ATTN_BACKEND}")
+  [[ -n "${LINEAR_BACKEND:-}" ]] && VLLM_ARGS+=(--linear-backend "${LINEAR_BACKEND}")
+  [[ -n "${MOE_BACKEND:-}" ]] && VLLM_ARGS+=(--moe-backend "${MOE_BACKEND}")
   [[ "${ENABLE_CHUNKED_PREFILL:-true}" == "true" ]] && VLLM_ARGS+=(--enable-chunked-prefill)
   [[ "${ENABLE_PREFIX_CACHING:-false}" == "true" ]] && VLLM_ARGS+=(--enable-prefix-caching) \
     || VLLM_ARGS+=(--no-enable-prefix-caching)
-  VLLM_ARGS+=(
-    --compilation-config "{\"cudagraph_mode\":\"${GRAPH_MODE:-FULL_AND_PIECEWISE}\"}"
-    --speculative-config "{\"method\":\"${SPEC_METHOD:-dflash}\",\"model\":\"/drafter\",\"num_speculative_tokens\":${NSPEC},\"attention_backend\":\"${SPEC_ATTN_BACKEND:-TRITON_ATTN}\"}"
-  )
+  VLLM_ARGS+=(--compilation-config "{\"cudagraph_mode\":\"${GRAPH_MODE:-FULL_AND_PIECEWISE}\"}")
+  # Speculative decode only when profile sets a method AND a drafter.
+  if [[ -n "${SPEC_METHOD:-}" && "${SPEC_METHOD}" != "none" && -n "${DRAF:-}" ]]; then
+    VLLM_ARGS+=(--speculative-config "{\"method\":\"${SPEC_METHOD}\",\"model\":\"/drafter\",\"num_speculative_tokens\":${NSPEC:-1},\"attention_backend\":\"${SPEC_ATTN_BACKEND:-TRITON_ATTN}\"}")
+  fi
   # API-serving rank only: parsers + optional tool choice.
   if [[ "$rank" == "0" ]]; then
     [[ -n "${REASONING_PARSER:-}" ]] && VLLM_ARGS+=(--reasoning-parser "${REASONING_PARSER}")
@@ -211,10 +218,8 @@ build_docker_env(){
     -e "NCCL_IB_GID_INDEX=${ib_gid}"
     -e "PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True"
   )
-  DOCKER_MOUNTS=(
-    -v "${BODY}:/model:ro"
-    -v "${DRAF}:/drafter:ro"
-  )
+  DOCKER_MOUNTS=(-v "${BODY}:/model:ro")
+  [[ -n "${DRAF:-}" ]] && DOCKER_MOUNTS+=(-v "${DRAF}:/drafter:ro")
   export DOCKER_ENV_EXTRA DOCKER_MOUNTS
 }
 
@@ -236,10 +241,10 @@ inspect_profile(){
     return 0
   fi
   echo "body:     ${BODY}"
-  echo "drafter:  ${DRAF}"
-  echo "args:     maxlen=${MAXLEN:-?} numseq=${NUMSEQ:-?} batched=${BATCHED:-?} gmu=${GMU:-?} nspec=${NSPEC:-?}"
-  echo "kv:       ${KV_DTYPE:-fp8_e4m3}  attn: ${ATTN_BACKEND:-TRITON_ATTN}"
-  echo "spec:     method=${SPEC_METHOD:-dflash} n=${NSPEC:-?} (model=/drafter)"
+  echo "drafter:  ${DRAF:-<none>}"
+  echo "args:     maxlen=${MAXLEN:-?} numseq=${NUMSEQ:-?} batched=${BATCHED:-?} gmu=${GMU:-?}"
+  echo "kv:       ${KV_DTYPE:-fp8_e4m3}  attn: ${ATTN_BACKEND:-auto}  linear: ${LINEAR_BACKEND:-auto}  moe: ${MOE_BACKEND:-auto}"
+  echo "spec:     ${SPEC_METHOD:-none}$([[ -n "${DRAF:-}" && -n "${SPEC_METHOD:-}" && "${SPEC_METHOD}" != "none" ]] && echo " n=${NSPEC:-?} (model=/drafter)")"
   echo "graph:    ${GRAPH_MODE:-FULL_AND_PIECEWISE}"
   echo "parsers:  reasoning=${REASONING_PARSER:-none} tool=${TOOL_CALL_PARSER:-none} autotool=${ENABLE_AUTO_TOOL_CHOICE:-false}"
   echo "prefill:  chunked=${ENABLE_CHUNKED_PREFILL:-true} prefix_cache=${ENABLE_PREFIX_CACHING:-false}"
@@ -259,7 +264,9 @@ n1(){  # runs a script's body on Node1 via ssh; args: [bash -c '...']
 node_up(){
   echo "INFO: NODE0=$(hostname) NODE1=${NODE1_SSH_USER}@${NODE1_IP}"
   [[ -d "$BODY" ]] || die "missing body model: $BODY"
-  [[ -d "$DRAF" ]] || die "missing drafter: $DRAF"
+  if [[ -n "${DRAF:-}" ]]; then
+    [[ -d "$DRAF" ]] || die "missing drafter: $DRAF"
+  fi
   if ! n1 true; then
     echo "ERROR: cannot reach Node1 via ssh (${NODE1_SSH_USER}@${NODE1_IP} key ${NODE1_SSH_KEY})" >&2
     exit 1
