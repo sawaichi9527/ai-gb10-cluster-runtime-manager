@@ -58,8 +58,7 @@ echo "\$SUDO_PASS" | sudo -S docker run -d --name tp2-node1 \
     -e "NCCL_IB_GID_INDEX=\${R_IB_GID}" \
     -e "PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True" \
     --device /dev/infiniband --cap-add IPC_LOCK --ulimit memlock=-1:-1 \
-    -v "\${R_BODY}:/model:ro" \
-    -v "\${R_DRAF}:/drafter:ro" \
+$(if [[ -n "${DRAF:-}" ]]; then printf '%s ' '-v "${R_DRAF}:/drafter:ro"'; fi)-v "\${R_BODY}:/model:ro" \
     --entrypoint vllm "\${R_IMG}" serve /model \
     "\${RANK1_ARGS[@]}" \
     > /tmp/tp2-node1.log 2>&1 || rc=\$?
@@ -70,7 +69,7 @@ RSCRIPT
 )
 
 echo "== launching Node1 headless worker (rank1, profile=${PROFILE}) =="
-n1 bash -s <<EOF
+cat > /tmp/tp2-rank1-stdin.sh <<EOF
 $(printf 'export SUDO_PASS=%q\n' "$(sudo_pass)")
 export RHOST_IP='${NODE1_IP}'
 export R_NCCL_SOCKET_IFNAME='${NCCL_SOCKET_IFNAME}'
@@ -81,6 +80,8 @@ export R_DRAF='${DRAF}'
 export R_IMG='${IMG}'
 ${REMOTE}
 EOF
+sha256sum /tmp/tp2-rank1-stdin.sh
+n1 bash -s < /tmp/tp2-rank1-stdin.sh
 
 # ------------------------------------------------------------------
 # Node0 API server (rank0)
