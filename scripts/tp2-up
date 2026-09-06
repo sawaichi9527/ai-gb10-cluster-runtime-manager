@@ -50,16 +50,16 @@ echo "\$SUDO_PASS" | sudo -S docker rm -f tp2-node1 >/dev/null 2>&1 || true
 RANK1_ARGS=( ${_RANK1_ARGV_LITERAL} )
 rc=0
 echo "\$SUDO_PASS" | sudo -S docker run -d --name tp2-node1 \
-    --gpus all --ipc=host --shm-size=16g --net=host \
+    --gpus all --ipc=host --shm-size="${SHM_SIZE:-16g}" --net=host \
     -e "VLLM_HOST_IP=\${RHOST_IP}" \
     -e "NCCL_SOCKET_IFNAME=\${R_NCCL_SOCKET_IFNAME}" \
     -e "GLOO_SOCKET_IFNAME=\${R_NCCL_SOCKET_IFNAME}" \
     -e "NCCL_IB_HCA=\${R_IB_HCA}" \
     -e "NCCL_IB_GID_INDEX=\${R_IB_GID}" \
     -e "PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True" \
-    --device /dev/infiniband --cap-add IPC_LOCK --ulimit memlock=-1:-1 \
-$(if [[ -n "${DRAF:-}" ]]; then printf '%s ' '-v "${R_DRAF}:/drafter:ro"'; fi)-v "\${R_BODY}:/model:ro" \
-    --entrypoint vllm "\${R_IMG}" serve /model \
+    --device /dev/infiniband --cap-add IPC_LOCK --ulimit memlock=-1:-1 --ulimit stack=67108864 \
+$(if [[ -n "${EXTRA_ENV+x}" ]]; then for kv in "${EXTRA_ENV[@]}"; do printf -- '-e %q ' "$kv"; done; fi)$(if [[ -n "${DRAF:-}" ]]; then printf '%s ' '-v "${R_DRAF}:/drafter:ro"'; fi)-v "\${R_BODY}:/model:ro" \
+$(if [[ -n "${EXTRA_MOUNTS+x}" ]]; then for m in "${EXTRA_MOUNTS[@]}"; do printf '%q ' "$m"; done; fi)--entrypoint vllm "\${R_IMG}" serve /model \
     "\${RANK1_ARGS[@]}" \
     > /tmp/tp2-node1.log 2>&1 || rc=\$?
 echo "DEBUG node1 docker run rc=\$rc"
@@ -93,9 +93,9 @@ sdk docker rm -f tp2-node0 >/dev/null 2>&1 || true
 # shellcheck disable=SC2145
 rc=0
 sdk docker run -d --name tp2-node0 \
-    --gpus all --ipc=host --shm-size=16g --net=host \
+    --gpus all --ipc=host --shm-size="${SHM_SIZE:-16g}" --net=host \
     "${DOCKER_ENV_EXTRA[@]}" \
-    --device /dev/infiniband --cap-add IPC_LOCK --ulimit memlock=-1:-1 \
+    --device /dev/infiniband --cap-add IPC_LOCK --ulimit memlock=-1:-1 --ulimit stack=67108864 \
     "${DOCKER_MOUNTS[@]}" \
     --entrypoint vllm "${IMG}" serve /model \
     "${VLLM_ARGS[@]}" \

@@ -114,7 +114,10 @@ load_profile(){
         KV_DTYPE ATTN_BACKEND LINEAR_BACKEND MOE_BACKEND \
         SPEC_METHOD SPEC_ATTN_BACKEND NSPEC GRAPH_MODE \
         REASONING_PARSER TOOL_CALL_PARSER ENABLE_AUTO_TOOL_CHOICE \
-        ENABLE_CHUNKED_PREFILL ENABLE_PREFIX_CACHING 2>/dev/null || true
+        ENABLE_CHUNKED_PREFILL ENABLE_PREFIX_CACHING \
+        QUANTIZATION SPEC_CONFIG CUDAGRAPH_CAPTURE \
+        EXTRA_ARGS EXTRA_ENV EXTRA_MOUNTS \
+        DISABLE_CUSTOM_ALL_REDUCE SHM_SIZE 2>/dev/null || true
   # shellcheck disable=SC1090
   source "$conf"
   PROFILE="${PROFILE_ID:?cluster profile missing PROFILE_ID}"
@@ -166,14 +169,26 @@ build_vllm_args(){
     --node-rank "${rank}"
     --master-addr "${MASTER_ADDR}"
     --master-port "${MASTER_PORT}"
-    --quantization compressed-tensors
     --kv-cache-dtype "${KV_DTYPE:-fp8_e4m3}"
     --max-model-len "${MAXLEN}"
     --max-num-seqs "${NUMSEQ}"
     --max-num-batched-tokens "${BATCHED}"
     --gpu-memory-utilization "${GMU}"
-    --disable-custom-all-reduce
   )
+  # Quantization flag is profile-overridable (data stays in the conf).
+  #   unset          -> historical default: --quantization compressed-tensors
+  #   QUANTIZATION=X -> --quantization X
+  #   QUANTIZATION=none -> omit the flag entirely (checkpoints whose HF
+  #   config already carries their own quant method).
+  if [[ -n "${QUANTIZATION:-}" && "${QUANTIZATION}" != "none" ]]; then
+    VLLM_ARGS+=(--quantization "${QUANTIZATION}")
+  elif [[ -z "${QUANTIZATION:-}" ]]; then
+    VLLM_ARGS+=(--quantization compressed-tensors)
+  fi
+  # Custom all-reduce disable is the historical behavior; a profile may opt
+  # out (DISABLE_CUSTOM_ALL_REDUCE=false) to follow a recipe contract.
+  [[ "${DISABLE_CUSTOM_ALL_REDUCE:-true}" == "true" ]] \
+    && VLLM_ARGS+=(--disable-custom-all-reduce)
   # Profile-owned backend overrides (empty/unset => vLLM auto default).
   [[ -n "${ATTN_BACKEND:-}" ]] && VLLM_ARGS+=(--attention-backend "${ATTN_BACKEND}")
   [[ -n "${LINEAR_BACKEND:-}" ]] && VLLM_ARGS+=(--linear-backend "${LINEAR_BACKEND}")
@@ -182,8 +197,14 @@ build_vllm_args(){
   [[ "${ENABLE_PREFIX_CACHING:-false}" == "true" ]] && VLLM_ARGS+=(--enable-prefix-caching) \
     || VLLM_ARGS+=(--no-enable-prefix-caching)
   VLLM_ARGS+=(--compilation-config "{\"cudagraph_mode\":\"${GRAPH_MODE:-FULL_AND_PIECEWISE}\"}")
-  # Speculative decode only when profile sets a method AND a drafter.
-  if [[ -n "${SPEC_METHOD:-}" && "${SPEC_METHOD}" != "none" && -n "${DRAF:-}" ]]; then
+  [[ -n "${CUDAGRAPH_CAPTURE:-}" ]] \
+    && VLLM_ARGS+=(--max-cudagraph-capture-size "${CUDAGRAPH_CAPTURE}")
+  # Speculative decode: a profile-owned raw SPEC_CONFIG JSON wins over the
+  # template (e.g. same-model DSpark drafts that need no /drafter mount);
+  # the template path stays the default for /drafter-style profiles.
+  if [[ -n "${SPEC_CONFIG:-}" ]]; then
+    VLLM_ARGS+=(--speculative-config "${SPEC_CONFIG}")
+  elif [[ -n "${SPEC_METHOD:-}" && "${SPEC_METHOD}" != "none" && -n "${DRAF:-}" ]]; then
     VLLM_ARGS+=(--speculative-config "{\"method\":\"${SPEC_METHOD}\",\"model\":\"/drafter\",\"num_speculative_tokens\":${NSPEC:-1},\"attention_backend\":\"${SPEC_ATTN_BACKEND:-TRITON_ATTN}\"}")
   fi
   # API-serving rank only: parsers + optional tool choice.
@@ -193,6 +214,8 @@ build_vllm_args(){
     [[ "${ENABLE_AUTO_TOOL_CHOICE:-false}" == "true" ]] && VLLM_ARGS+=(--enable-auto-tool-choice)
   fi
   VLLM_ARGS+=(--trust-remote-code)
+  # Verbatim profile-owned extras (bash array EXTRA_ARGS in the conf).
+  [[ -n "${EXTRA_ARGS+x}" ]] && VLLM_ARGS+=("${EXTRA_ARGS[@]}")
   if [[ "$rank" == "0" && "${VLLM_API_KEY:-EMPTY}" != "EMPTY" && -n "${VLLM_API_KEY:-}" ]]; then
     VLLM_ARGS+=(--api-key "${VLLM_API_KEY}")
   fi
@@ -218,8 +241,13 @@ build_docker_env(){
     -e "NCCL_IB_GID_INDEX=${ib_gid}"
     -e "PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True"
   )
+  # Profile-owned env/mount extras (arrays EXTRA_ENV / EXTRA_MOUNTS in the
+  # conf). KEY=VAL entries are passed through verbatim; mount entries are
+  # full "-v src:dst[:opts]" tokens. Unset => no extras (unchanged behavior).
+  [[ -n "${EXTRA_ENV+x}" ]] && DOCKER_ENV_EXTRA+=("${EXTRA_ENV[@]}")
   DOCKER_MOUNTS=(-v "${BODY}:/model:ro")
   [[ -n "${DRAF:-}" ]] && DOCKER_MOUNTS+=(-v "${DRAF}:/drafter:ro")
+  [[ -n "${EXTRA_MOUNTS+x}" ]] && DOCKER_MOUNTS+=("${EXTRA_MOUNTS[@]}")
   export DOCKER_ENV_EXTRA DOCKER_MOUNTS
 }
 
@@ -244,7 +272,10 @@ inspect_profile(){
   echo "drafter:  ${DRAF:-<none>}"
   echo "args:     maxlen=${MAXLEN:-?} numseq=${NUMSEQ:-?} batched=${BATCHED:-?} gmu=${GMU:-?}"
   echo "kv:       ${KV_DTYPE:-fp8_e4m3}  attn: ${ATTN_BACKEND:-auto}  linear: ${LINEAR_BACKEND:-auto}  moe: ${MOE_BACKEND:-auto}"
-  echo "spec:     ${SPEC_METHOD:-none}$([[ -n "${DRAF:-}" && -n "${SPEC_METHOD:-}" && "${SPEC_METHOD}" != "none" ]] && echo " n=${NSPEC:-?} (model=/drafter)")"
+  echo "quant:    ${QUANTIZATION:-<default: compressed-tensors>}$( [[ "${QUANTIZATION:-}" == "none" ]] && echo " (flag omitted)" || true )"
+  echo "capture:  ${CUDAGRAPH_CAPTURE:-<engine default>}"
+  echo "extras:   args=$([[ -n "${EXTRA_ARGS+x}" ]] && echo "${#EXTRA_ARGS[@]}" || echo 0) env=$([[ -n "${EXTRA_ENV+x}" ]] && echo "${#EXTRA_ENV[@]}" || echo 0) mounts=$([[ -n "${EXTRA_MOUNTS+x}" ]] && echo "${#EXTRA_MOUNTS[@]}" || echo 0)"
+  echo "spec:     ${SPEC_METHOD:-none}$([[ -n "${DRAF:-}" && -n "${SPEC_METHOD:-}" && "${SPEC_METHOD}" != "none" ]] && echo " n=${NSPEC:-?} (model=/drafter)")$([[ -n "${SPEC_CONFIG:-}" ]] && echo " (SPEC_CONFIG override)")"
   echo "graph:    ${GRAPH_MODE:-FULL_AND_PIECEWISE}"
   echo "parsers:  reasoning=${REASONING_PARSER:-none} tool=${TOOL_CALL_PARSER:-none} autotool=${ENABLE_AUTO_TOOL_CHOICE:-false}"
   echo "prefill:  chunked=${ENABLE_CHUNKED_PREFILL:-true} prefix_cache=${ENABLE_PREFIX_CACHING:-false}"
