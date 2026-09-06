@@ -58,7 +58,7 @@ echo "\$SUDO_PASS" | sudo -S docker run -d --name tp2-node1 \
     -e "NCCL_IB_GID_INDEX=\${R_IB_GID}" \
     -e "PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True" \
     --device /dev/infiniband --cap-add IPC_LOCK --ulimit memlock=-1:-1 \
-$(if [[ -n "${DRAF:-}" ]]; then printf '%s ' '-v "${R_DRAF}:/drafter:ro"'; fi)-v "\${R_BODY}:/model:ro" \
+$(if [[ -n "${A1_SWA_PATCH:-}" ]]; then printf '%s ' '-v "/tmp/a1/sparse_swa.py:/usr/local/lib/python3.12/site-packages/vllm/v1/attention/backends/mla/sparse_swa.py:ro"'; fi)$(if [[ -n "${DRAF:-}" ]]; then printf '%s ' '-v "${R_DRAF}:/drafter:ro"'; fi)-v "\${R_BODY}:/model:ro" \
     --entrypoint vllm "\${R_IMG}" serve /model \
     "\${RANK1_ARGS[@]}" \
     > /tmp/tp2-node1.log 2>&1 || rc=\$?
@@ -88,6 +88,11 @@ n1 bash -s < /tmp/tp2-rank1-stdin.sh
 # ------------------------------------------------------------------
 build_docker_env 0
 build_vllm_args 0
+if [[ -n "${A1_SWA_PATCH:-}" ]]; then
+  # A1 probe only: bind-mount the patched sparse_swa.py (DSV4 256->512 snap).
+  # NOT the final r2 fix; revert this hook before B.
+  DOCKER_MOUNTS+=( -v "/tmp/a1/sparse_swa.py:/usr/local/lib/python3.12/site-packages/vllm/v1/attention/backends/mla/sparse_swa.py:ro" )
+fi
 echo "== launching Node0 API server (rank0, profile=${PROFILE}) =="
 sdk docker rm -f tp2-node0 >/dev/null 2>&1 || true
 # shellcheck disable=SC2145
