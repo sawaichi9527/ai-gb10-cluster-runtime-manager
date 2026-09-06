@@ -163,3 +163,44 @@ existing destination; the loader fails loudly (KeyError) on any mapping miss; th
 clean. **The K5 acceptance deficit (~3.27%) is not attributable to the loader.** Per user
 directive, the "drafter quality" line of investigation remains blocked until checklist #5
 closes in the next TP2 maintenance window.
+
+## Addendum: tonyd2wild Patch 4 comparison (2026-09-06, byte + semantic)
+
+**Source.** `tonyd2wild/DeepSeek-v4-Flash-0731-DSpark-1M-NVFP4-KV-2x-DGX-Spark`,
+`patches/0004-dspark-shared-expert-gate-up-proj.patch` (2026-07-31) +
+`DSPARK-SHARED-EXPERT-FIX.md`. Measured there: acceptance 25.7% → 60.2%, decode 32.7 →
+55.4 tok/s (2× DGX Spark, TP=2, same flags).
+
+**Patch target (byte-wise).** `vllm/v1/spec_decode/dspark.py`,
+`_STACKED_PARAM_NAME_MAPPING` — adds two rows:
+`("shared_experts.gate_up_proj", ".shared_experts.w1", 0)` /
+`("shared_experts.gate_up_proj", ".shared_experts.w3", 1)`.
+The patched loader's bug: mapping had ONLY the two attention rows, and unknown names fell
+through `params_dict.get(name)` + `logger.debug("Skipping unknown DSpark weight")` — a
+**silent drop** at INFO: 12 shared-expert tensors (w1/w3 weight+scale_inv × 3 stages) lost →
+always-on shared expert uninitialised in every draft stage → coherent but wrong drafts.
+
+**Installed build (byte-wise).** The patch's target file **does not exist** in this image
+(no `dspark` under `vllm/v1/spec_decode/`). The installed loader is
+`vllm/models/deepseek_v4/nvidia/dspark.py` — a newer lineage that also carries upstream
+vLLM commit `76bf552` (2026-07-23, shared-expert TP>8 block-quant padding:
+`pad_shared_expert` / `_pad_shared_expert_weight`, present at dspark.py:433-436). The patch
+is not applicable as-is.
+
+**Semantic comparison.**
+
+| Patch 4 intent | Installed build | Verdict |
+|---|---|---|
+| shared w1 → gate_up_proj shard 0 | `("gate_up_proj","w1",0)` dspark.py:402 | **present** |
+| shared w3 → gate_up_proj shard 1 | `("gate_up_proj","w3",1)` dspark.py:403 | **present** |
+| `markov_w1` must not match the `w1` shard rule | `_remap_dspark_name` `head_prefixes` early-exit (`markov_head.*` → `model.*`) **before** the stacked loop | **present, earlier stage** |
+| routed experts untouched (early exit on `.experts.`) | `.experts.` branch precedes the stacked loop (dspark.py:439-460) | **present** |
+| `.scale` rewrite before mapping; `_EXPERT_SCALE_RE` digit-anchored so shared takes `.weight_scale_inv` | identical regex + identical order (dspark.py:423-430) | **present** |
+| loud failure (patched doc cites KeyError at dspark.py:1086) | `params_dict[name]` direct at :471/:485, **no `.get()` fallback, no "Skipping unknown" anywhere** (grep-verified) | **stronger** — silent drop is structurally impossible |
+
+**Only difference.** Installed rows anchor bare `w1`/`w3` instead of the full
+`.shared_experts.wN` segment. Safe in this flow because the markov-head early-exit (step 2)
+and the routed-expert branch (step 5) remove every other `w1`/`w3` candidate before the
+stacked loop; the F3 simulation proved zero unexpected matches across all 4,705 keys.
+
+**Verdict: NO semantic gap. Patch 4 NOT applied** (per directive: apply only on a proven gap).
