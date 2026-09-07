@@ -66,7 +66,7 @@ The TP2 profile layer is a **data-driven cluster profile registry** (see
 ```text
 cluster-profiles.d/
   27b.conf          # deployed + live-validated (world_size=2, maxlen 262144)
-  35b.conf          # deployed + live-validated (world_size=2, maxlen 131072)
+  35b.conf          # deployed + live-validated (world_size=2, maxlen 262144)
   deepseek.conf     # safe placeholder (not deployed)
 ```
 
