@@ -31,7 +31,7 @@ cat <<'HELP'
 gb10 - DGX Spark GB10 2-node cluster (TP2) helper
 
   gb10 list
-  gb10 use <profile>          # 27b (default) | 35b | deepseek | qwen38flash | glm53flash
+  gb10 use <profile>          # 27b (default) | 35b | deepseek | qwen38flash
   gb10 start <profile>        # same as use (cluster profiles are exclusive)
   gb10 stop                   # stop & remove both cluster containers
   gb10 restart [profile]      # down then up
@@ -48,7 +48,7 @@ Single-node runtimes are managed with the sibling command: gb10-single
 HELP
 }
 
-PROFILES_BY_NAME="27b:35b:deepseek:qwen38flash:glm53flash"
+PROFILES_BY_NAME="27b:35b:deepseek:qwen38flash"
 
 valid_profile(){
   case ":$PROFILES_BY_NAME:" in
@@ -83,14 +83,13 @@ case "${1:-help}" in
     echo "  27b  [default]  Qwen3.8 27B (body + DFlash2 drafter)"
     echo "  35b             Qwen3.6 35B-A3B (body + DFlash drafter)"
     echo "  deepseek        DeepSeek-V4-Flash-0731 (NVFP4, TP2, experimental r1)"
-    echo "  qwen38flash     (placeholder - not deployed)"
-    echo "  glm53flash      (placeholder - not deployed)"
+    echo "  qwen38flash     Qwen3.8 Flash-Next 125B NVFP4 (MTP3, official vllm image)"
     ;;
   use|start)
     P="${2:-27b}"
     valid_profile "$P" || die "unknown profile: $P"
     case "$P" in
-      27b|35b|deepseek)
+      27b|35b|deepseek|qwen38flash)
         down
         up "$P"
         ;;
@@ -106,7 +105,7 @@ case "${1:-help}" in
     P="${2:-$(cat "${REPO_DIR}/state/last-cluster-profile" 2>/dev/null || echo 27b)}"
     valid_profile "$P" || die "unknown profile: $P"
     case "$P" in
-      27b|35b|deepseek) down; up "$P" ;;
+      27b|35b|deepseek|qwen38flash) down; up "$P" ;;
       *) die "profile '$P' not deployed yet (placeholder)" ;;
     esac
     ;;

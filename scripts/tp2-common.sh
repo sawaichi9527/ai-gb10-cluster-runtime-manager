@@ -114,7 +114,10 @@ load_profile(){
         KV_DTYPE ATTN_BACKEND LINEAR_BACKEND MOE_BACKEND \
         SPEC_METHOD SPEC_ATTN_BACKEND NSPEC GRAPH_MODE \
         REASONING_PARSER TOOL_CALL_PARSER ENABLE_AUTO_TOOL_CHOICE \
-        ENABLE_CHUNKED_PREFILL ENABLE_PREFIX_CACHING 2>/dev/null || true
+        ENABLE_CHUNKED_PREFILL ENABLE_PREFIX_CACHING \
+        QUANT COMPILATION_JSON LOAD_FORMAT SAFETENSORS_LOAD_STRATEGY \
+        ENABLE_FLASHINFER_AUTOTUNE DISTRIBUTED_EXECUTOR_BACKEND \
+        EXTRA_DOCKER_ENV DOCKER_RUN_EXTRA 2>/dev/null || true
   # shellcheck disable=SC1090
   source "$conf"
   PROFILE="${PROFILE_ID:?cluster profile missing PROFILE_ID}"
@@ -166,7 +169,7 @@ build_vllm_args(){
     --node-rank "${rank}"
     --master-addr "${MASTER_ADDR}"
     --master-port "${MASTER_PORT}"
-    --quantization compressed-tensors
+    --quantization "${QUANT:-compressed-tensors}"
     --kv-cache-dtype "${KV_DTYPE:-fp8_e4m3}"
     --max-model-len "${MAXLEN}"
     --max-num-seqs "${NUMSEQ}"
@@ -178,14 +181,28 @@ build_vllm_args(){
   [[ -n "${ATTN_BACKEND:-}" ]] && VLLM_ARGS+=(--attention-backend "${ATTN_BACKEND}")
   [[ -n "${LINEAR_BACKEND:-}" ]] && VLLM_ARGS+=(--linear-backend "${LINEAR_BACKEND}")
   [[ -n "${MOE_BACKEND:-}" ]] && VLLM_ARGS+=(--moe-backend "${MOE_BACKEND}")
+  [[ -n "${DISTRIBUTED_EXECUTOR_BACKEND:-}" ]] && VLLM_ARGS+=(--distributed-executor-backend "${DISTRIBUTED_EXECUTOR_BACKEND}")
   [[ "${ENABLE_CHUNKED_PREFILL:-true}" == "true" ]] && VLLM_ARGS+=(--enable-chunked-prefill)
   [[ "${ENABLE_PREFIX_CACHING:-false}" == "true" ]] && VLLM_ARGS+=(--enable-prefix-caching) \
     || VLLM_ARGS+=(--no-enable-prefix-caching)
-  VLLM_ARGS+=(--compilation-config "{\"cudagraph_mode\":\"${GRAPH_MODE:-FULL_AND_PIECEWISE}\"}")
-  # Speculative decode only when profile sets a method AND a drafter.
-  if [[ -n "${SPEC_METHOD:-}" && "${SPEC_METHOD}" != "none" && -n "${DRAF:-}" ]]; then
-    VLLM_ARGS+=(--speculative-config "{\"method\":\"${SPEC_METHOD}\",\"model\":\"/drafter\",\"num_speculative_tokens\":${NSPEC:-1},\"attention_backend\":\"${SPEC_ATTN_BACKEND:-TRITON_ATTN}\"}")
+  if [[ -n "${COMPILATION_JSON:-}" ]]; then
+    VLLM_ARGS+=(--compilation-config "${COMPILATION_JSON}")
+  else
+    VLLM_ARGS+=(--compilation-config "{\"cudagraph_mode\":\"${GRAPH_MODE:-FULL_AND_PIECEWISE}\"}")
   fi
+  # Speculative decode when the profile sets a method (not "none"). The
+  # speculative model ("model":/drafter) is only attached when a drafter
+  # exists; internal methods like MTP carry no separate model.
+  if [[ -n "${SPEC_METHOD:-}" && "${SPEC_METHOD}" != "none" ]]; then
+    if [[ -n "${DRAF:-}" ]]; then
+      VLLM_ARGS+=(--speculative-config "{\"method\":\"${SPEC_METHOD}\",\"model\":\"/drafter\",\"num_speculative_tokens\":${NSPEC:-1},\"attention_backend\":\"${SPEC_ATTN_BACKEND:-TRITON_ATTN}\"}")
+    else
+      VLLM_ARGS+=(--speculative-config "{\"method\":\"${SPEC_METHOD}\",\"num_speculative_tokens\":${NSPEC:-1},\"attention_backend\":\"${SPEC_ATTN_BACKEND:-TRITON_ATTN}\"}")
+    fi
+  fi
+  [[ -n "${LOAD_FORMAT:-}" ]] && VLLM_ARGS+=(--load-format "${LOAD_FORMAT}")
+  [[ -n "${SAFETENSORS_LOAD_STRATEGY:-}" ]] && VLLM_ARGS+=(--safetensors-load-strategy "${SAFETENSORS_LOAD_STRATEGY}")
+  [[ "${ENABLE_FLASHINFER_AUTOTUNE:-true}" == "false" ]] && VLLM_ARGS+=(--no-enable-flashinfer-autotune)
   # API-serving rank only: parsers + optional tool choice.
   if [[ "$rank" == "0" ]]; then
     [[ -n "${REASONING_PARSER:-}" ]] && VLLM_ARGS+=(--reasoning-parser "${REASONING_PARSER}")
@@ -218,6 +235,12 @@ build_docker_env(){
     -e "NCCL_IB_GID_INDEX=${ib_gid}"
     -e "PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True"
   )
+  # Profile-owned extra env (e.g. VLLM_PLE_CPU_OFFLOAD=1) applied to BOTH
+  # ranks; the remote rank1 heredoc in tp2-up expands the same tokens.
+  local _e
+  for _e in ${EXTRA_DOCKER_ENV:-}; do
+    DOCKER_ENV_EXTRA+=(-e "${_e}")
+  done
   DOCKER_MOUNTS=(-v "${BODY}:/model:ro")
   [[ -n "${DRAF:-}" ]] && DOCKER_MOUNTS+=(-v "${DRAF}:/drafter:ro")
   export DOCKER_ENV_EXTRA DOCKER_MOUNTS
@@ -244,8 +267,15 @@ inspect_profile(){
   echo "drafter:  ${DRAF:-<none>}"
   echo "args:     maxlen=${MAXLEN:-?} numseq=${NUMSEQ:-?} batched=${BATCHED:-?} gmu=${GMU:-?}"
   echo "kv:       ${KV_DTYPE:-fp8_e4m3}  attn: ${ATTN_BACKEND:-auto}  linear: ${LINEAR_BACKEND:-auto}  moe: ${MOE_BACKEND:-auto}"
-  echo "spec:     ${SPEC_METHOD:-none}$([[ -n "${DRAF:-}" && -n "${SPEC_METHOD:-}" && "${SPEC_METHOD}" != "none" ]] && echo " n=${NSPEC:-?} (model=/drafter)")"
+  echo "quant:    ${QUANT:-compressed-tensors}"
+  echo "spec:     ${SPEC_METHOD:-none}$([[ -n "${SPEC_METHOD:-}" && "${SPEC_METHOD}" != "none" ]] && echo " n=${NSPEC:-?} ($([[ -n "${DRAF:-}" ]] && echo "model=/drafter" || echo "internal") attn=${SPEC_ATTN_BACKEND:-TRITON_ATTN})")"
   echo "graph:    ${GRAPH_MODE:-FULL_AND_PIECEWISE}"
+  if [[ -n "${COMPILATION_JSON:-}" ]]; then
+    echo "compile:  ${COMPILATION_JSON}"
+  fi
+  echo "load:     ${LOAD_FORMAT:-auto}${SAFETENSORS_LOAD_STRATEGY:+ (${SAFETENSORS_LOAD_STRATEGY})}"
+  echo "dl:       executor=${DISTRIBUTED_EXECUTOR_BACKEND:-default} flashinfer_autotune=${ENABLE_FLASHINFER_AUTOTUNE:-true}"
+  echo "docker:   env=${EXTRA_DOCKER_ENV:-<none>} run=${DOCKER_RUN_EXTRA:-<none>}"
   echo "parsers:  reasoning=${REASONING_PARSER:-none} tool=${TOOL_CALL_PARSER:-none} autotool=${ENABLE_AUTO_TOOL_CHOICE:-false}"
   echo "prefill:  chunked=${ENABLE_CHUNKED_PREFILL:-true} prefix_cache=${ENABLE_PREFIX_CACHING:-false}"
   echo "auth:     $([[ -n "${VLLM_API_KEY:-}" && "${VLLM_API_KEY}" != "EMPTY" ]] && echo "Bearer set (rank0)" || echo "disabled")"

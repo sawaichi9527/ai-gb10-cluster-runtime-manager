@@ -20,6 +20,17 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   `qwen3.6-35b-a3b-heretic-nvfp4` + drafter `qwen3.6-35b-a3b-dflash` (n=11, maxlen
   131072, GMU 0.80, num_seqs 16). Both on `:1234` through Node0. Do NOT re-hard-code
   profile data in `tp2-*` scripts — the registry is the only authoritative set.
+- **qwen38flash TP2 profile (added 2026-09-07)**: body-only `qwen3.8-flash-next-nvfp4`
+  (no drafter), official `vllm/vllm-openai:qwen38-flash-next` image, MTP3 speculative
+  decode (`--speculative-config {"method":"mtp","num_speculative_tokens":3,...}`,
+  no `model` field), maxlen 262144, num_seqs 8, GMU 0.80. Divergences from the Qwen
+  cluster profile defaults (deliberate, keep on the conf): `--quantization modelopt`,
+  `VLLM_PLE_CPU_OFFLOAD=1` (via `EXTRA_DOCKER_ENV`), `--ulimit nofile=1048576` (via
+  `DOCKER_RUN_EXTRA`), `--no-enable-flashinfer-autotune`. Both ranks get
+  `EXTRA_DOCKER_ENV`/`DOCKER_RUN_EXTRA`; rank1 receives them through the tp2-up
+  heredoc, rank0 via `build_docker_env`/`DOCKER_RUN_ARGS` in tp2-up. The legacy
+  single-node `runtimes.d/qwen38flash.conf` (`gpt-oss-38b` Flash placeholder) is a
+  **different model** — do not confuse it with this TP2 cluster profile.
 - **Unified LLM endpoint**: all LLM runtimes (TP2 + single, node0 & node1) serve the
   OpenAI API on **port 1234** sharing one `VLLM_API_KEY`. Set the same key in `tp2.env`
   and both nodes' `docker-stacks/aeon-vllm/.env`. TP2 and node0 single LLM share the
@@ -66,6 +77,7 @@ cluster-profiles.d/
   27b.conf          # deployed + live-validated (world_size=2, maxlen 262144)
   35b.conf          # deployed + live-validated (world_size=2, maxlen 131072)
   deepseek.conf     # safe placeholder (not deployed; gb10 use deepseek fails safely)
+  qwen38flash.conf  # new 2026-09-07: Qwen3.8 Flash-Next 125B NVFP4, MTP3, official image
 ```
 
 Key rules:

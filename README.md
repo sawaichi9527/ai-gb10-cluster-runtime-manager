@@ -41,11 +41,12 @@ Node0 reaches it over ssh. Node1 only needs the image + model dirs + sudo docker
 ## Cluster CLI — `gb10`
 
 ```bash
-gb10 list                     # profile list (27b/35b + placeholders)
+gb10 list                     # profile list (27b/35b/deepseek/qwen38flash)
 gb10 use 27b                  # default; TP2 up (cold ~7-15 min), waits /health
 gb10 use 35b                  # switch exclusive cluster profile
+gb10 use qwen38flash           # Qwen3.8 Flash-Next 125B NVFP4 (MTP3)
 gb10 stop                     # tp2-down (both nodes)
-gb10 restart [27b|35b]
+gb10 restart [27b|35b|qwen38flash]
 gb10 status                   # both nodes, RDMA, KV, health
 gb10 inspect <profile>        # sanitized resolved-profile report (dry-run)
 gb10 logs                     # follow tp2-node0
@@ -55,8 +56,11 @@ gb10 doctor
 ```
 
 Current deployed TP2 profiles are 27B and 35B (data-driven from `cluster-profiles.d/`).
-`deepseek` is a TP2-cluster placeholder until its model/image contract is validated;
-`qwen38flash` and `glm53flash` are single-node placeholders until their runtimes land.
+`deepseek` is a TP2-cluster placeholder until its model/image contract is validated.
+`qwen38flash` is the newly added TP2 profile (Qwen3.8 Flash-Next 125B NVFP4, official
+`vllm/vllm-openai:qwen38-flash-next` image, MTP3 speculative decode); note the
+single-node `runtimes.d/qwen38flash.conf` is a **different** model placeholder — the
+cluster profile is TP2-only.
 
 ### TP2 profile registry (completed 2026-09-05)
 
@@ -68,6 +72,7 @@ cluster-profiles.d/
   27b.conf          # deployed + live-validated (world_size=2, maxlen 262144)
   35b.conf          # deployed + live-validated (world_size=2, maxlen 131072)
   deepseek.conf     # safe placeholder (not deployed)
+  qwen38flash.conf  # new profile (2026-09-07): Qwen3.8 Flash-Next 125B NVFP4, MTP3
 ```
 
 Each conf carries the **profile-scoped image** and per-model vLLM arguments, loaded once by
@@ -119,7 +124,7 @@ Runtimes (`runtimes.d/*`):
 |---|---|---|---|
 | `27b.conf` | 27b | llm (exclusive) | deployed (MTP) |
 | `35b.conf` | 35b | llm (exclusive) | deployed (DFlash) |
-| `qwen38flash.conf` | qwen38flash | llm | **placeholder** |
+| `qwen38flash.conf` | qwen38flash | llm | **placeholder** (distinct from TP2 cluster profile of same id) |
 | `glm53flash.conf` | glm53flash | llm | **placeholder** |
 | `comfyui.conf` | comfyui | image | deployed (Node1, Flux 2 Dev) |
 | `minimaxh3.conf` | minimaxh3 | video (exclusive) | deployed (FL2VA) |
