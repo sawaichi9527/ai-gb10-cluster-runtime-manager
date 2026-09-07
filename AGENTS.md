@@ -44,10 +44,21 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   exclusive stop loop.
 - **Secrets**: `tp2.env`, `~/docker-stacks/*/.env`, keys — never commit. `.gitignore`
   covers `tp2.env`, `state/last-runtime`, logs.
-- **DeepSeek is cluster-only.** The legacy single-node `runtimes.d/deepseek.conf`
-  placeholder was **retired 2026-09-05**; the only DeepSeek placeholder is the
-  TP2-cluster `cluster-profiles.d/deepseek.conf` (safe-fails as "not deployed").
-  `gb10-single list` no longer shows `deepseek`.
+- **DeepSeek is cluster-only.** `cluster-profiles.d/deepseek.conf` is the **mainline** =
+  official deepseek-ai fp8 checkpoint + public Anemll runtime (`ghcr.io/anemll/dspark-vllm-gx10:0.1.1`,
+  Weschera lineage), 256KB context + DSpark spec7 + NUMSEQ 8, served model id `aeon` on `:1234`
+  (verified live 2026-09-07: `/health` 200, `max_model_len=262144`, 200K prefill 1600 tok/s).
+  The retired NVFP4 AEON lane is archived in `cluster-profiles.d/deepseek-nvfp4.conf` (`PLACEHOLDER=true`,
+  safe-fails; NVFP4 weights kept on both nodes — do NOT delete; may be re-enabled once a mature
+  AEON image with real topk-256 performance exists). The legacy single-node
+  `runtimes.d/deepseek.conf` placeholder was **retired 2026-09-05**; `gb10-single list` no longer
+  shows `deepseek`.
+- **DeepSeek concurrency benchmark**: `scripts/bench-c.sh <C> [max_tokens]` runs the fixed
+  mixed code+JSON prompt at concurrency C (1/2/4/8) with curl+awk only (jq/bc present on Node0;
+  `python3 -c`/`pkill -f`/heredoc are unreliable in the run-command client — avoid).
+  `scripts/bench-ctx.sh [words] [max_tokens=1]` is the long-context prefill probe (200K measured
+  1600 tok/s). Reference C results: C1 35 · C2 46 · C4 57 · C8 86 tok/s (acceptance 24-31%,
+  mean accept len 1.7-2.2) — full table in `docs/DEEPSEEK_V4_FP8_MAINLINE_2026-09-07.md`.
 - **Node1 doesn't host the repo.** Only Node0. Node1 needs image + model dirs + sudo docker.
 - **Cold start** for TP2 is ~7-15 min (weight load + FlashInfer autotune + torch.compile);
   `tp2-up`/`gb10 use` waits for `/health` 200 and reports READY.
@@ -65,7 +76,8 @@ The TP2 profile layer is **data-driven** (see `docs/TP2_PROFILE_REFACTOR_VALIDAT
 cluster-profiles.d/
   27b.conf          # deployed + live-validated (world_size=2, maxlen 262144)
   35b.conf          # deployed + live-validated (world_size=2, maxlen 131072)
-  deepseek.conf     # safe placeholder (not deployed; gb10 use deepseek fails safely)
+  deepseek.conf     # MAINLINE since 2026-09-07: fp8 official + Anemll (256K + DSpark7 + 8-way)
+  deepseek-nvfp4.conf  # retired NVFP4 AEON lane (PLACEHOLDER; archive record; weights kept)
 ```
 
 Key rules:
@@ -74,19 +86,18 @@ Key rules:
 - Profile data lives in `cluster-profiles.d/*.conf` only — no hard-coded per-model branch in
   `tp2-common.sh`, and no second copy in `tp2-up`. Rank0 constructs the authoritative argv;
   rank1 receives it as a shell-escaped array (no eval, no serialize+re-eval).
-- The image is **profile-scoped** (`IMG` in each conf), so a future DeepSeek-derived AEON image
-  can be selected per-profile rather than assuming a single cluster-global `IMG`.
+- The image is **profile-scoped** (`IMG` in each conf), so each model can carry its own
+  image (DeepSeek mainline already switched to the public Anemll `dspark-vllm-gx10` image;
+  the AEON-derived NVFP4 lane is archived, not deactivated structurally).
 - Networking/orchestration stays generic: TP2, SSH, RoCE/NCCL, auth, port 1234 and
   `--disable-custom-all-reduce` remain cluster concerns.
 - Model-specific settings (KV dtype, attention/linear/MoE backend, speculative method, parser,
   graph mode, context/concurrency/GMU) belong to the cluster profile conf.
-- Do not build/patch the DeepSeek image in the same structural-refactor change. Planned lineage is:
-  base `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-08-24-v0.27.1-omni` -> derived
-  `2026-09-04-v0.27.1-omni-ds4flash0731-r1`, with image work handled as a separate follow-up.
-- DeepSeek r1 is a correctness/control bring-up (TP2, DSpark off, FP8 KV baseline, PIECEWISE,
-  shorter context first). DSpark / longer context belong to later validation, not this refactor.
-- Do not claim `deepseek` deployed until both nodes have the intended image/model and a real
-  generation has passed. Until then `gb10 use deepseek` must fail safely as a placeholder.
+- DeepSeek timeline (completed): r1 64K correctness (DSpark off) → r2 DSpark K5 on the AEON
+  NVFP4 image (measured ~3% draft acceptance) → **2026-09-07 mainline switch** to the official
+  fp8 checkpoint + Anemll runtime (measured ~24-31%/C-class acceptance, 256K verified).
+  NVFP4 weights stay on disk for a future mature-image re-evaluation; do not claim NVFP4
+  re-enabled until both nodes have the intended image/model and a real generation passes.
 
 ## Conventions
 
