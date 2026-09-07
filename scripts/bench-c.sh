@@ -9,17 +9,31 @@ C="${1:?usage: bench-c.sh <C> [MAX_TOKENS]}"
 MAX_TOKENS="${2:-400}"
 AUTH="Bearer d47cd7b86a7d2544dc375b9e447680670d100cfb0488056a0ff57c5aa8e6680b"
 URL="http://127.0.0.1:1234/v1/chat/completions"
-PROMPT='{"model":"aeon","messages":[{"role":"user","content":"You are an expert Python/TypeScript engineer. Analyze the following mixed JSON and code, then explain what it does concisely:\n```json\n{"data":{"status":"ok","items":[{"id":1,"name":"alpha"},{"id":2,"name":"beta"}]},"config":{"cache":true,"maxItems":50}}\n```\n```typescript\nexport async function fetchItems(baseURL: string, opts?: { retries?: number }) {\n  const res = await fetch(`${baseURL}/items`);\n  return res.json();\n}\n```"}],"max_tokens":'"$MAX_TOKENS"'}'
+
+CONTENT='You are an expert Python/TypeScript engineer. Analyze the following mixed JSON and code, then explain what it does concisely:
+```json
+{"data":{"status":"ok","items":[{"id":1,"name":"alpha"},{"id":2,"name":"beta"}]},"config":{"cache":true,"maxItems":50}}
+```
+```typescript
+export async function fetchItems(baseURL: string, opts?: { retries?: number }) {
+  const res = await fetch(`${baseURL}/items`);
+  return res.json();
+}
+```'
 
 OUTDIR=$(mktemp -d /tmp/bench_c${C}_XXXX)
 trap 'rm -rf "$OUTDIR"' EXIT
+
+# Build payload safely with jq (no shell-escape fragility)
+jq -n --arg content "$CONTENT" --argjson mt "$MAX_TOKENS" \
+  '{model:"aeon",messages:[{role:"user",content:$content}],max_tokens:$mt}' > "$OUTDIR/payload.json"
 
 METRICS_BEFORE=$(curl -s http://127.0.0.1:1234/metrics | grep -E '^vllm:spec_decode_(num_draft_tokens_total|num_accepted_tokens_total|num_drafts_total|num_accepted_tokens_per_pos_total)' | grep -v '_created' | sed 's/.*position="\([0-9]*\)"} \([0-9.]*\)/POS\1 \2/')
 
 T0=$(date +%s.%N)
 for i in $(seq 1 "$C"); do
   curl -s -H "Authorization: $AUTH" -H 'Content-Type: application/json' \
-    -d "$PROMPT" "$URL" > "$OUTDIR/$i.json" 2>/dev/null &
+    -d "@$OUTDIR/payload.json" "$URL" > "$OUTDIR/$i.json" 2>/dev/null &
 done
 wait
 T1=$(date +%s.%N)
@@ -32,18 +46,23 @@ echo "  bench-c  C=$C  wall=$(printf '%.3f' "$WALL")s  max_tokens=$MAX_TOKENS"
 echo "================================================================"
 
 TOTAL_COMP=0
+ANY_ERR=0
 for i in $(seq 1 "$C"); do
   COMP=$(jq -r '.usage.completion_tokens // 0' "$OUTDIR/$i.json")
   PROMPT_T=$(jq -r '.usage.prompt_tokens // 0' "$OUTDIR/$i.json")
   FINISH=$(jq -r '.choices[0].finish_reason // "ERR"' "$OUTDIR/$i.json")
+  ERR=$(jq -r '.error.message // empty' "$OUTDIR/$i.json")
   TOTAL_COMP=$((TOTAL_COMP + COMP))
-  printf "  stream%d: prompt=%stok completion=%stok finish=%s\n" "$i" "$PROMPT_T" "$COMP" "$FINISH"
+  [ "$FINISH" = "ERR" ] && ANY_ERR=1
+  printf "  stream%d: prompt=%stok completion=%stok finish=%s" "$i" "$PROMPT_T" "$COMP" "$FINISH"
+  [ -n "$ERR" ] && printf " error=%s" "$(echo "$ERR" | head -c 80)"
+  echo ""
 done
 C_TOTAL=$(echo "$TOTAL_COMP / $WALL" | bc -l)
 echo ""
-echo "  aggregate: completion=${TOTAL_COMP}tok  wall=$(printf '%.3f' "$WALL")s  C_total=$(printf '%.1f' "$C_TOTAL") tok/s"
+echo "  aggregate: completion=${TOTAL_COMP}tok  wall=$(printf '%.3f' "$WALL")s  C_total=$(printf '%.1f' "$C_TOTAL") tok/s  any_errors=$ANY_ERR"
 
-# Overall acceptance: delta_accepted / delta_draft_tokens * 7 (since 1 batch = 7 draft positions)
+# Overall acceptance: delta_accepted / delta_draft_tokens (draft_tokens = 7/batch)
 get_val(){ echo "$1" | grep -E "^$2 " | awk '{print $NF}' | head -1; }
 get_pos(){ echo "$1" | grep "^POS$2 " | awk '{print $NF}'; }
 
@@ -67,8 +86,7 @@ else
   echo "  acceptance: (no draft delta this run)"
 fi
 
-# Per-position
-echo "  per-position acceptance (delta / delta_draft_batches):"
+echo "  per-position acceptance (delta accepted_at_pos / delta_draft_batches):"
 for p in 0 1 2 3 4 5 6; do
   P_AFTER=$(get_pos "$METRICS_AFTER" "$p")
   P_BEFORE=$(get_pos "$METRICS_BEFORE" "$p")
