@@ -242,9 +242,13 @@ build_docker_env(){
     -e "PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True"
   )
   # Profile-owned env/mount extras (arrays EXTRA_ENV / EXTRA_MOUNTS in the
-  # conf). KEY=VAL entries are passed through verbatim; mount entries are
-  # full "-v src:dst[:opts]" tokens. Unset => no extras (unchanged behavior).
-  [[ -n "${EXTRA_ENV+x}" ]] && DOCKER_ENV_EXTRA+=("${EXTRA_ENV[@]}")
+  # conf). EXTRA_ENV entries are KEY=VAL and get an explicit "-e" flag each
+  # (built-ins above already carry "-e"); EXTRA_MOUNTS entries are full
+  # "-v src:dst[:opts]" tokens. Unset => no extras (unchanged behavior).
+  if [[ -n "${EXTRA_ENV+x}" ]]; then
+    local _kv
+    for _kv in "${EXTRA_ENV[@]}"; do DOCKER_ENV_EXTRA+=(-e "$_kv"); done
+  fi
   DOCKER_MOUNTS=(-v "${BODY}:/model:ro")
   [[ -n "${DRAF:-}" ]] && DOCKER_MOUNTS+=(-v "${DRAF}:/drafter:ro")
   [[ -n "${EXTRA_MOUNTS+x}" ]] && DOCKER_MOUNTS+=("${EXTRA_MOUNTS[@]}")
