@@ -48,9 +48,10 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   official deepseek-ai fp8 checkpoint + public Anemll runtime (`ghcr.io/anemll/dspark-vllm-gx10:0.1.1`,
   Weschera lineage), 256KB context + DSpark spec7 + NUMSEQ 8, served model id `aeon` on `:1234`
   (verified live 2026-09-07: `/health` 200, `max_model_len=262144`, 200K prefill 1600 tok/s).
-  The retired NVFP4 AEON lane is archived in `cluster-profiles.d/deepseek-nvfp4.conf` (`PLACEHOLDER=true`,
-  safe-fails; NVFP4 weights kept on both nodes — do NOT delete; may be re-enabled once a mature
-  AEON image with real topk-256 performance exists). The legacy single-node
+  The retired NVFP4 AEON lane is **archive-only** in `cluster-profiles.d/deepseek-nvfp4.conf`
+  (`PLACEHOLDER=true`, safe-fails): its model weights + dedicated AEON images were **physically
+  REMOVED from both nodes 2026-09-07** — only the recipe + validation record stay in the repo;
+  re-bring-up needs a re-download + rebuilt AEON image. The legacy single-node
   `runtimes.d/deepseek.conf` placeholder was **retired 2026-09-05**; `gb10-single list` no longer
   shows `deepseek`.
 - **DeepSeek concurrency benchmark**: `scripts/bench-c.sh <C> [max_tokens]` runs the fixed
@@ -77,7 +78,7 @@ cluster-profiles.d/
   27b.conf          # deployed + live-validated (world_size=2, maxlen 262144)
   35b.conf          # deployed + live-validated (world_size=2, maxlen 131072)
   deepseek.conf     # MAINLINE since 2026-09-07: fp8 official + Anemll (256K + DSpark7 + 8-way)
-  deepseek-nvfp4.conf  # retired NVFP4 AEON lane (PLACEHOLDER; archive record; weights kept)
+  deepseek-nvfp4.conf  # retired NVFP4 AEON lane (archive-only record; weights+images removed)
 ```
 
 Key rules:
@@ -94,10 +95,11 @@ Key rules:
 - Model-specific settings (KV dtype, attention/linear/MoE backend, speculative method, parser,
   graph mode, context/concurrency/GMU) belong to the cluster profile conf.
 - DeepSeek timeline (completed): r1 64K correctness (DSpark off) → r2 DSpark K5 on the AEON
-  NVFP4 image (measured ~3% draft acceptance) → **2026-09-07 mainline switch** to the official
-  fp8 checkpoint + Anemll runtime (measured ~24-31%/C-class acceptance, 256K verified).
-  NVFP4 weights stay on disk for a future mature-image re-evaluation; do not claim NVFP4
-  re-enabled until both nodes have the intended image/model and a real generation passes.
+  NVFP4 image (measured ~3% draft acceptance) → **2026-09-07 mainline switch** to the official fp8 checkpoint + Anemll runtime (verified
+  256K prefill 1600 tok/s, C-class acceptance 24-31%). NVFP4 weights + dedicated AEON images
+  were **removed from both nodes** the same day (archive-only record); re-bring-up needs a
+  re-download + rebuilt image — never claim NVFP4 available until both nodes have the intended
+  image/model and a real generation passes.
 
 ## Conventions
 

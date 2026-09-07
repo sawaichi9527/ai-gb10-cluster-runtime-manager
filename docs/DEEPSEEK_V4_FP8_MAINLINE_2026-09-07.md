@@ -13,8 +13,11 @@
   git history + this file for regression control).
 - The **NVFP4 AEON lane is archived** (`deepseek-nvfp4.conf`, `PLACEHOLDER=true`, safe-fails
   as "not deployed yet"). Its mis-predicted draft acceptance and performance do not justify
-  keeping it as mainline; the weights are **kept on disk on both nodes** — do NOT delete —
-  so a future mature AEON image (real topk-256-quality DSpark) can re-enable it.
+  keeping it as mainline. On **2026-09-07 the NVFP4 model + its dedicated AEON images were
+  physically REMOVED from BOTH nodes** (decision: keep only this recipe + validation record in
+  the repo). Re-bring-up requires re-downloading `deepseek-v4-flash-0731-nvfp4/` and a rebuilt
+  AEON image — do not claim NVFP4 re-enabled until both nodes have the intended image/model
+  and a real generation passes.
 - Mainline contract: **256KB context + DSpark speculative decode + 8 concurrent streams**,
   all serving the unified `:1234` OpenAI API with the shared `VLLM_API_KEY`.
 
@@ -92,8 +95,12 @@ KV_DTYPE = fp8_ds_mla   GRAPH_MODE = PIECEWISE
 SPEC = dspark K5 (embedded draft)   prefix caching = off
 ```
 
-Files (both nodes) retained: `~/docker-stacks/aeon-vllm/models/deepseek-v4-flash-0731-nvfp4/`.
-Re-enable only after both nodes have a mature image + a passing real generation.
+**Physical state (2026-09-07): both nodes had the NVFP4 model dir
+(`deepseek-v4-flash-0731-nvfp4/`, ~170 GB) and the 3 DeepSeek AEON images
+(`topk256v2`, `topk256`, `r1`) REMOVED, plus leftover `ds4topk-compile`
+stopped containers cleared. The shared `2026-08-24-v0.27.1-omni` base is
+still present (qwen 27b/35b profiles use it). Re-enable = re-download the
+model + a rebuilt image, then a passing real generation on both nodes.
 
 ## 8. CLI changes (commit `57fd65b`)
 
