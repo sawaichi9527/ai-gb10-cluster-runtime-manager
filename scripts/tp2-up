@@ -58,7 +58,7 @@ echo "\$SUDO_PASS" | sudo -S docker run -d --name tp2-node1 \
     -e "NCCL_IB_GID_INDEX=\${R_IB_GID}" \
     -e "PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True" \
     --device /dev/infiniband --cap-add IPC_LOCK --ulimit memlock=-1:-1 \
-$(if [[ -n "${DRAF:-}" ]]; then printf '%s ' '-v "${R_DRAF}:/drafter:ro"'; fi)-v "\${R_BODY}:/model:ro" \
+$(for _e in ${EXTRA_DOCKER_ENV:-}; do printf '    -e "%s" ' "${_e}"; done)$(if [[ -n "${DOCKER_RUN_EXTRA:-}" ]]; then printf '    %s ' "${DOCKER_RUN_EXTRA}"; fi)$(if [[ -n "${DRAF:-}" ]]; then printf '%s ' '-v "${R_DRAF}:/drafter:ro"'; fi)-v "\${R_BODY}:/model:ro" \
     --entrypoint vllm "\${R_IMG}" serve /model \
     "\${RANK1_ARGS[@]}" \
     > /tmp/tp2-node1.log 2>&1 || rc=\$?
@@ -88,6 +88,10 @@ n1 bash -s < /tmp/tp2-rank1-stdin.sh
 # ------------------------------------------------------------------
 build_docker_env 0
 build_vllm_args 0
+# Profile-owned docker-run extras (e.g. --ulimit nofile) spliced as words;
+# empty for existing profiles => no-op, rank1 gets them via its heredoc.
+DOCKER_RUN_ARGS=()
+for _r in ${DOCKER_RUN_EXTRA:-}; do DOCKER_RUN_ARGS+=("${_r}"); done
 echo "== launching Node0 API server (rank0, profile=${PROFILE}) =="
 sdk docker rm -f tp2-node0 >/dev/null 2>&1 || true
 # shellcheck disable=SC2145
@@ -96,6 +100,7 @@ sdk docker run -d --name tp2-node0 \
     --gpus all --ipc=host --shm-size=16g --net=host \
     "${DOCKER_ENV_EXTRA[@]}" \
     --device /dev/infiniband --cap-add IPC_LOCK --ulimit memlock=-1:-1 \
+    "${DOCKER_RUN_ARGS[@]}" \
     "${DOCKER_MOUNTS[@]}" \
     --entrypoint vllm "${IMG}" serve /model \
     "${VLLM_ARGS[@]}" \
