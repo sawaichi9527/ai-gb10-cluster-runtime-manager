@@ -63,15 +63,16 @@ echo ""
 echo "  aggregate: completion=${TOTAL_COMP}tok  wall=$(printf '%.3f' "$WALL")s  C_total=$(printf '%.1f' "$C_TOTAL") tok/s  any_errors=$ANY_ERR"
 
 # Overall acceptance: delta_accepted / delta_draft_tokens (draft_tokens = 7/batch)
-get_val(){ echo "$1" | grep -E "^$2 " | awk '{print $NF}' | head -1; }
-get_pos(){ echo "$1" | grep "^POS$2 " | awk '{print $NF}'; }
+get_val(){ echo "$1" | grep -E "^$2" | awk '{print $NF}' | head -1; }
+get_pos(){ echo "$1" | grep "^POS$2 " | awk '{printf "%d", $NF}' | head -1; }
+b2i(){ awk -v x="$1" 'BEGIN{printf "%d", x}'; }
 
-BATCHES_BEFORE=$(get_val "$METRICS_BEFORE" "vllm:spec_decode_num_drafts_total")
-BATCHES_AFTER=$(get_val  "$METRICS_AFTER"  "vllm:spec_decode_num_drafts_total")
-ACCEPTED_BEFORE=$(get_val "$METRICS_BEFORE" "vllm:spec_decode_num_accepted_tokens_total")
-ACCEPTED_AFTER=$(get_val  "$METRICS_AFTER"  "vllm:spec_decode_num_accepted_tokens_total")
-DRAFTED_BEFORE=$(get_val "$METRICS_BEFORE" "vllm:spec_decode_num_draft_tokens_total")
-DRAFTED_AFTER=$(get_val  "$METRICS_AFTER"  "vllm:spec_decode_num_draft_tokens_total")
+BATCHES_BEFORE=$(b2i "$(get_val "$METRICS_BEFORE" "vllm:spec_decode_num_drafts_total")")
+BATCHES_AFTER=$(b2i  "$(get_val "$METRICS_AFTER"  "vllm:spec_decode_num_drafts_total")")
+ACCEPTED_BEFORE=$(b2i "$(get_val "$METRICS_BEFORE" "vllm:spec_decode_num_accepted_tokens_total")")
+ACCEPTED_AFTER=$(b2i  "$(get_val "$METRICS_AFTER"  "vllm:spec_decode_num_accepted_tokens_total")")
+DRAFTED_BEFORE=$(b2i "$(get_val "$METRICS_BEFORE" "vllm:spec_decode_num_draft_tokens_total")")
+DRAFTED_AFTER=$(b2i  "$(get_val "$METRICS_AFTER"  "vllm:spec_decode_num_draft_tokens_total")")
 
 DELTA_BATCHES=$((BATCHES_AFTER - BATCHES_BEFORE))
 DELTA_ACCEPTED=$((ACCEPTED_AFTER - ACCEPTED_BEFORE))
