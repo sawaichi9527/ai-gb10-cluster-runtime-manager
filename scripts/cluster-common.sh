@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =====================================================================
-# tp2-common.sh — shared env load + data-driven cluster-profile loader
-# for ai-gb10-cluster. Sourced by every scripts/tp2-* entrypoint.
+# cluster-common.sh — shared env load + data-driven cluster-profile loader
+# for ai-gb10-cluster. Sourced by every scripts/cluster-* entrypoint.
 # NOT meant to be run alone.
 #
 # Architecture:
@@ -18,13 +18,13 @@ REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 PROFILE_DIR="${REPO_DIR}/cluster-profiles.d"
 
 # ---- load tp2.env if present (gitignored) else defaults from example ----
-ENV_FILE="${REPO_DIR}/tp2.env"
+ENV_FILE="${HOME}/docker-stacks/config/cluster.env"
 if [[ -f "${ENV_FILE}" ]]; then
   # shellcheck disable=SC1090
   source "${ENV_FILE}"
 else
   # shellcheck disable=SC1090
-  source "${REPO_DIR}/tp2.env.example"
+  source "${REPO_DIR}/cluster.env.example"
 fi
 
 : "${MASTER_ADDR:?tp2.env missing MASTER_ADDR}"
@@ -66,7 +66,7 @@ api_curl(){
   fi
 }
 
-MODELS_BASE="${NODE0_MODELS_BASE:-$HOME/docker-stacks/anemll-vllm-dspark/models}"
+_DEFAULT_MODELS_BASE="${NODE0_MODELS_BASE:-$HOME/docker-stacks/models}"
 
 # =====================================================================
 # Cluster profile registry (data-driven) — replaces the old hard-coded
@@ -117,9 +117,10 @@ load_profile(){
         ENABLE_CHUNKED_PREFILL ENABLE_PREFIX_CACHING \
         QUANTIZATION SPEC_CONFIG CUDAGRAPH_CAPTURE \
         EXTRA_ARGS EXTRA_ENV EXTRA_MOUNTS \
-        DISABLE_CUSTOM_ALL_REDUCE SHM_SIZE ENGINE MODEL_ID TP_SIZE NNODES MEM_FRACTION_STATIC CHUNKED_PREFILL_SIZE CUDA_GRAPH_MAX_BS_DECODE MAX_RUNNING_REQUESTS MOE_RUNNER_BACKEND SPEC_MOE_RUNNER_BACKEND SPEC_ALGORITHM DISABLE_SHARED_EXPERTS_FUSION API_HOST 2>/dev/null || true
+        DISABLE_CUSTOM_ALL_REDUCE SHM_SIZE ENGINE MODEL_ID TP_SIZE NNODES MEM_FRACTION_STATIC CHUNKED_PREFILL_SIZE CUDA_GRAPH_MAX_BS_DECODE MAX_RUNNING_REQUESTS MOE_RUNNER_BACKEND SPEC_MOE_RUNNER_BACKEND SPEC_ALGORITHM DISABLE_SHARED_EXPERTS_FUSION API_HOST MODELS_BASE 2>/dev/null || true
   # shellcheck disable=SC1090
   source "$conf"
+  MODELS_BASE="${MODELS_BASE:-${_DEFAULT_MODELS_BASE}}"
   ENGINE="${ENGINE:-vllm}"
   PROFILE="${PROFILE_ID:?cluster profile missing PROFILE_ID}"
   if [[ "${PLACEHOLDER:-false}" == "true" ]]; then
@@ -233,7 +234,7 @@ build_vllm_args(){
 build_sglang_args(){
   local rank="$1"
 
-  # Entrypoint is `sglang serve` (engine-specific, see tp2-up); args here
+  # Entrypoint is `sglang serve` (engine-specific, see cluster-up); args here
   # are the serve subcommand args.
   SGLANG_ARGS=()
   [[ "$rank" == "0" ]] && SGLANG_ARGS+=(--host "${API_HOST:-0.0.0.0}" --port "${API_PORT}")

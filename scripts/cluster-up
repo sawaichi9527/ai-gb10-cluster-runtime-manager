@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # =====================================================================
-# tp2-up — bring up the 2-node (TP2) cluster from Node0 only.
+# cluster-up — bring up the 2-node (TP2) cluster from Node0 only.
 #
-#   scripts/tp2-up            # 27B (default)
-#   scripts/tp2-up 35b        # 35B-A3B
-#   scripts/tp2-up deepseek   # placeholder -> safe-fail, no containers
+#   scripts/cluster-up            # 27B (default)
+#   scripts/cluster-up 35b        # 35B-A3B
+#   scripts/cluster-up deepseek   # placeholder -> safe-fail, no containers
 #
 # Flow (Node0 single-side orchestration):
 #   1. resolve cluster profile from cluster-profiles.d/<id>.conf
@@ -19,7 +19,7 @@
 set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
-source "${SCRIPT_DIR}/tp2-common.sh"
+source "${SCRIPT_DIR}/cluster-common.sh"
 
 PROFILE_ARG="${1:-27b}"
 load_profile "${PROFILE_ARG}"
@@ -53,10 +53,10 @@ _RANK1_ARGV_LITERAL="${_escaped[*]}"
 
 REMOTE=$(cat <<RSCRIPT
 set -Eeo pipefail
-echo "\$SUDO_PASS" | sudo -S docker rm -f tp2-node1 >/dev/null 2>&1 || true
+echo "\$SUDO_PASS" | sudo -S docker rm -f cluster-node1 >/dev/null 2>&1 || true
 RANK1_ARGS=( ${_RANK1_ARGV_LITERAL} )
 rc=0
-echo "\$SUDO_PASS" | sudo -S docker run -d --name tp2-node1 \
+echo "\$SUDO_PASS" | sudo -S docker run -d --name cluster-node1 \
     --gpus all --ipc=host --shm-size="${SHM_SIZE:-16g}" --net=host \
     -e "VLLM_HOST_IP=\${RHOST_IP}" \
     -e "NCCL_SOCKET_IFNAME=\${R_NCCL_SOCKET_IFNAME}" \
@@ -68,15 +68,15 @@ echo "\$SUDO_PASS" | sudo -S docker run -d --name tp2-node1 \
 $(if [[ -n "${EXTRA_ENV+x}" ]]; then for kv in "${EXTRA_ENV[@]}"; do printf -- '-e %q ' "$kv"; done; fi)$(if [[ -n "${DRAF:-}" ]]; then printf '%s ' '-v "${R_DRAF}:/drafter:ro"'; fi)-v "\${R_BODY}:/model:ro" \
 $(if [[ -n "${EXTRA_MOUNTS+x}" ]]; then for m in "${EXTRA_MOUNTS[@]}"; do printf '%q ' "$m"; done; fi)--entrypoint "\${R_ENTRY}" "\${R_IMG}" serve /model \
     "\${RANK1_ARGS[@]}" \
-    > /tmp/tp2-node1.log 2>&1 || rc=\$?
+    > /tmp/cluster-node1.log 2>&1 || rc=\$?
 echo "DEBUG node1 docker run rc=\$rc"
-echo "\$SUDO_PASS" | sudo -S docker ps --filter name=tp2-node1 --format '{{.Names}} {{.Status}}' 2>/dev/null || true
+echo "\$SUDO_PASS" | sudo -S docker ps --filter name=cluster-node1 --format '{{.Names}} {{.Status}}' 2>/dev/null || true
 exit 0
 RSCRIPT
 )
 
 echo "== launching Node1 headless worker (rank1, profile=${PROFILE}) =="
-cat > /tmp/tp2-rank1-stdin.sh <<EOF
+cat > /tmp/cluster-rank1-stdin.sh <<EOF
 $(printf 'export SUDO_PASS=%q\n' "$(sudo_pass)")
 export RHOST_IP='${NODE1_IP}'
 export R_NCCL_SOCKET_IFNAME='${NCCL_SOCKET_IFNAME}'
@@ -88,8 +88,8 @@ export R_IMG='${IMG}'
 export R_ENTRY='${ENTRY}'
 ${REMOTE}
 EOF
-sha256sum /tmp/tp2-rank1-stdin.sh
-n1 bash -s < /tmp/tp2-rank1-stdin.sh
+sha256sum /tmp/cluster-rank1-stdin.sh
+n1 bash -s < /tmp/cluster-rank1-stdin.sh
 
 # ------------------------------------------------------------------
 # Node0 API server (rank0)
@@ -103,17 +103,17 @@ else
   ENGINE_ARGS=( "${VLLM_ARGS[@]}" )
   fi
 echo "== launching Node0 API server (rank0, profile=${PROFILE}) =="
-sdk docker rm -f tp2-node0 >/dev/null 2>&1 || true
+sdk docker rm -f cluster-node0 >/dev/null 2>&1 || true
 # shellcheck disable=SC2145
 rc=0
-sdk docker run -d --name tp2-node0 \
+sdk docker run -d --name cluster-node0 \
     --gpus all --ipc=host --shm-size="${SHM_SIZE:-16g}" --net=host \
     "${DOCKER_ENV_EXTRA[@]}" \
     --device /dev/infiniband --cap-add IPC_LOCK --ulimit memlock=-1:-1 --ulimit stack=67108864 \
     "${DOCKER_MOUNTS[@]}" \
     --entrypoint "${ENTRY}" "${IMG}" serve /model \
     "${ENGINE_ARGS[@]}" \
-    > /tmp/tp2-node0.log 2>&1 || rc=$?
+    > /tmp/cluster-node0.log 2>&1 || rc=$?
 echo "node0 docker run rc=$rc"
 
 # ------------------------------------------------------------------
@@ -124,10 +124,10 @@ begin=$SECONDS
 until curl -fsS -m 5 "http://localhost:${API_PORT}/health" >/dev/null 2>&1; do
   if ((SECONDS-begin > 2400)); then
     echo "ERROR: health timeout (2400s)" >&2
-    sdk docker logs --tail 60 tp2-node0 2>&1 || true
+    sdk docker logs --tail 60 cluster-node0 2>&1 || true
     exit 1
   fi
   sleep 10
 done
 echo "$(date '+%F %T') TP2 profile=${PROFILE} READY on :${API_PORT}"
-sdk docker ps --filter name=tp2-node --format '{{.Names}} {{.Status}}' 2>/dev/null || true
+sdk docker ps --filter name=cluster-node --format '{{.Names}} {{.Status}}' 2>/dev/null || true

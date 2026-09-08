@@ -2,11 +2,11 @@
 
 DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節點 runtimes** 於單一 repo。
 
-- **`bin/gb10`** — TP2 叢集 CLI（thin layer 於 `scripts/tp2-*`）
+- **`bin/gb10`** — TP2 叢集 CLI（thin layer 於 `scripts/cluster-*`）
 - **`bin/gb10-single`** — 單節點 CLI（`node0` 本機 / `node1` 經 ssh）
 - **`runtimes.d/*.conf`** — 單節點 runtime 定義
 - **`cluster-profiles.d/*.conf`** — TP2 叢集 profile 定義（data-driven registry）
-- **`scripts/tp2-*`** — 叢集部署腳本（ver detail 見 `docs/TP2_DEPLOYMENT_2026-08-30.md`）
+- **`scripts/cluster-*`** — 叢集部署腳本（ver detail 見 `docs/TP2_DEPLOYMENT_2026-08-30.md`）
 
 ## Topology
 
@@ -29,7 +29,7 @@ TP2 and the single-node LLMs are **mutually exclusive** (same port):
 `gb10 use` frees both nodes' singles; a `gb10-single use/start` on either node
 tears down TP2 first. Image/video runtimes (ComfyUI / MiniMaxH3) are out of scope.
 
-Node0 is single side of control: every `tp2-*`/`gb10` command runs on Node0 and
+Node0 is single side of control: every `cluster-*`/`gb10` command runs on Node0 and
 orchestrates Node1 over `ssh -i ~/.ssh/id_gb10_cluster eye@10.0.101.102`.
 `gb10-single` can also drive single-node compose on `node0` (local) or `node1` (ssh).
 
@@ -44,11 +44,11 @@ Node0 reaches it over ssh. Node1 only needs the image + model dirs + sudo docker
 gb10 list                     # profile list (27b/35b + placeholders)
 gb10 use 27b                  # default; TP2 up (cold ~7-15 min), waits /health
 gb10 use 35b                  # switch exclusive cluster profile
-gb10 stop                     # tp2-down (both nodes)
+gb10 stop                     # cluster-down (both nodes)
 gb10 restart [27b|35b]
 gb10 status                   # both nodes, RDMA, KV, health
 gb10 inspect <profile>        # sanitized resolved-profile report (dry-run)
-gb10 logs                     # follow tp2-node0
+gb10 logs                     # follow cluster-node0
 gb10 smoke                    # chat smoke
 gb10 load                     # concurrent load
 gb10 doctor
@@ -71,7 +71,7 @@ cluster-profiles.d/
 ```
 
 Each conf carries the **profile-scoped image** and per-model vLLM arguments, loaded once by
-`scripts/tp2-common.sh`. Rank0 builds the authoritative argv; rank1 receives it as a
+`scripts/cluster-common.sh`. Rank0 builds the authoritative argv; rank1 receives it as a
 shell-escaped array (no eval). Networking/orchestration (TP2, SSH, RoCE/NCCL, API/auth,
 resource exclusion) stays generic and cluster-owned. The existing 27B and 35B serves are the
 regression controls and retained their effective launch behavior during the refactor.
@@ -141,7 +141,7 @@ Placeholders print "not deployed yet"; they are CLI skeletons until models/versi
 ## Non-negotiables (see docs/TP2_DEPLOYMENT_2026-08-30.md)
 
 - Same resolved image **byte-identical on BOTH nodes** for TP2.
-- RoCE v2 env as pinned in `tp2.env`/`tp2-common.sh`.
+- RoCE v2 env as pinned in `tp2.env`/`cluster-common.sh`.
 - `--disable-custom-all-reduce` load-bearing cross-node.
 - Existing Qwen TP2 profiles use `--kv-cache-dtype fp8_e4m3`; do not generalize that into a
   universal rule for future model families. DeepSeek gets its own profile policy.
@@ -153,9 +153,9 @@ Placeholders print "not deployed yet"; they are CLI skeletons until models/versi
 
 ```text
 bin/            gb10 (cluster), gb10-single (single-node)
-scripts/        tp2-up|down|status|smoke|load + tp2-common.sh
+scripts/        cluster-up|down|status|smoke|load + cluster-common.sh
 runtimes.d/     *.conf single-node runtime definitions
-cluster-profiles.d/  data-driven TP2 profile registry (active ownership by tp2-common.sh)
+cluster-profiles.d/  data-driven TP2 profile registry (active ownership by cluster-common.sh)
 state/          last-runtime markers (gitignored)
 docs/           deployment notes, ADRs, restructure + active handoffs
 tp2.env.example cluster/site config template (NEVER commit real values)

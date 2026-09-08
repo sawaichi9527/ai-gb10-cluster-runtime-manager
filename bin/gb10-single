@@ -372,13 +372,13 @@ default_file(){
 # node1's GPU, so it must never coexist with an active TP2 cluster. This
 # hook auto-tears TP2 down before a node1 runtime comes up (做法 B).
 tp2_active(){
-  docker ps -q -f name=tp2-node0 2>/dev/null | grep -q . && return 0 || return 1
+  docker ps -q -f name=cluster-node0 2>/dev/null | grep -q . && return 0 || return 1
 }
 
 ensure_tp2_down(){
   if tp2_active; then
     echo "TP2 cluster is running; tearing it down before starting a single-node runtime..."
-    "${REPO_DIR}/scripts/tp2-down"
+    "${REPO_DIR}/scripts/cluster-down"
   fi
 }
 

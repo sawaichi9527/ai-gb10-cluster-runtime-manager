@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # =====================================================================
-# tp2-status — show both node containers, TP/RDMA, KV caps and health.
+# cluster-status — show both node containers, TP/RDMA, KV caps and health.
 # =====================================================================
 set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
-source "${SCRIPT_DIR}/tp2-common.sh"
+source "${SCRIPT_DIR}/cluster-common.sh"
 
 # ---------------------------------------------------------------------
 # Collect container / image / model / health facts (read-only) for a
@@ -16,8 +16,8 @@ source "${SCRIPT_DIR}/tp2-common.sh"
 
 # --- Node0 container present + running ---
 NODE0_UP="down"
-if docker ps -a --filter name=tp2-node0 --format '{{.Names}}' 2>/dev/null | grep -q '^tp2-node0$'; then
-  if docker ps --filter name=tp2-node0 --filter status=running --format '{{.Names}}' 2>/dev/null | grep -q '^tp2-node0$'; then
+if docker ps -a --filter name=cluster-node0 --format '{{.Names}}' 2>/dev/null | grep -q '^cluster-node0$'; then
+  if docker ps --filter name=cluster-node0 --filter status=running --format '{{.Names}}' 2>/dev/null | grep -q '^cluster-node0$'; then
     NODE0_UP="up"
   fi
 fi
@@ -27,10 +27,10 @@ NODE0_IMG=""
 NODE0_BODY=""
 NODE0_DRAF=""
 if [[ "${NODE0_UP}" == "up" ]]; then
-  NODE0_IMG=$(docker inspect tp2-node0 --format '{{.Config.Image}}' 2>/dev/null || true)
-  NODE0_BODY=$(docker inspect tp2-node0 --format '{{range .Mounts}}{{println .Source "=>" .Destination}}{{end}}' 2>/dev/null \
+  NODE0_IMG=$(docker inspect cluster-node0 --format '{{.Config.Image}}' 2>/dev/null || true)
+  NODE0_BODY=$(docker inspect cluster-node0 --format '{{range .Mounts}}{{println .Source "=>" .Destination}}{{end}}' 2>/dev/null \
       | awk '$3=="/model"{n=split($1,a,"/"); print a[n]}' || true)
-  NODE0_DRAF=$(docker inspect tp2-node0 --format '{{range .Mounts}}{{println .Source "=>" .Destination}}{{end}}' 2>/dev/null \
+  NODE0_DRAF=$(docker inspect cluster-node0 --format '{{range .Mounts}}{{println .Source "=>" .Destination}}{{end}}' 2>/dev/null \
       | awk '$3=="/drafter"{n=split($1,a,"/"); print a[n]}' || true)
 fi
 
@@ -38,8 +38,8 @@ fi
 KV_LINE=""
 WORLD=""
 if [[ "${NODE0_UP}" == "up" ]]; then
-  KV_LINE=$(docker logs tp2-node0 2>/dev/null | grep -a "Available KV cache memory" | tail -1 || true)
-  WORLD=$(docker logs tp2-node0 2>/dev/null | grep -aoE 'world_size=[0-9]+' | head -1 || true)
+  KV_LINE=$(docker logs cluster-node0 2>/dev/null | grep -a "Available KV cache memory" | tail -1 || true)
+  WORLD=$(docker logs cluster-node0 2>/dev/null | grep -aoE 'world_size=[0-9]+' | head -1 || true)
 fi
 KV_VAL=""
 if [[ -n "${KV_LINE:-}" ]]; then
@@ -51,7 +51,7 @@ NODE1_STATUS=""
 NODE1_UP="down"
 if n1 true 2>/dev/null; then
   NODE1_STATUS=$(n1 bash -s <<'EOF'
-docker ps -a --filter name=tp2-node1 --format '{{.Names}} {{.Status}}' 2>/dev/null | head -1 || true
+docker ps -a --filter name=cluster-node1 --format '{{.Names}} {{.Status}}' 2>/dev/null | head -1 || true
 EOF
 )
 fi
@@ -99,16 +99,16 @@ echo ""
 echo ""
 
 echo "===== Node0 ($(hostname)) ====="
-sdk docker ps -a --filter name=tp2-node0 --format '{{.Names}} {{.Status}}' 2>/dev/null
+sdk docker ps -a --filter name=cluster-node0 --format '{{.Names}} {{.Status}}' 2>/dev/null
 echo "-- RDMA/NET lines from node0 boot --"
-# vLLM logs live in `docker logs tp2-node0` (the docker-run stdout file only
+# vLLM logs live in `docker logs cluster-node0` (the docker-run stdout file only
 # holds the container hash for a detached run).
-sdk docker logs tp2-node0 2>/dev/null | grep -aE "NET/IB|Using network|NET/Socket|using RDMA|IB devices" | head -5 || true
+sdk docker logs cluster-node0 2>/dev/null | grep -aE "NET/IB|Using network|NET/Socket|using RDMA|IB devices" | head -5 || true
 echo "-- KV / world size from node0 log --"
 # vLLM prints its engine config as giant single-line dicts; those lines carry
 # 'model' (quoted) and would flood the report. Drop them and show only the
 # short status lines (parallel_state membership + Available KV cache).
-sdk docker logs tp2-node0 2>/dev/null | grep -aiE "Available KV cache|world_size=[0-9]+ rank=[0-9]+|node_rank=[0-9]+" | grep -av "'model'" | tail -8 || true
+sdk docker logs cluster-node0 2>/dev/null | grep -aiE "Available KV cache|world_size=[0-9]+ rank=[0-9]+|node_rank=[0-9]+" | grep -av "'model'" | tail -8 || true
 
 echo ""
 echo "===== Node1 (${NODE1_SSH_USER}@${NODE1_IP}) ====="

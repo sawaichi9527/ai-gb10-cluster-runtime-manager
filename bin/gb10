@@ -2,17 +2,17 @@
 # =====================================================================
 # gb10 — DGX Spark GB10 2-node cluster (TP2) runtime manager.
 #
-# Thin convenience layer over scripts/tp2-* (the authoritative TP2
+# Thin convenience layer over scripts/cluster-* (the authoritative TP2
 # deployment scripts). Sibling gb10-single manages single-node runtimes.
 #
 #   gb10 use <profile>        # switch exclusive cluster profile (27b|35b)
 #   gb10 start <profile>      # same as use (cluster profiles are exclusive)
-#   gb10 stop                 # tp2-down
+#   gb10 stop                 # cluster-down
 #   gb10 restart [profile]    # down + up
-#   gb10 status               # tp2-status
-#   gb10 logs                 # follow tp2-node0 logs
-#   gb10 smoke                # tp2-smoke chat test
-#   gb10 load                 # tp2-load concurrent load test
+#   gb10 status               # cluster-status
+#   gb10 logs                 # follow cluster-node0 logs
+#   gb10 smoke                # cluster-smoke chat test
+#   gb10 load                 # cluster-load concurrent load test
 #   gb10 list                 # list cluster profiles
 #   gb10 doctor               # validate both nodes / image / models
 #   gb10 help
@@ -36,7 +36,7 @@ gb10 - DGX Spark GB10 2-node cluster (TP2) helper
   gb10 stop                   # stop & remove both cluster containers
   gb10 restart [profile]      # down then up
   gb10 status                 # both nodes, RDMA, KV, health
-  gb10 logs                   # follow tp2-node0 logs
+  gb10 logs                   # follow cluster-node0 logs
   gb10 smoke                  # chat smoke test
   gb10 load                   # concurrent load test
   gb10 doctor                 # validate image/models on both nodes
@@ -58,7 +58,7 @@ valid_profile(){
 }
 
 UP_PROFILE="27b"
-down(){ "${SCRIPTS}/tp2-down"; }
+down(){ "${SCRIPTS}/cluster-down"; }
 
 # Direction B: before TP2 comes up, free BOTH nodes' GPUs of any single-
 # node runtime (e.g. comfyui, single LLM). TP2 occupies both nodes and
@@ -74,7 +74,7 @@ free_singles(){
 
 up(){
   free_singles
-  "${SCRIPTS}/tp2-up" "$1"
+  "${SCRIPTS}/cluster-up" "$1"
 }
 
 case "${1:-help}" in
@@ -109,30 +109,30 @@ case "${1:-help}" in
     esac
     ;;
   status)
-    exec "${SCRIPTS}/tp2-status"
+    exec "${SCRIPTS}/cluster-status"
     ;;
   logs)
-    docker logs -f --tail=150 tp2-node0
+    docker logs -f --tail=150 cluster-node0
     ;;
   smoke)
-    exec "${SCRIPTS}/tp2-smoke"
+    exec "${SCRIPTS}/cluster-smoke"
     ;;
   load)
-    exec "${SCRIPTS}/tp2-load"
+    exec "${SCRIPTS}/cluster-load"
     ;;
   inspect)
     P="${2:-27b}"
     # shellcheck disable=SC1091
-    source "${SCRIPTS}/tp2-common.sh"
+    source "${SCRIPTS}/cluster-common.sh"
     inspect_profile "$P"
     ;;
   doctor)
-    "$REPO_DIR/tp2.env" >/dev/null 2>&1 || true
-    [[ -f "${REPO_DIR}/tp2.env" ]] || die "missing tp2.env (cp tp2.env.example tp2.env)"
+    ENV_FILE="${HOME}/docker-stacks/config/cluster.env"
+    [[ -f "${ENV_FILE}" ]] || die "missing cluster.env (see ~/docker-stacks/config/cluster.env.example)"
     echo "Node0: $(hostname)"
     docker version --format 'node0 docker {{.Server.Version}}' 2>/dev/null || echo "node0 docker: unavailable (sudo?)"
     echo "Node data dirs:"
-    ls -d "$HOME"/docker-stacks/anemll-vllm-dspark/models/*/ 2>/dev/null || true
+    ls -d "$HOME"/docker-stacks/{aeon-vllm-reasoning-eos,aeon-vllm-omni,models}/models/*/ 2>/dev/null || true
     ;;
   help|-h|--help) usage ;;
   *) usage; exit 2 ;;
