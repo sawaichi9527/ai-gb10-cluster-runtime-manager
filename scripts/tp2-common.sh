@@ -114,9 +114,13 @@ load_profile(){
         KV_DTYPE ATTN_BACKEND LINEAR_BACKEND MOE_BACKEND \
         SPEC_METHOD SPEC_ATTN_BACKEND NSPEC GRAPH_MODE \
         REASONING_PARSER TOOL_CALL_PARSER ENABLE_AUTO_TOOL_CHOICE \
-        ENABLE_CHUNKED_PREFILL ENABLE_PREFIX_CACHING 2>/dev/null || true
+        ENABLE_CHUNKED_PREFILL ENABLE_PREFIX_CACHING \
+        QUANTIZATION SPEC_CONFIG CUDAGRAPH_CAPTURE \
+        EXTRA_ARGS EXTRA_ENV EXTRA_MOUNTS \
+        DISABLE_CUSTOM_ALL_REDUCE SHM_SIZE ENGINE MODEL_ID TP_SIZE NNODES MEM_FRACTION_STATIC CHUNKED_PREFILL_SIZE CUDA_GRAPH_MAX_BS_DECODE MAX_RUNNING_REQUESTS MOE_RUNNER_BACKEND SPEC_MOE_RUNNER_BACKEND SPEC_ALGORITHM DISABLE_SHARED_EXPERTS_FUSION API_HOST 2>/dev/null || true
   # shellcheck disable=SC1090
   source "$conf"
+  ENGINE="${ENGINE:-vllm}"
   PROFILE="${PROFILE_ID:?cluster profile missing PROFILE_ID}"
   if [[ "${PLACEHOLDER:-false}" == "true" ]]; then
     PROFILE_PLACEHOLDER="true"
@@ -141,7 +145,7 @@ load_profile(){
   if [[ -n "${DRAF_REL:-}" ]]; then
     DRAF="${MODELS_BASE}/${DRAF_REL}"
   fi
-  export PROFILE PROFILE_PLACEHOLDER
+  export PROFILE PROFILE_PLACEHOLDER ENGINE
 }
 
 # =====================================================================
@@ -166,14 +170,26 @@ build_vllm_args(){
     --node-rank "${rank}"
     --master-addr "${MASTER_ADDR}"
     --master-port "${MASTER_PORT}"
-    --quantization compressed-tensors
     --kv-cache-dtype "${KV_DTYPE:-fp8_e4m3}"
     --max-model-len "${MAXLEN}"
     --max-num-seqs "${NUMSEQ}"
     --max-num-batched-tokens "${BATCHED}"
     --gpu-memory-utilization "${GMU}"
-    --disable-custom-all-reduce
   )
+  # Quantization flag is profile-overridable (data stays in the conf).
+  #   unset          -> historical default: --quantization compressed-tensors
+  #   QUANTIZATION=X -> --quantization X
+  #   QUANTIZATION=none -> omit the flag entirely (checkpoints whose HF
+  #   config already carries their own quant method).
+  if [[ -n "${QUANTIZATION:-}" && "${QUANTIZATION}" != "none" ]]; then
+    VLLM_ARGS+=(--quantization "${QUANTIZATION}")
+  elif [[ -z "${QUANTIZATION:-}" ]]; then
+    VLLM_ARGS+=(--quantization compressed-tensors)
+  fi
+  # Custom all-reduce disable is the historical behavior; a profile may opt
+  # out (DISABLE_CUSTOM_ALL_REDUCE=false) to follow a recipe contract.
+  [[ "${DISABLE_CUSTOM_ALL_REDUCE:-true}" == "true" ]] \
+    && VLLM_ARGS+=(--disable-custom-all-reduce)
   # Profile-owned backend overrides (empty/unset => vLLM auto default).
   [[ -n "${ATTN_BACKEND:-}" ]] && VLLM_ARGS+=(--attention-backend "${ATTN_BACKEND}")
   [[ -n "${LINEAR_BACKEND:-}" ]] && VLLM_ARGS+=(--linear-backend "${LINEAR_BACKEND}")
@@ -182,18 +198,15 @@ build_vllm_args(){
   [[ "${ENABLE_PREFIX_CACHING:-false}" == "true" ]] && VLLM_ARGS+=(--enable-prefix-caching) \
     || VLLM_ARGS+=(--no-enable-prefix-caching)
   VLLM_ARGS+=(--compilation-config "{\"cudagraph_mode\":\"${GRAPH_MODE:-FULL_AND_PIECEWISE}\"}")
-  # Speculative decode — two profile-owned forms (method set, != "none"):
-  #   1) external drafter (DRAF set): model=/drafter + attention backend.
-  #   2) embedded / same-checkpoint draft (DRAF empty, e.g. DeepSeek-V4
-  #      MTP/DSpark): NO model key (SpeculativeConfig resolves the target
-  #      model path) and NO attention_backend (draft reuses the target
-  #      DSV4 attention backend).
-  if [[ -n "${SPEC_METHOD:-}" && "${SPEC_METHOD}" != "none" ]]; then
-    if [[ -n "${DRAF:-}" ]]; then
-      VLLM_ARGS+=(--speculative-config "{\"method\":\"${SPEC_METHOD}\",\"model\":\"/drafter\",\"num_speculative_tokens\":${NSPEC:-1},\"attention_backend\":\"${SPEC_ATTN_BACKEND:-TRITON_ATTN}\"}")
-    else
-      VLLM_ARGS+=(--speculative-config "{\"method\":\"${SPEC_METHOD}\",\"num_speculative_tokens\":${NSPEC:-1}}")
-    fi
+  [[ -n "${CUDAGRAPH_CAPTURE:-}" ]] \
+    && VLLM_ARGS+=(--max-cudagraph-capture-size "${CUDAGRAPH_CAPTURE}")
+  # Speculative decode: a profile-owned raw SPEC_CONFIG JSON wins over the
+  # template (e.g. same-model DSpark drafts that need no /drafter mount);
+  # the template path stays the default for /drafter-style profiles.
+  if [[ -n "${SPEC_CONFIG:-}" ]]; then
+    VLLM_ARGS+=(--speculative-config "${SPEC_CONFIG}")
+  elif [[ -n "${SPEC_METHOD:-}" && "${SPEC_METHOD}" != "none" && -n "${DRAF:-}" ]]; then
+    VLLM_ARGS+=(--speculative-config "{\"method\":\"${SPEC_METHOD}\",\"model\":\"/drafter\",\"num_speculative_tokens\":${NSPEC:-1},\"attention_backend\":\"${SPEC_ATTN_BACKEND:-TRITON_ATTN}\"}")
   fi
   # API-serving rank only: parsers + optional tool choice.
   if [[ "$rank" == "0" ]]; then
@@ -202,12 +215,56 @@ build_vllm_args(){
     [[ "${ENABLE_AUTO_TOOL_CHOICE:-false}" == "true" ]] && VLLM_ARGS+=(--enable-auto-tool-choice)
   fi
   VLLM_ARGS+=(--trust-remote-code)
+  # Verbatim profile-owned extras (bash array EXTRA_ARGS in the conf).
+  [[ -n "${EXTRA_ARGS+x}" ]] && VLLM_ARGS+=("${EXTRA_ARGS[@]}")
   if [[ "$rank" == "0" && "${VLLM_API_KEY:-EMPTY}" != "EMPTY" && -n "${VLLM_API_KEY:-}" ]]; then
     VLLM_ARGS+=(--api-key "${VLLM_API_KEY}")
   fi
   export VLLM_ARGS
 }
 
+# =====================================================================
+# build_sglang_args <rank> -> sets SGLANG_ARGS (bash array)
+# ENGINE=sglang profile launch (DeepSeek V4 Flash Vision Exp verified
+# cell, guideline 9/11/12). Rank0 serves the OpenAI API on :1234;
+# rank1 is a headless TP worker. Same profile data as vllm; only the
+# argv shape differs.
+# =====================================================================
+build_sglang_args(){
+  local rank="$1"
+
+  # Entrypoint is `sglang serve` (engine-specific, see tp2-up); args here
+  # are the serve subcommand args.
+  SGLANG_ARGS=()
+  [[ "$rank" == "0" ]] && SGLANG_ARGS+=(--host "${API_HOST:-0.0.0.0}" --port "${API_PORT}")
+  SGLANG_ARGS+=(
+    --tp "${TP_SIZE:-2}"
+    --nnodes "${NNODES:-2}"
+    --node-rank "${rank}"
+    --dist-init-addr "${MASTER_ADDR}:${MASTER_PORT}"
+    --moe-runner-backend "${MOE_RUNNER_BACKEND:-b12x}"
+    --speculative-moe-runner-backend "${SPEC_MOE_RUNNER_BACKEND:-b12x}"
+    --disable-shared-experts-fusion
+    --speculative-algorithm "${SPEC_ALGORITHM:-DSPARK}"
+    --chunked-prefill-size "${CHUNKED_PREFILL_SIZE:-8192}"
+    --context-length "${MAXLEN}"
+    --mem-fraction-static "${MEM_FRACTION_STATIC:-0.80}"
+    --cuda-graph-max-bs-decode "${CUDA_GRAPH_MAX_BS_DECODE:-32}"
+    --max-running-requests "${MAX_RUNNING_REQUESTS:-${NUMSEQ:-32}}"
+  )
+  # API-serving rank only: parsers.
+  if [[ "$rank" == "0" ]]; then
+    [[ -n "${REASONING_PARSER:-}" ]] && SGLANG_ARGS+=(--reasoning-parser "${REASONING_PARSER}")
+    [[ -n "${TOOL_CALL_PARSER:-}" ]] && SGLANG_ARGS+=(--tool-call-parser "${TOOL_CALL_PARSER}")
+  fi
+  SGLANG_ARGS+=(--trust-remote-code)
+  # Verbatim profile-owned extras (bash array EXTRA_ARGS in the conf).
+  [[ -n "${EXTRA_ARGS+x}" ]] && SGLANG_ARGS+=("${EXTRA_ARGS[@]}")
+  if [[ "$rank" == "0" && "${VLLM_API_KEY:-EMPTY}" != "EMPTY" && -n "${VLLM_API_KEY:-}" ]]; then
+    SGLANG_ARGS+=(--api-key "${VLLM_API_KEY}")
+  fi
+  export SGLANG_ARGS
+}
 # =====================================================================
 # build_docker_env <rank> -> sets DOCKER_ENV_EXTRA (array), DOCKER_MOUNTS
 # =====================================================================
@@ -227,8 +284,17 @@ build_docker_env(){
     -e "NCCL_IB_GID_INDEX=${ib_gid}"
     -e "PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True"
   )
+  # Profile-owned env/mount extras (arrays EXTRA_ENV / EXTRA_MOUNTS in the
+  # conf). EXTRA_ENV entries are KEY=VAL and get an explicit "-e" flag each
+  # (built-ins above already carry "-e"); EXTRA_MOUNTS entries are full
+  # "-v src:dst[:opts]" tokens. Unset => no extras (unchanged behavior).
+  if [[ -n "${EXTRA_ENV+x}" ]]; then
+    local _kv
+    for _kv in "${EXTRA_ENV[@]}"; do DOCKER_ENV_EXTRA+=(-e "$_kv"); done
+  fi
   DOCKER_MOUNTS=(-v "${BODY}:/model:ro")
   [[ -n "${DRAF:-}" ]] && DOCKER_MOUNTS+=(-v "${DRAF}:/drafter:ro")
+  [[ -n "${EXTRA_MOUNTS+x}" ]] && DOCKER_MOUNTS+=("${EXTRA_MOUNTS[@]}")
   export DOCKER_ENV_EXTRA DOCKER_MOUNTS
 }
 
@@ -242,6 +308,7 @@ inspect_profile(){
   echo "profile:  ${PROFILE}$([[ "${PROFILE_PLACEHOLDER}" == "true" ]] && echo " (placeholder)")"
   echo "display:  ${DISPLAY_NAME:-<unset>}"
   echo "image:    ${IMG:-<unresolved>}"
+  echo "engine:   ${ENGINE:-vllm}"
   if [[ "${PROFILE_PLACEHOLDER}" == "true" ]]; then
     echo "status:   not deployed (placeholder)"
     echo "model:    <none>"
@@ -249,23 +316,26 @@ inspect_profile(){
     echo "note:     fails safe; no image/model resolution, no container start"
     return 0
   fi
-  echo "body:     ${BODY}"
+echo "body:     ${BODY}"
   echo "drafter:  ${DRAF:-<none>}"
-  echo "args:     maxlen=${MAXLEN:-?} numseq=${NUMSEQ:-?} batched=${BATCHED:-?} gmu=${GMU:-?}"
-  echo "kv:       ${KV_DTYPE:-fp8_e4m3}  attn: ${ATTN_BACKEND:-auto}  linear: ${LINEAR_BACKEND:-auto}  moe: ${MOE_BACKEND:-auto}"
-  local _spec_suffix=""
-  if [[ -n "${SPEC_METHOD:-}" && "${SPEC_METHOD}" != "none" ]]; then
-    if [[ -n "${DRAF:-}" ]]; then
-      _spec_suffix=" n=${NSPEC:-?} (external drafter /drafter)"
-    else
-      _spec_suffix=" n=${NSPEC:-?} (embedded, same checkpoint)"
-    fi
+  if [[ "${ENGINE}" == "sglang" ]]; then
+    echo "args:     tp=${TP_SIZE:-2} nnodes=${NNODES:-2} maxlen=${MAXLEN:-?} numseq=${MAX_RUNNING_REQUESTS:-${NUMSEQ:-?}} mem=${MEM_FRACTION_STATIC:-0.80}"
+    echo "moe:      ${MOE_RUNNER_BACKEND:-b12x}  spec_moe: ${SPEC_MOE_RUNNER_BACKEND:-b12x}  spec: ${SPEC_ALGORITHM:-DSPARK}"
+    echo "chunked:  ${CHUNKED_PREFILL_SIZE:-8192}  cudagraph_bs: ${CUDA_GRAPH_MAX_BS_DECODE:-32}"
+    echo "shm:      ${SHM_SIZE:-16g}"
+  else
+    echo "args:     maxlen=${MAXLEN:-?} numseq=${NUMSEQ:-?} batched=${BATCHED:-?} gmu=${GMU:-?}"
+    echo "kv:       ${KV_DTYPE:-fp8_e4m3}  attn: ${ATTN_BACKEND:-auto}  linear: ${LINEAR_BACKEND:-auto}  moe: ${MOE_BACKEND:-auto}"
+    echo "quant:    ${QUANTIZATION:-<default: compressed-tensors>}$( [[ "${QUANTIZATION:-}" == "none" ]] && echo " (flag omitted)" || true )"
+    echo "capture:  ${CUDAGRAPH_CAPTURE:-<engine default>}"
+    echo "spec:     ${SPEC_METHOD:-none}$([[ -n "${DRAF:-}" && -n "${SPEC_METHOD:-}" && "${SPEC_METHOD}" != "none" ]] && echo " n=${NSPEC:-?} (model=/drafter)")$([[ -n "${SPEC_CONFIG:-}" ]] && echo " (SPEC_CONFIG override)")"
+    echo "graph:    ${GRAPH_MODE:-FULL_AND_PIECEWISE}"
+    echo "prefill:  chunked=${ENABLE_CHUNKED_PREFILL:-true} prefix_cache=${ENABLE_PREFIX_CACHING:-false}"
   fi
-  echo "spec:     ${SPEC_METHOD:-none}${_spec_suffix}"
-  echo "graph:    ${GRAPH_MODE:-FULL_AND_PIECEWISE}"
+  echo "revision: $(cat "${BODY}/.hf_revision" 2>/dev/null || echo '<none>')"
   echo "parsers:  reasoning=${REASONING_PARSER:-none} tool=${TOOL_CALL_PARSER:-none} autotool=${ENABLE_AUTO_TOOL_CHOICE:-false}"
-  echo "prefill:  chunked=${ENABLE_CHUNKED_PREFILL:-true} prefix_cache=${ENABLE_PREFIX_CACHING:-false}"
-  echo "auth:     $([[ -n "${VLLM_API_KEY:-}" && "${VLLM_API_KEY}" != "EMPTY" ]] && echo "Bearer set (rank0)" || echo "disabled")"
+  echo "extras:   args=$([[ -n "${EXTRA_ARGS+x}" ]] && echo "${#EXTRA_ARGS[@]}" || echo 0) env=$([[ -n "${EXTRA_ENV+x}" ]] && echo "${#EXTRA_ENV[@]}" || echo 0) mounts=$([[ -n "${EXTRA_MOUNTS+x}" ]] && echo "${#EXTRA_MOUNTS[@]}" || echo 0)"
+  echo "auth:     $([[ -n "${VLLM_API_KEY:-}" && "${VLLM_API_KEY}" != "EMPTY" ]] && echo "bearer (rank0)" || echo "disabled")"
 }
 
 # ---- remote execution on Node1 (headless worker) over interconnect ssh ----

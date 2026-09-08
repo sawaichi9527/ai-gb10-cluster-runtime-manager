@@ -39,9 +39,16 @@ node_up
 # each element and emits them as bash array literals in the remote
 # script. Node1 executes the passed argv verbatim.
 # ------------------------------------------------------------------
-build_vllm_args 1
+if [[ "${ENGINE}" == "sglang" ]]; then
+  build_sglang_args 1
+  ENGINE_ARGS=( "${SGLANG_ARGS[@]}" )
+else
+  build_vllm_args 1
+  ENGINE_ARGS=( "${VLLM_ARGS[@]}" )
+fi
+ENTRY="vllm"; [[ "${ENGINE}" == "sglang" ]] && ENTRY="sglang"
 _escaped=()
-for a in "${VLLM_ARGS[@]}"; do _escaped+=( "$(printf '%q' "$a")" ); done
+for a in "${ENGINE_ARGS[@]}"; do _escaped+=( "$(printf '%q' "$a")" ); done
 _RANK1_ARGV_LITERAL="${_escaped[*]}"
 
 REMOTE=$(cat <<RSCRIPT
@@ -50,16 +57,16 @@ echo "\$SUDO_PASS" | sudo -S docker rm -f tp2-node1 >/dev/null 2>&1 || true
 RANK1_ARGS=( ${_RANK1_ARGV_LITERAL} )
 rc=0
 echo "\$SUDO_PASS" | sudo -S docker run -d --name tp2-node1 \
-    --gpus all --ipc=host --shm-size=16g --net=host \
+    --gpus all --ipc=host --shm-size="${SHM_SIZE:-16g}" --net=host \
     -e "VLLM_HOST_IP=\${RHOST_IP}" \
     -e "NCCL_SOCKET_IFNAME=\${R_NCCL_SOCKET_IFNAME}" \
     -e "GLOO_SOCKET_IFNAME=\${R_NCCL_SOCKET_IFNAME}" \
     -e "NCCL_IB_HCA=\${R_IB_HCA}" \
     -e "NCCL_IB_GID_INDEX=\${R_IB_GID}" \
     -e "PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True" \
-    --device /dev/infiniband --cap-add IPC_LOCK --ulimit memlock=-1:-1 \
-$(if [[ -n "${A1_SWA_PATCH:-}" ]]; then printf '%s ' '-v "/tmp/a1/sparse_swa.py:/usr/local/lib/python3.12/site-packages/vllm/v1/attention/backends/mla/sparse_swa.py:ro"'; fi)$(if [[ -n "${DRAF:-}" ]]; then printf '%s ' '-v "${R_DRAF}:/drafter:ro"'; fi)-v "\${R_BODY}:/model:ro" \
-    --entrypoint vllm "\${R_IMG}" serve /model \
+    --device /dev/infiniband --cap-add IPC_LOCK --ulimit memlock=-1:-1 --ulimit stack=67108864 \
+$(if [[ -n "${EXTRA_ENV+x}" ]]; then for kv in "${EXTRA_ENV[@]}"; do printf -- '-e %q ' "$kv"; done; fi)$(if [[ -n "${DRAF:-}" ]]; then printf '%s ' '-v "${R_DRAF}:/drafter:ro"'; fi)-v "\${R_BODY}:/model:ro" \
+$(if [[ -n "${EXTRA_MOUNTS+x}" ]]; then for m in "${EXTRA_MOUNTS[@]}"; do printf '%q ' "$m"; done; fi)--entrypoint "\${R_ENTRY}" "\${R_IMG}" serve /model \
     "\${RANK1_ARGS[@]}" \
     > /tmp/tp2-node1.log 2>&1 || rc=\$?
 echo "DEBUG node1 docker run rc=\$rc"
@@ -78,6 +85,7 @@ export R_IB_GID='${NODE1_IB_GID_INDEX:-${NCCL_IB_GID_INDEX}}'
 export R_BODY='${BODY}'
 export R_DRAF='${DRAF}'
 export R_IMG='${IMG}'
+export R_ENTRY='${ENTRY}'
 ${REMOTE}
 EOF
 sha256sum /tmp/tp2-rank1-stdin.sh
@@ -87,23 +95,24 @@ n1 bash -s < /tmp/tp2-rank1-stdin.sh
 # Node0 API server (rank0)
 # ------------------------------------------------------------------
 build_docker_env 0
-build_vllm_args 0
-if [[ -n "${A1_SWA_PATCH:-}" ]]; then
-  # A1 probe only: bind-mount the patched sparse_swa.py (DSV4 256->512 snap).
-  # NOT the final r2 fix; revert this hook before B.
-  DOCKER_MOUNTS+=( -v "/tmp/a1/sparse_swa.py:/usr/local/lib/python3.12/site-packages/vllm/v1/attention/backends/mla/sparse_swa.py:ro" )
-fi
+if [[ "${ENGINE}" == "sglang" ]]; then
+  build_sglang_args 0
+  ENGINE_ARGS=( "${SGLANG_ARGS[@]}" )
+else
+  build_vllm_args 0
+  ENGINE_ARGS=( "${VLLM_ARGS[@]}" )
+  fi
 echo "== launching Node0 API server (rank0, profile=${PROFILE}) =="
 sdk docker rm -f tp2-node0 >/dev/null 2>&1 || true
 # shellcheck disable=SC2145
 rc=0
 sdk docker run -d --name tp2-node0 \
-    --gpus all --ipc=host --shm-size=16g --net=host \
+    --gpus all --ipc=host --shm-size="${SHM_SIZE:-16g}" --net=host \
     "${DOCKER_ENV_EXTRA[@]}" \
-    --device /dev/infiniband --cap-add IPC_LOCK --ulimit memlock=-1:-1 \
+    --device /dev/infiniband --cap-add IPC_LOCK --ulimit memlock=-1:-1 --ulimit stack=67108864 \
     "${DOCKER_MOUNTS[@]}" \
-    --entrypoint vllm "${IMG}" serve /model \
-    "${VLLM_ARGS[@]}" \
+    --entrypoint "${ENTRY}" "${IMG}" serve /model \
+    "${ENGINE_ARGS[@]}" \
     > /tmp/tp2-node0.log 2>&1 || rc=$?
 echo "node0 docker run rc=$rc"
 
