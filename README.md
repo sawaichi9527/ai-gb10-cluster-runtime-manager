@@ -17,7 +17,7 @@ Node1  spark-8095  (192.168.23.216 / 10.0.101.102 interconnect)  rank1 = headles
 
 **Unified LLM endpoint convention** — all LLM runtimes serve the OpenAI-compatible
 API on **port 1234, sharing one `VLLM_API_KEY`** (set the same value in `tp2.env`
-and both nodes' `docker-stacks/aeon-vllm/.env`):
+and both nodes' `docker-stacks/anemll-vllm-dspark/.env`):
 
 | runtime | endpoint | notes |
 |---|---|---|

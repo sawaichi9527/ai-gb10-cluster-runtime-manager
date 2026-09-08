@@ -22,7 +22,7 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   profile data in `tp2-*` scripts — the registry is the only authoritative set.
 - **Unified LLM endpoint**: all LLM runtimes (TP2 + single, node0 & node1) serve the
   OpenAI API on **port 1234** sharing one `VLLM_API_KEY`. Set the same key in `tp2.env`
-  and both nodes' `docker-stacks/aeon-vllm/.env`. TP2 and node0 single LLM share the
+  and both nodes' `docker-stacks/anemll-vllm-dspark/.env`. TP2 and node0 single LLM share the
   port → they are **mutually exclusive**: `gb10 use` frees node0+node1 singles;
   `gb10-single use/start` on either node tears down TP2 first. `scripts/tp2-smoke/load/
    status` pass the [REDACTED:bearer-auth:10] `api_curl()` (or their own header) when a key is configured.

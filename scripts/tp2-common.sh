@@ -66,7 +66,7 @@ api_curl(){
   fi
 }
 
-MODELS_BASE="${NODE0_MODELS_BASE:-$HOME/docker-stacks/aeon-vllm/models}"
+MODELS_BASE="${NODE0_MODELS_BASE:-$HOME/docker-stacks/anemll-vllm-dspark/models}"
 
 # =====================================================================
 # Cluster profile registry (data-driven) — replaces the old hard-coded
