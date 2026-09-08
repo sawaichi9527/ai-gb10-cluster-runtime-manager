@@ -1,0 +1,3 @@
+# LF line endings everywhere: this repo is checked out on Linux (Node0) and
+# edited locally on Windows — normalize to LF to avoid CRLF corruption.
+* text=auto eol=lf
