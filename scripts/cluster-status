@@ -92,7 +92,9 @@ if [[ "${NODE0_UP}" == "up" ]]; then
   [[ -n "${KV_VAL:-}" ]] && echo "  kv:      ${KV_VAL} (node0)"
 fi
 echo "  api:     http://${NODE0_MGMT}:${API_PORT}/v1 · health ${HEALTH}"
-echo "  :"
+if [[ "${STATUS}" != "ready" && "${HEALTH}" == "ready" ]]; then
+  echo "  note:    :${API_PORT} answers but no TP2 container is up — another runtime may be serving (check gb10-single / docker ps)"
+fi
 
 echo ""
 echo ""
