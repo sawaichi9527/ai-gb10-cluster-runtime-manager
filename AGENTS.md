@@ -21,18 +21,20 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   131072, GMU 0.80, num_seqs 16). Both on `:1234` through Node0. Do NOT re-hard-code
   profile data in `cluster-*` scripts — the registry is the only authoritative set.
 - **Unified LLM endpoint**: all LLM runtimes (TP2 + single, node0 & node1) serve the
-  OpenAI API on **port 1234** sharing one `VLLM_API_KEY`. Set the same key in `tp2.env`
-  and both nodes' `docker-stacks/anemll-vllm-dspark/.env`. TP2 and node0 single LLM share the
+  OpenAI API on **port 1234** sharing one `VLLM_API_KEY`. Set the same key in
+  `~/docker-stacks/config/cluster.env` and both nodes' `~/docker-stacks/config/standalone.env`.
+  TP2 and node0 single LLM share the
   port → they are **mutually exclusive**: `gb10 use` frees node0+node1 singles;
   `gb10-single use/start` on either node tears down TP2 first. `scripts/cluster-smoke/load/
    status` pass the [REDACTED:bearer-auth:10] `api_curl()` (or their own header) when a key is configured.
 - **`scripts/cluster-*`**: `up [27b|35b]`, `down`, `status`, `smoke`, `load`. Never edit
   silently — `gb10` just forwards to them.
 - **Lazy sudo**: `scripts/cluster-common.sh` exposes `sudo_pass()` (private `_sudo_pass`).
-  It reuses an exported `SUDO_PASS` (from `tp2.env`) with no prompt; if unset it only
-  prompts interactively and otherwise errors rather than hanging. `sdk()`, `cluster-down`,
-  `cluster-status` and the `cluster-up` heredoc all go through `sudo_pass()` so they never block
-  on a non-tty password read. Credentials never echo to stdout/logs.
+  It reuses an exported `SUDO_PASS` (from `~/docker-stacks/config/cluster.env`) with no
+  prompt; if unset it only prompts interactively and otherwise errors rather than hanging.
+  `sdk()`, `cluster-down`, `cluster-status` and the `cluster-up` heredoc all go through
+  `sudo_pass()` so they never block on a non-tty password read. Credentials never echo to
+  stdout/logs.
 - **Placeholder runtimes** (`PLACEHOLDER=true` in conf): CLI skeleton only. `gb10` and
   `gb10-single` must print "not deployed yet" and never touch a missing stack.
 - **Exclusive groups**: `runtimes.d/*.conf` use `MODE=exclusive` + `GROUP` for isolation
@@ -42,12 +44,14 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   active *exclusive* runtime on the same node **across groups** (minimaxh3 `video` vs comfyui
   `image`). Placeholders stay untouched and TP2 is handled by `ensure_tp2_down`, never the
   exclusive stop loop.
-- **Secrets**: `tp2.env`, `~/docker-stacks/*/.env`, keys — never commit. `.gitignore`
-  covers `tp2.env`, `state/last-runtime`, logs.
+- **Secrets**: `~/docker-stacks/config/{cluster,standalone}.env`, `~/docker-stacks/*/.env`,
+  keys — never commit. `.gitignore` covers `config/cluster.env`, `state/last-runtime`, logs.
 - **DeepSeek is cluster-only.** The legacy single-node `runtimes.d/deepseek.conf`
-  placeholder was **retired 2026-09-05**; the only DeepSeek placeholder is the
-  TP2-cluster `cluster-profiles.d/deepseek.conf` (safe-fails as "not deployed").
-  `gb10-single list` no longer shows `deepseek`.
+  placeholder was **retired 2026-09-05**, and `gb10-single list` no longer shows
+  `deepseek`. On the TP2 cluster, `cluster-profiles.d/deepseek.conf` is **mainline
+  (PLACEHOLDER=false since 2026-09-07)**: official deepseek-ai fp8 checkpoint +
+  public Anemll runtime `ghcr.io/anemll/dspark-vllm-gx10:0.1.1`, weights at the shared
+  pool `~/docker-stacks/models` — `gb10 use deepseek` is a real launch, not a placeholder.
 - **Node1 doesn't host the repo.** Only Node0. Node1 needs image + model dirs + sudo docker.
 - **Cold start** for TP2 is ~7-15 min (weight load + FlashInfer autotune + torch.compile);
   `cluster-up`/`gb10 use` waits for `/health` 200 and reports READY.
@@ -65,7 +69,7 @@ The TP2 profile layer is **data-driven** (see `docs/TP2_PROFILE_REFACTOR_VALIDAT
 cluster-profiles.d/
   27b.conf          # deployed + live-validated (world_size=2, maxlen 262144)
   35b.conf          # deployed + live-validated (world_size=2, maxlen 131072)
-  deepseek.conf     # safe placeholder (not deployed; gb10 use deepseek fails safely)
+  deepseek.conf     # mainline (onboarded 2026-09-07; dspark-vllm-gx10:0.1.1, pool weights)
 ```
 
 Key rules:
@@ -80,13 +84,12 @@ Key rules:
   `--disable-custom-all-reduce` remain cluster concerns.
 - Model-specific settings (KV dtype, attention/linear/MoE backend, speculative method, parser,
   graph mode, context/concurrency/GMU) belong to the cluster profile conf.
-- Do not build/patch the DeepSeek image in the same structural-refactor change. Planned lineage is:
-  base `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-08-24-v0.27.1-omni` -> derived
-  `2026-09-04-v0.27.1-omni-ds4flash0731-r1`, with image work handled as a separate follow-up.
-- DeepSeek r1 is a correctness/control bring-up (TP2, DSpark off, FP8 KV baseline, PIECEWISE,
-  shorter context first). DSpark / longer context belong to later validation, not this refactor.
-- Do not claim `deepseek` deployed until both nodes have the intended image/model and a real
-  generation has passed. Until then `gb10 use deepseek` must fail safely as a placeholder.
+- The TP2 structural refactor (2026-09-05) originally scoped DeepSeek as a correctness/control
+  bring-up; that NVFP4 AEON lane has since been **archived**
+  (`~/_archieve/cluster-profiles.d/deepseek-nvfp4.conf`) in favor of the **mainline** DeepSeek
+  lane (since 2026-09-07): official deepseek-ai fp8 checkpoint + public Anemll runtime
+  `ghcr.io/anemll/dspark-vllm-gx10:0.1.1` (manifest revision 9e165c…, SHA256SUMS-gated;
+  gate-passed 40K reference, retuned to the 256KB + DSpark + 8-stream production contract).
 
 ## Conventions
 
@@ -97,7 +100,7 @@ Key rules:
 - `comfyui` is the current Node1 Flux 2 Dev runtime. Old `comfyui-personal`/`comfyui-work`
   split is retired — do not resurrect it unless a future design explicitly requires it.
 - Scripts are LF, `#!/usr/bin/env bash`, `set -Eeuo pipefail`. No Windows CRLF.
-- `.env.example`/`tp2.env.example` are the sanitized templates; never add real keys.
+- `.env.example`/`cluster.env.example` are the sanitized templates; never add real keys.
 - Structural refactors and model/image patch work should be separate commits/PRs so regression
   ownership is obvious.
 
