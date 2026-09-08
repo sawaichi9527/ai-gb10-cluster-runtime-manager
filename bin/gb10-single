@@ -63,7 +63,7 @@ profiles(){
 load(){
   unset RUNTIME_ID DISPLAY_NAME ALIASES MODE GROUP PLACEHOLDER
   unset STACK_DIR COMPOSE_FILE PROJECT SERVICE CONTAINER
-  unset IDENTITY_MOUNT HEALTH_URL TIMEOUT
+  unset IDENTITY_MOUNT HEALTH_URL TIMEOUT ENV_FILE
   # shellcheck disable=SC1090
   source "$1"
   : "${RUNTIME_ID:?}"
@@ -80,6 +80,7 @@ load(){
   : "${IDENTITY_MOUNT:=}"
   : "${HEALTH_URL:=}"
   : "${TIMEOUT:=1800}"
+  : "${ENV_FILE:=}"
   if [[ -n "$COMPOSE_FILE" && "${COMPOSE_FILE:0:1}" != "/" ]]; then
     COMPOSE_FILE="${STACK_DIR}/${COMPOSE_FILE}"
   fi
@@ -140,9 +141,9 @@ node_dc(){
 compose_node(){
   local node="$1"; shift
   if [[ "$node" == "node0" ]]; then
-    (cd "$STACK_DIR" && docker compose -p "$PROJECT" -f "$COMPOSE_FILE" "$@")
+    (cd "$STACK_DIR" && docker compose -p "$PROJECT" -f "$COMPOSE_FILE" ${ENV_FILE:+--env-file "$ENV_FILE"} "$@")
   else
-    n1 "cd '$STACK_DIR' && docker compose -p '$PROJECT' -f '$COMPOSE_FILE' $(printf '%q ' "$@")"
+    n1 "cd '$STACK_DIR' && docker compose -p '$PROJECT' -f '$COMPOSE_FILE' ${ENV_FILE:+--env-file '$ENV_FILE'} $(printf '%q ' "$@")"
   fi
 }
 
