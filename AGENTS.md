@@ -9,6 +9,15 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
     the 2-node cluster; Node0 is the single side of control, Node1 is headless.
   - `gb10-single` = **single-node** runtime manager. `node0` runs compose locally,
     `node1` reaches it over `ssh -i ~/.ssh/id_gb10_cluster eye@10.0.101.102`.
+- **Canonical repo path (fixed 2026-09-09):** the only live checkout is
+  `~/workspace/ai-gb10-cluster-runtime-manager` (branch `keystone`, origin =
+  `http://192.168.23.167:3000/829522/ai-gb10-cluster-runtime-manager`). `~/bin/gb10`
+  and `~/bin/gb10-single` are symlinks into its `bin/`. The pre-restructure checkout
+  `~/ai-gb10-cluster-runtime-manager` was retired to `.retired/` (2026-09-09): its
+  `tp2-*` scripts still look for `tp2-node*` containers and would report a false
+  `down` against the live `cluster-node*` stacks (plus a stray debug `:` line, fixed
+  in `e9d9602`). Do not resurrect it or re-point the symlinks.
+
 - **`cluster-common.sh` auto-resolves `REPO_DIR`** from its own path — the scripts are
   portable and do NOT need the repo to live at a fixed path. Keep it that way.
 - **Compose = source of truth; CLI = convenience layer.** Day-to-day ops go through
