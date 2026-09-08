@@ -339,6 +339,46 @@ echo "body:     ${BODY}"
   echo "auth:     $([[ -n "${VLLM_API_KEY:-}" && "${VLLM_API_KEY}" != "EMPTY" ]] && echo "bearer (rank0)" || echo "disabled")"
 }
 
+# =====================================================================
+# verify_model_checksum <model_dir> [n]
+#   Quick integrity gate after model sync. Reads SHA256SUMS in <dir>,
+#   spot-checks n lines (default 8; 0 = full verification).
+#   deterministic: picks first, last, and evenly-spaced lines.
+#   Returns 0 on pass, 1 on any mismatch.
+# =====================================================================
+verify_model_checksum(){
+  local dir="$1" n="${2:-8}"
+  local sums="${dir}/SHA256SUMS"
+  if [[ ! -d "$dir" ]]; then
+    echo "WARN: model dir missing: $dir (skip checksum)" >&2
+    return 0
+  fi
+  if [[ ! -f "$sums" ]]; then
+    echo "WARN: SHA256SUMS not found: $dir (skip checksum)" >&2
+    return 0
+  fi
+  local total k subset count ok=1
+  total=$(wc -l < "$sums")
+  subset=$(mktemp)
+  if (( n == 0 || total <= n )); then
+    cp "$sums" "$subset"
+  else
+    k=$(( (total - 1) / (n - 1) ))
+    awk -v k="$k" -v t="$total" 'NR==1||NR==t||(NR-1)%k==0' "$sums" > "$subset"
+  fi
+  count=$(wc -l < "$subset")
+  echo "CHECK: $dir — spot-check $count/$total shards" >&2
+  (cd "$dir" && sha256sum -c "$subset" --quiet) 2>/dev/null || ok=0
+  rm -f "$subset"
+  if (( ok )); then
+    echo "PASS: $dir — $count checksums OK"
+    return 0
+  else
+    echo "FAIL: $dir — checksum mismatch (full check: cd $dir && sha256sum -c SHA256SUMS)" >&2
+    return 1
+  fi
+}
+
 # ---- remote execution on Node1 (headless worker) over interconnect ssh ----
 n1(){  # runs a script's body on Node1 via ssh; args: [bash -c '...']
   local sshcmd=(
@@ -348,18 +388,59 @@ n1(){  # runs a script's body on Node1 via ssh; args: [bash -c '...']
   "${sshcmd[@]}" "$@"
 }
 
+# ---- remote checksum spot-check (pipes subset via stdin to Node1) ----
+_verify_remote_checksum(){
+  local dir="$1" n="$2"
+  local sums="${dir}/SHA256SUMS"
+  if [[ ! -f "$sums" ]]; then
+    echo "WARN: SHA256SUMS not found on Node1: $dir (skip)" >&2
+    return 0
+  fi
+  local total k rc=0
+  total=$(wc -l < "$sums")
+  echo "CHECK: Node1:$dir — verifying shards..." >&2
+  if (( n == 0 || total <= n )); then
+    cat "$sums" | n1 "cd '$dir' && sha256sum -c - --quiet" 2>/dev/null || rc=$?
+  else
+    k=$(( (total - 1) / (n - 1) ))
+    awk -v k="$k" -v t="$total" 'NR==1||NR==t||(NR-1)%k==0' "$sums" | \
+      n1 "cd '$dir' && sha256sum -c - --quiet" 2>/dev/null || rc=$?
+  fi
+  if (( rc == 0 )); then
+    echo "PASS: Node1:$dir — checksums OK"
+  else
+    echo "FAIL: Node1:$dir — checksum mismatch" >&2
+  fi
+  return $rc
+}
+
 # Common validation: profiles exist on both nodes, ssh reachable
 node_up(){
+  local _v="${VERIFY_SHARDS:-8}"
   echo "INFO: NODE0=$(hostname) NODE1=${NODE1_SSH_USER}@${NODE1_IP}"
   [[ -d "$BODY" ]] || die "missing body model: $BODY"
   if [[ -n "${DRAF:-}" ]]; then
     [[ -d "$DRAF" ]] || die "missing drafter: $DRAF"
+  fi
+  # --- Node0 model checksum spot-check (VERIFY_SHARDS=0 to skip) ---
+  if (( _v > 0 )); then
+    verify_model_checksum "$BODY" "$_v" || die "Node0 body model checksum FAILED: $BODY"
+    if [[ -n "${DRAF:-}" ]]; then
+      verify_model_checksum "$DRAF" "$_v" || die "Node0 drafter model checksum FAILED: $DRAF"
+    fi
   fi
   if ! n1 true; then
     echo "ERROR: cannot reach Node1 via ssh (${NODE1_SSH_USER}@${NODE1_IP} key ${NODE1_SSH_KEY})" >&2
     exit 1
   fi
   echo "INFO: ssh to Node1 OK"
+  # --- Node1 model checksum spot-check ---
+  if (( _v > 0 )); then
+    _verify_remote_checksum "$BODY" "$_v" || die "Node1 body model checksum FAILED: $BODY"
+    if [[ -n "${DRAF:-}" ]]; then
+      _verify_remote_checksum "$DRAF" "$_v" || die "Node1 drafter model checksum FAILED: $DRAF"
+    fi
+  fi
 }
 
 die(){ echo "ERROR: $*" >&2; exit 1; }
