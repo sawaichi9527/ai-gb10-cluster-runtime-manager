@@ -13,7 +13,7 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   `~/workspace/ai-gb10-cluster-runtime-manager` (branch `keystone`, origin =
   `http://192.168.23.167:3000/829522/ai-gb10-cluster-runtime-manager`). `~/bin/gb10`
   and `~/bin/gb10-single` are symlinks into its `bin/`. The pre-restructure checkout
-  `~/ai-gb10-cluster-runtime-manager` was retired to `.retired/` (2026-09-09): its
+  `~/ai-gb10-cluster-runtime-manager` was archived to `~/_archieve/` (2026-09-09): its
   `tp2-*` scripts still look for `tp2-node*` containers and would report a false
   `down` against the live `cluster-node*` stacks (plus a stray debug `:` line, fixed
   in `e9d9602`). Do not resurrect it or re-point the symlinks.
