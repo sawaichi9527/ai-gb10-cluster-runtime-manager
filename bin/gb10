@@ -14,6 +14,7 @@
 #   gb10 smoke                # cluster-smoke chat test
 #   gb10 load                 # cluster-load concurrent load test
 #   gb10 list                 # list cluster profiles
+#   gb10 verify-models [p]    # SHA256SUMS integrity check on both nodes
 #   gb10 doctor               # validate both nodes / image / models
 #   gb10 help
 # =====================================================================
@@ -39,6 +40,7 @@ gb10 - DGX Spark GB10 2-node cluster (TP2) helper
   gb10 logs                   # follow cluster-node0 logs
   gb10 smoke                  # chat smoke test
   gb10 load                   # concurrent load test
+  gb10 verify-models [profile] # SHA256SUMS integrity check (both nodes)
   gb10 doctor                 # validate image/models on both nodes
 
 Auto-protection (做法 B): `use/start 27b|35b` frees node1 of any active
@@ -125,6 +127,26 @@ case "${1:-help}" in
     # shellcheck disable=SC1091
     source "${SCRIPTS}/cluster-common.sh"
     inspect_profile "$P"
+    ;;
+  verify-models)
+    P="${2:-27b}"
+    valid_profile "$P" || die "unknown profile: $P"
+    # shellcheck disable=SC1091
+    source "${SCRIPTS}/cluster-common.sh"
+    load_profile "$P"
+    echo "=== Node0: $(hostname) ==="
+    verify_model_checksum "$BODY" 0 || exit 1
+    if [[ -n "${DRAF:-}" ]]; then
+      verify_model_checksum "$DRAF" 0 || exit 1
+    fi
+    echo ""
+    echo "=== Node1: ${NODE1_SSH_USER}@${NODE1_IP} ==="
+    _verify_remote_checksum "$BODY" 0 || exit 1
+    if [[ -n "${DRAF:-}" ]]; then
+      _verify_remote_checksum "$DRAF" 0 || exit 1
+    fi
+    echo ""
+    echo "PASS: $P — all model checksums OK on both nodes"
     ;;
   doctor)
     ENV_FILE="${HOME}/docker-stacks/config/cluster.env"
