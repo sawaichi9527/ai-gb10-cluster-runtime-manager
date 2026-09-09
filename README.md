@@ -16,8 +16,8 @@ Node1  spark-8095  (192.168.23.216 / 10.0.101.102 interconnect)  rank1 = headles
 ```
 
 **Unified LLM endpoint convention** — all LLM runtimes serve the OpenAI-compatible
-API on **port 1234, sharing one `VLLM_API_KEY`** (set the same value in `tp2.env`
-and both nodes' `docker-stacks/anemll-vllm-dspark/.env`):
+API on **port 1234, sharing one `VLLM_API_KEY`** (set the same value in `cluster.env`
+and both nodes' `docker-stacks/config/standalone.env`):
 
 | runtime | endpoint | notes |
 |---|---|---|
@@ -34,7 +34,7 @@ orchestrates Node1 over `ssh -i ~/.ssh/id_gb10_cluster eye@10.0.101.102`.
 `gb10-single` can also drive single-node compose on `node0` (local) or `node1` (ssh).
 
 **Where the repo lives:** checkout on **Node0 only**, at
-**`~/ai-gb10-cluster-runtime-manager/`** — under home, *outside* `~/docker-stacks/`
+**`~/workspace/ai-gb10-cluster-runtime-manager/`** — under home, *outside* `~/docker-stacks/`
 (which stays purely for deployed runtime stacks). Node1 does **not** host the repo;
 Node0 reaches it over ssh. Node1 only needs the image + model dirs + sudo docker.
 
@@ -54,9 +54,9 @@ gb10 load                     # concurrent load
 gb10 doctor
 ```
 
-Current deployed TP2 profiles are 27B and 35B (data-driven from `cluster-profiles.d/`).
-`deepseek` is a TP2-cluster placeholder until its model/image contract is validated;
-`qwen38flash` and `glm53flash` are single-node placeholders until their runtimes land.
+Current deployed TP2 profiles are 27B, 35B and DeepSeek (data-driven from
+`cluster-profiles.d/`). `qwen38flash` and `glm53flash` are single-node placeholders
+until their runtimes land.
 
 ### TP2 profile registry (completed 2026-09-05)
 
@@ -67,7 +67,7 @@ The TP2 profile layer is a **data-driven cluster profile registry** (see
 cluster-profiles.d/
   27b.conf          # deployed + live-validated (world_size=2, maxlen 262144)
   35b.conf          # deployed + live-validated (world_size=2, maxlen 131072)
-  deepseek.conf     # safe placeholder (not deployed)
+  deepseek.conf     # deployed + live-validated (fp8 DSpark mainline, 256k ctx)
 ```
 
 Each conf carries the **profile-scoped image** and per-model vLLM arguments, loaded once by
@@ -88,17 +88,14 @@ cluster profile / model settings
 TP2 orchestration / networking
 ```
 
-The DeepSeek image work is a **separate follow-up** after the structural refactor is merged and
-27B/35B revalidated. Planned base/derived lineage:
-
-```text
-ghcr.io/aeon-7/aeon-vllm-ultimate:2026-08-24-v0.27.1-omni
-    -> 2026-09-04-v0.27.1-omni-ds4flash0731-r1
-```
-
-`deepseek` is a **TP2 cluster profile only** (the legacy single-node
-`runtimes.d/deepseek.conf` placeholder was retired 2026-09-05). `gb10 use deepseek`
-fails safely as a placeholder until the image/model + a real generation are validated.
+DeepSeek V4 Flash 0731 is deployed as a **TP2 cluster profile** (the legacy single-node
+`runtimes.d/deepseek.conf` placeholder was retired 2026-09-05). The mainline uses the
+official fp8 checkpoint (`deepseek-v4-flash-0731-official`, weights under
+`~/docker-stacks/models`) with the public Anemll runtime
+`ghcr.io/anemll/dspark-vllm-gx10:0.1.1`, SHA256SUMS-gated and validated with a real
+generation. It serves the unified :1234 API at 256K context (same-model DSpark draft,
+8 concurrent streams). The retired NVFP4 AEON lane is archived to
+`~/_archieve/cluster-profiles.d/deepseek-nvfp4.conf`.
 
 ## Single-node CLI — `gb10-single`
 
@@ -131,7 +128,7 @@ Placeholders print "not deployed yet"; they are CLI skeletons until models/versi
 
 ## Config
 
-- `tp2.env` (gitignored) — cluster/site knobs: `MASTER_ADDR/PORT`, `NODE0/1_IP`,
+- `cluster.env` (gitignored) — cluster/site knobs: `MASTER_ADDR/PORT`, `NODE0/1_IP`,
   `NCCL_*`, `API_PORT`, `VLLM_API_KEY`, `SUDO_PASS`. Each cluster profile may override/select
   its own image; the profile-scoped `IMG` in `cluster-profiles.d/*.conf` wins over the
   cluster default when present.
@@ -141,7 +138,7 @@ Placeholders print "not deployed yet"; they are CLI skeletons until models/versi
 ## Non-negotiables (see docs/TP2_DEPLOYMENT_2026-08-30.md)
 
 - Same resolved image **byte-identical on BOTH nodes** for TP2.
-- RoCE v2 env as pinned in `tp2.env`/`cluster-common.sh`.
+- RoCE v2 env as pinned in `cluster.env`/`cluster-common.sh`.
 - `--disable-custom-all-reduce` load-bearing cross-node.
 - Existing Qwen TP2 profiles use `--kv-cache-dtype fp8_e4m3`; do not generalize that into a
   universal rule for future model families. DeepSeek gets its own profile policy.
@@ -156,7 +153,34 @@ bin/            gb10 (cluster), gb10-single (single-node)
 scripts/        cluster-up|down|status|smoke|load + cluster-common.sh
 runtimes.d/     *.conf single-node runtime definitions
 cluster-profiles.d/  data-driven TP2 profile registry (active ownership by cluster-common.sh)
-state/          last-runtime markers (gitignored)
+state/          last-runtime marker files (gitignored, empty = normal)
 docs/           deployment notes, ADRs, restructure + active handoffs
-tp2.env.example cluster/site config template (NEVER commit real values)
+cluster.env.example cluster/site config template (NEVER commit real values)
 ```
+
+### state/ — 執行期「最後狀態」標記（非架構內容，空目錄屬正常）
+
+`state/` 是 **執行期快取／便利記憶層**，不是部署契約；`docker-stacks/` 的 compose 與
+`cluster-profiles.d/*.conf` 才是 source of truth。這個目錄刻意 **不納入版本控制**
+（`.gitignore`），因此**內容為空、甚至目錄不存在，都是正常狀態**——代表「目前沒有可
+記憶的上次選擇」，CLI 會落回預設值（如 TP2 預設 `27b`）。
+
+目前已定義的標記檔：
+
+- **`state/last-runtime`** — 由 `bin/gb10-single` 寫入／讀取（`STATE=${REPO_DIR}/state`）。
+  - **寫入**：`use`／`start` 成功啟動一個單機 runtime 後，寫入 `node/runtime_ID`
+    （例如 `node1/minimaxh3`），記住「這個 node 上次選了哪個 runtime」。
+  - **讀取**：後續 `use`／`start` 在某台 node 上未指定 runtime 時，以此作為上次選擇的
+    回退依據（`awk -F/ '{print $2}'` 拆出 runtime ID）；若無此檔，則視為「該 node
+    沒有 active 或 previous runtime」並提示。
+  - 注意：TP2 主動使用時，單機端**不該**有 `last-runtime`（單機與 TP2 互斥，見上方
+    Unified LLM endpoint 說明）。
+
+- **`state/last-cluster-profile`** — 由 `bin/gb10` 讀取
+  （`P="${2:-$(cat "${REPO_DIR}/state/last-cluster-profile" ... || echo 27b)}"`），
+  在未指定 TP2 profile 時，回退到「上次選用的 cluster profile」，否則預設 `27b`。
+
+**所以如果你檢查時發現 `state/` 是空目錄：那不是沒用的架構，而是正常的初始／乾淨
+狀態**，只是還沒觸發過任何寫入動作（或某台 node 從未成功 `use`／`start` 過）。只要
+`gb10 use 27b`、`gb10-single use node1 minimaxh3` 這類動作真正跑過一次，對應的標記檔
+就會出現；之後記得它是執行期產物即可。

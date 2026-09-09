@@ -17,7 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 PROFILE_DIR="${REPO_DIR}/cluster-profiles.d"
 
-# ---- load tp2.env if present (gitignored) else defaults from example ----
+# ---- load cluster.env if present (gitignored) else defaults from example ----
 ENV_FILE="${HOME}/docker-stacks/config/cluster.env"
 if [[ -f "${ENV_FILE}" ]]; then
   # shellcheck disable=SC1090
@@ -27,9 +27,12 @@ else
   source "${REPO_DIR}/cluster.env.example"
 fi
 
-: "${MASTER_ADDR:?tp2.env missing MASTER_ADDR}"
-: "${MASTER_PORT:?tp2.env missing MASTER_PORT}"
+: "${MASTER_ADDR:?cluster.env missing MASTER_ADDR}"
+: "${MASTER_PORT:?cluster.env missing MASTER_PORT}"
 : "${API_PORT:=1234}"
+# Mgmt-LAN IPs (documentation/telemetry); fall back to interconnect.
+: "${NODE0_MGMT:=${NODE0_IP:-127.0.0.1}}"
+: "${NODE1_MGMT:=${NODE1_IP:-127.0.0.1}}"
 # Cluster-global default image (fallback; a cluster profile may override).
 : "${IMG:=ghcr.io/aeon-7/aeon-vllm-ultimate:2026-08-24-v0.27.1-omni}"
 
@@ -44,7 +47,7 @@ _sudo_pass(){
     read -rsp "sudo password for docker on both nodes: " SUDO_PASS
     echo >&2 ""
   else
-    echo "ERROR: SUDO_PASS is required (export it or add to tp2.env)" >&2
+    echo "ERROR: SUDO_PASS is required (export it or add to cluster.env)" >&2
     exit 1
   fi
   _SUDO_DONE=1
@@ -128,7 +131,7 @@ load_profile(){
   else
     PROFILE_PLACEHOLDER="false"
   fi
-  # Per-profile image override; fall back to cluster-global tp2.env IMG.
+  # Per-profile image override; fall back to cluster-global cluster.env IMG.
   if [[ -n "${IMAGE:-}" ]]; then
     IMG="$IMAGE"
   fi
@@ -139,7 +142,7 @@ load_profile(){
     return 0
   fi
   : "${BODY_REL:?cluster profile $PROFILE missing BODY_REL}"
-  : "${IMG:?cluster profile $PROFILE has no image; set IMAGE or tp2.env IMG}"
+  : "${IMG:?cluster profile $PROFILE has no image; set IMAGE or cluster.env IMG}"
   BODY="${MODELS_BASE}/${BODY_REL}"
   # Drafter is optional (empty DRAF_REL => no /drafter mount, no spec decode).
   DRAF=""
@@ -317,7 +320,7 @@ inspect_profile(){
     echo "note:     fails safe; no image/model resolution, no container start"
     return 0
   fi
-echo "body:     ${BODY}"
+  echo "body:     ${BODY}"
   echo "drafter:  ${DRAF:-<none>}"
   if [[ "${ENGINE}" == "sglang" ]]; then
     echo "args:     tp=${TP_SIZE:-2} nnodes=${NNODES:-2} maxlen=${MAXLEN:-?} numseq=${MAX_RUNNING_REQUESTS:-${NUMSEQ:-?}} mem=${MEM_FRACTION_STATIC:-0.80}"

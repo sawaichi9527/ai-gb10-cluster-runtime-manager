@@ -15,8 +15,8 @@
 #   gb10-single logs {node0|node1} [runtime]
 #   gb10-single doctor
 #
-# Runtimes: 27b, 35b, comfyui, minimaxh3 (deployed) ; deepseek,
-# qwen38flash, glm53flash (placeholders - not deployed yet).
+# Runtimes: 27b, 35b, comfyui, minimaxh3 (deployed) ; qwen38flash,
+# glm53flash (placeholders - not deployed yet).
 # =====================================================================
 set -Eeuo pipefail
 
@@ -45,7 +45,7 @@ gb10-single - DGX Spark GB10 single-node runtime manager
 
 Runtimes (runtimes.d/*.conf):
   27b 35b comfyui minimaxh3   deployed
-  deepseek qwen38flash glm53flash   placeholder (not deployed)
+  qwen38flash glm53flash   placeholder (not deployed)
 
 Auto-protection (做法 B): `use/start node0|node1 <runtime>` auto-tears down
 an active TP2 cluster first (TP2 occupies both nodes' GPUs and shares port
@@ -156,7 +156,7 @@ expected_mount(){
 
 actual_mount(){
   [[ -n "$IDENTITY_MOUNT" ]] || return
-  node_ps_q "$NODE" "$CONTAINER" '{{.Mounts}}' 2>/dev/null |
+  node_ps_q "$NODE" "$CONTAINER" 2>/dev/null |
     jq -r --arg t "$IDENTITY_MOUNT" \
     '.. | objects | select(has("Destination")) | select(.Destination==$t) | .Source' | head -n1
 }
@@ -178,9 +178,9 @@ inspect_q(){
 }
 
 node_ps_q(){
-  local node="$1" cname="$2" tmpl="$3"
+  local node="$1" cname="$2"
   if [[ "$node" == "node0" ]]; then
-    docker inspect "$cname" 2>/dev/null | jq -r --argjson s "false" '.[0]'
+    docker inspect "$cname" 2>/dev/null | jq -r '.[0]'
   else
     n1 "docker inspect '$cname' 2>/dev/null | jq -c '.[0]'"
   fi
@@ -189,15 +189,9 @@ node_ps_q(){
 active_loaded(){
   local node="$1"
   inspect_q "$node" "$CONTAINER" '{{.State.Status}}' >/dev/null 2>&1 || return 1
-  if [[ -n "$IDENTITY_MOUNT" ]]; then
-    local proj
-    proj="$(inspect_q "$node" "$CONTAINER" '{{index .Config.Labels "com.docker.compose.project"}}')"
-    [[ "$proj" == "$PROJECT" ]]
-  else
-    local proj
-    proj="$(inspect_q "$node" "$CONTAINER" '{{index .Config.Labels "com.docker.compose.project"}}')"
-    [[ "$proj" == "$PROJECT" ]]
-  fi
+  local proj
+  proj="$(inspect_q "$node" "$CONTAINER" '{{index .Config.Labels "com.docker.compose.project"}}')"
+  [[ "$proj" == "$PROJECT" ]]
 }
 
 state_of(){

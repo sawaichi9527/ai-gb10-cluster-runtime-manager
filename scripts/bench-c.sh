@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/cluster-common.sh"
+
 # bench-c.sh <C> [MAX_TOKENS=400]
 # Mixed code+JSON short prompt (≈40 tok ctx), C concurrent streams.
 # Outputs per-stream lines, aggregate C_total, acceptance %, per-position.
 
 C="${1:?usage: bench-c.sh <C> [MAX_TOKENS]}"
 MAX_TOKENS="${2:-400}"
-AUTH="Bearer d47cd7b86a7d2544dc375b9e447680670d100cfb0488056a0ff57c5aa8e6680b"
-URL="http://127.0.0.1:1234/v1/chat/completions"
+AUTH_ARGS=()
+if [[ -n "${VLLM_API_KEY:-}" && "${VLLM_API_KEY}" != "EMPTY" ]]; then
+  AUTH_ARGS=(-H "Authorization: Bearer ${VLLM_API_KEY}")
+fi
+URL="http://127.0.0.1:${API_PORT}/v1/chat/completions"
 
 CONTENT='You are an expert Python/TypeScript engineer. Analyze the following mixed JSON and code, then explain what it does concisely:
 ```json
@@ -28,17 +35,17 @@ trap 'rm -rf "$OUTDIR"' EXIT
 jq -n --arg content "$CONTENT" --argjson mt "$MAX_TOKENS" \
   '{model:"aeon",messages:[{role:"user",content:$content}],max_tokens:$mt}' > "$OUTDIR/payload.json"
 
-METRICS_BEFORE=$(curl -s http://127.0.0.1:1234/metrics | grep -E '^vllm:spec_decode_(num_draft_tokens_total|num_accepted_tokens_total|num_drafts_total|num_accepted_tokens_per_pos_total)' | grep -v '_created' | sed 's/.*position="\([0-9]*\)"} \([0-9.]*\)/POS\1 \2/')
+METRICS_BEFORE=$(curl -s http://127.0.0.1:${API_PORT}/metrics | grep -E '^vllm:spec_decode_(num_draft_tokens_total|num_accepted_tokens_total|num_drafts_total|num_accepted_tokens_per_pos_total)' | grep -v '_created' | sed 's/.*position="\([0-9]*\)"} \([0-9.]*\)/POS\1 \2/')
 
 T0=$(date +%s.%N)
 for i in $(seq 1 "$C"); do
-  curl -s -H "Authorization: $AUTH" -H 'Content-Type: application/json' \
+  curl -s "${AUTH_ARGS[@]}" -H 'Content-Type: application/json' \
     -d "@$OUTDIR/payload.json" "$URL" > "$OUTDIR/$i.json" 2>/dev/null &
 done
 wait
 T1=$(date +%s.%N)
 
-METRICS_AFTER=$(curl -s http://127.0.0.1:1234/metrics | grep -E '^vllm:spec_decode_(num_draft_tokens_total|num_accepted_tokens_total|num_drafts_total|num_accepted_tokens_per_pos_total)' | grep -v '_created' | sed 's/.*position="\([0-9]*\)"} \([0-9.]*\)/POS\1 \2/')
+METRICS_AFTER=$(curl -s http://127.0.0.1:${API_PORT}/metrics | grep -E '^vllm:spec_decode_(num_draft_tokens_total|num_accepted_tokens_total|num_drafts_total|num_accepted_tokens_per_pos_total)' | grep -v '_created' | sed 's/.*position="\([0-9]*\)"} \([0-9.]*\)/POS\1 \2/')
 
 WALL=$(echo "$T1 - $T0" | bc -l)
 echo "================================================================"

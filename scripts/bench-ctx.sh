@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/cluster-common.sh"
+
 # bench-ctx.sh [NUM_WORDS=200000] [MAX_TOKENS=1]
 # Long-context prefill probe: builds a ~NUM_WORDS-token prompt,
 # sends with max_tokens=$MAX_TOKENS, reports wall time & prefill speed.
@@ -8,8 +12,11 @@ set -Eeuo pipefail
 
 NUM_WORDS="${1:-200000}"
 MAX_TOKENS="${2:-1}"
-AUTH="Bearer d47cd7b86a7d2544dc375b9e447680670d100cfb0488056a0ff57c5aa8e6680b"
-URL="http://127.0.0.1:1234/v1/chat/completions"
+AUTH_ARGS=()
+if [[ -n "${VLLM_API_KEY:-}" && "${VLLM_API_KEY}" != "EMPTY" ]]; then
+  AUTH_ARGS=(-H "Authorization: Bearer ${VLLM_API_KEY}")
+fi
+URL="http://127.0.0.1:${API_PORT}/v1/chat/completions"
 PAYLOAD="/tmp/payload_ctx${NUM_WORDS}.json"
 RESULT="/tmp/result_ctx${NUM_WORDS}.json"
 
@@ -32,7 +39,7 @@ echo "  payload JSON: ${PAYLOAD_SIZE} bytes"
 # Prefill probe (timed)
 echo "  sending request..."
 T0=$(date +%s.%N)
-curl -s -H "Authorization: $AUTH" -H 'Content-Type: application/json' \
+curl -s "${AUTH_ARGS[@]}" -H 'Content-Type: application/json' \
   -d "@$PAYLOAD" "$URL" > "$RESULT" 2>/dev/null
 T1=$(date +%s.%N)
 

@@ -4,7 +4,7 @@
 #
 #   scripts/cluster-up            # 27B (default)
 #   scripts/cluster-up 35b        # 35B-A3B
-#   scripts/cluster-up deepseek   # placeholder -> safe-fail, no containers
+#   scripts/cluster-up deepseek   # deepseek fp8 DSpark mainline
 #
 # Flow (Node0 single-side orchestration):
 #   1. resolve cluster profile from cluster-profiles.d/<id>.conf
@@ -50,23 +50,23 @@ ENTRY="vllm"; [[ "${ENGINE}" == "sglang" ]] && ENTRY="sglang"
 _escaped=()
 for a in "${ENGINE_ARGS[@]}"; do _escaped+=( "$(printf '%q' "$a")" ); done
 _RANK1_ARGV_LITERAL="${_escaped[*]}"
+build_docker_env 1
+_RANK1_ENV_LITERAL="${DOCKER_ENV_EXTRA[*]}"
+_RANK1_MOUNT_LITERAL="${DOCKER_MOUNTS[*]}"
 
 REMOTE=$(cat <<RSCRIPT
 set -Eeo pipefail
 echo "\$SUDO_PASS" | sudo -S docker rm -f cluster-node1 >/dev/null 2>&1 || true
+RANK1_ENV=( ${_RANK1_ENV_LITERAL} )
+RANK1_MOUNTS=( ${_RANK1_MOUNT_LITERAL} )
 RANK1_ARGS=( ${_RANK1_ARGV_LITERAL} )
 rc=0
 echo "\$SUDO_PASS" | sudo -S docker run -d --name cluster-node1 \
     --gpus all --ipc=host --shm-size="${SHM_SIZE:-16g}" --net=host \
-    -e "VLLM_HOST_IP=\${RHOST_IP}" \
-    -e "NCCL_SOCKET_IFNAME=\${R_NCCL_SOCKET_IFNAME}" \
-    -e "GLOO_SOCKET_IFNAME=\${R_NCCL_SOCKET_IFNAME}" \
-    -e "NCCL_IB_HCA=\${R_IB_HCA}" \
-    -e "NCCL_IB_GID_INDEX=\${R_IB_GID}" \
-    -e "PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True" \
+    "\${RANK1_ENV[@]}" \
     --device /dev/infiniband --cap-add IPC_LOCK --ulimit memlock=-1:-1 --ulimit stack=67108864 \
-$(if [[ -n "${EXTRA_ENV+x}" ]]; then for kv in "${EXTRA_ENV[@]}"; do printf -- '-e %q ' "$kv"; done; fi)$(if [[ -n "${DRAF:-}" ]]; then printf '%s ' '-v "${R_DRAF}:/drafter:ro"'; fi)-v "\${R_BODY}:/model:ro" \
-$(if [[ -n "${EXTRA_MOUNTS+x}" ]]; then for m in "${EXTRA_MOUNTS[@]}"; do printf '%q ' "$m"; done; fi)--entrypoint "\${R_ENTRY}" "\${R_IMG}" serve /model \
+    "\${RANK1_MOUNTS[@]}" \
+    --entrypoint "\${R_ENTRY}" "\${R_IMG}" serve /model \
     "\${RANK1_ARGS[@]}" \
     > /tmp/cluster-node1.log 2>&1 || rc=\$?
 echo "DEBUG node1 docker run rc=\$rc"
@@ -76,20 +76,18 @@ RSCRIPT
 )
 
 echo "== launching Node1 headless worker (rank1, profile=${PROFILE}) =="
-cat > /tmp/cluster-rank1-stdin.sh <<EOF
+RANK1_STDIN="$(mktemp)"
+chmod 600 "${RANK1_STDIN}"
+trap 'rm -f -- "${RANK1_STDIN}"' EXIT
+cat > "${RANK1_STDIN}" <<EOF
 $(printf 'export SUDO_PASS=%q\n' "$(sudo_pass)")
-export RHOST_IP='${NODE1_IP}'
-export R_NCCL_SOCKET_IFNAME='${NCCL_SOCKET_IFNAME}'
-export R_IB_HCA='${NODE1_IB_HCA:-${NCCL_IB_HCA}}'
-export R_IB_GID='${NODE1_IB_GID_INDEX:-${NCCL_IB_GID_INDEX}}'
-export R_BODY='${BODY}'
-export R_DRAF='${DRAF}'
 export R_IMG='${IMG}'
 export R_ENTRY='${ENTRY}'
 ${REMOTE}
 EOF
-sha256sum /tmp/cluster-rank1-stdin.sh
-n1 bash -s < /tmp/cluster-rank1-stdin.sh
+sha256sum "${RANK1_STDIN}"
+n1 bash -s < "${RANK1_STDIN}"
+rm -f -- "${RANK1_STDIN}"
 
 # ------------------------------------------------------------------
 # Node0 API server (rank0)
