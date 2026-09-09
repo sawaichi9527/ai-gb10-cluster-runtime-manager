@@ -1541,3 +1541,79 @@ reasoning=qwen3 tool=qwen3_coder）全部維持。**35b.conf 全程未更動。*
   檔未列入 .gitignore——請留意勿 commit 備份；或另建 .gitignore 規則）。
 · 本 session 未 git commit（主管未要求）；本機 repo 僅 handoff.md 新增 §26。
 ```
+
+# 27. 2026-09-09 TP2 verify（sha256 抽驗）收尾 ＋ `gb10 status` 修復 ＋ canonical repo/symlink 修正 ＋ 舊 checkout 封存
+
+> 本節記錄 2026-09-09 工作：(1) TP2 verify 功能（sha256sum spot-check、`gb10 verify-models`）雙節點端到端驗收；(2) 修正 `gb10 status` 誤報「down 但 :1234 /health 200」之根因——Node0 存在兩套 checkout、`~/bin` symlink 指向舊 pre-restructure repo；(3) symlink 重指 canonical repo、舊 checkout 封存至 `~/_archieve/`、AGENTS.md 增補 canonical repo path 事實。
+
+## 27.1 TP2 verify 功能 —— 交付與實測
+
+```text
+新增能力（keystone）：
+  b5f26bf  feat(verify): add sha256sum spot-check in cluster-common.sh and node_up()
+  5b8919b  feat(verify): add gb10 verify-models command
+  行為：verify-models 對各節點 runtime 的 image/model 抽驗 sha256（雙節點同 sha256 才 PASS）；
+        node_up() 起跑前亦做 spot-check；結果逐 runtime 回報。
+實測：兩節點 53/53 全 PASS（TP2 27b image/model + node0/node1 各自權重一致）。
+      既有 test script 未破壞；AGENTS.md Facts 已列 verify-models。
+```
+
+## 27.2 `gb10 status` 誤報 down —— 根因與修復（commit e9d9602）
+
+```text
+現象：使用者 interactive shell（bash -lc）執行 gb10 status → 顯示 TP2 down，同時 :1234
+      /health 卻 200；輸出且有孤立 "  :" 字元一行。
+根因：Node0 有兩套同源 checkout：
+  · 舊 ~/ai-gb10-cluster-runtime-manager
+      branch experiment/deepseek-v4-dspark-k5-r2（pre-restructure、scripts/tp2-*、
+      查 tp2-node0/tp2-node1 容器名）
+  · canonical ~/workspace/ai-gb10-cluster-runtime-manager
+      branch keystone（post-restructure、cluster-* 腳本、實際部署
+      cluster-node0/cluster-node1）
+  情境：~/bin/gb10 symlink 指向「舊 repo」→ 舊 tp2-status 以 tp2-node* 容器名 grep
+  不到 cluster-node*（keystone deploy 產物）→ 誤報 down；另 cluster-status 有殘留
+  echo "  :" 產生孤立字元行。
+修復（commit e9d9602 "fix(status): drop stray : line, disambiguate TP2-down-while-port-served"）：
+  · scripts/cluster-status 移除 `echo "  :"`（down 分支誤印之裝飾字元）
+  · STATUS != ready 但 HEALTH == ready 時印 disambiguation：TP2 容器不在但 port 被服務
+    （避免「down 卻 reachable」矛盾再誤導）
+  · bash -n 通過、LF 乾淨（CR=0）；已 push keystone，Node0 ff-merge。
+```
+
+## 27.3 symlink 修正 ＋ 環境掃描驗證
+
+```text
+修正：~/bin/gb10、~/bin/gb10-single → 重指 canonical repo bin/
+      ~/workspace/ai-gb10-cluster-runtime-manager/bin/
+驗證（使用者視角 bash -lc 'gb10 …'，均 OK）：
+  gb10 status            → ready；node0 up · node1 up
+  gb10 list              → 27b/35b/deepseek 正常列出（deepseek 維持 placeholder 顯示）
+  gb10-single list/status → 正常
+掃描：無 rc/cron/~/.config/其他 wrapper 引用舊路徑；無 container bind 舊路徑；
+      node1 無 repo、無 symlink（符合「Node1 不托管 repo」事實）。
+state/last-runtime：舊 repo 留有 stale `node1/minimaxh3`；canonical repo 無 state 檔
+      （TP2 active 時無 last-runtime 為正確）。
+```
+
+## 27.4 舊 checkout 封存 → `~/_archieve/` ＋ AGENTS.md 註記
+
+```text
+封存（主管採「改名封存」）：
+  ~/ai-gb10-cluster-runtime-manager → ~/_archieve/ai-gb10-cluster-runtime-manager.retired/
+  內含 RETIRED-README.txt（標記 origin/分支/封存原因）；home 目錄已無舊 repo。
+AGENTS.md Facts 新增（keystone）：
+  8c4adbb  docs(agents): canonical repo path + note retired pre-restructure checkout
+  4a785e2  docs(agents): point retired-checkout note at ~/_archieve
+⚠️ 工具教訓：以 token URL push（git push http://829522:<token>@… keystone）不會更新
+       origin/keystone tracking ref → push 後需 git fetch origin keystone 對齊（已做）。
+git：canonical repo 分支 keystone、HEAD 4a785e2、working tree clean、tracking 對齊。
+```
+
+## 27.5 收尾狀態
+
+```text
+現況：TP2 cluster-node0/cluster-node1 兩節點 up（§26 之後維持 27b reasoning-eos 運行；
+      本 session 未更動任何 profile/image/model）。
+工具教訓：Windows 側 bash 工具（pwsh wrapper）本 session 中途失效（spawn UNKNOWN）→
+      一律改經 SSH MCP（gb101/gb102）操作 node0/node1；本機 repo 僅 handoff.md 修改。
+```
