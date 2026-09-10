@@ -4,6 +4,10 @@ config/cluster.env
 # Runtime state markers (node paths) — not meaningful in git
 state/last-runtime
 state/last-cluster-profile
+# Background-boot markers (traps clean these; never commit)
+state/boot-cluster.*.pid
+state/boot-ready.*
+state/boot-single.*.pid
 
 # Logs / transient
 *.log
