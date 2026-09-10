@@ -1889,3 +1889,111 @@ Cold start：single ~7min · cluster ~7min（model load 133s + compile 47s + aut
   FP8_MARLIN env）→ commit + push（Windows GCM 路徑）
 · Windows repo（本機 docs-carrier-9041）：docs/BENCHMARK_35B_AEON_BF16_FLASHATTN_2026-09-10.md ＋ 本 §31。
 · 後續：cluster 35b 目前 running；benchmark 完成即可 gb10 stop。
+```
+
+# 32. 2026-09-10 35B AEON n=6 官方最佳對齊（single→cluster re-verification）＋ keystone 升級為正式 main
+
+> §31.5 待辦已全部完成於本 §32：35b.conf 二 commit（KV/ATTN→`2c70316`、NSPEC 11→6 + prefix
+> ON→`a5fcc54`）已 push Forgejo；Windows 報告與 §31 已 commit/push（`1604fb9`）。
+> 本 session 另完成 **keystone→main 正式化**（v1.0.0）；cluster 35b 驗證後仍 running（未 stop）。
+
+## 32.1 參數對齊（n=6，HF 官方 DFlash 最佳點）
+
+```text
+· HF Ornith-1.0-35B-AEON DFlash sweep：n=4→67.5 / n=6→73.8（最佳） / n=8→69.3 / n=11→66.7。
+  原 n=7（27b）誤沿用於 35b → 修正為 n=6。
+· 使用者決策：先停止服務；num_speculative_tokens 兩邊 11→6；single 補 spec attention_backend=flash_attn
+  （原缺，故 single 先前 spec 走 triton_attn）；kv-cache-dtype 兩邊明文 bfloat16；gmu 兩邊 0.8（GPU 無
+  其他常駐服務）；batched single 16384；max-num-seqs single 8；prefix-caching cluster 也開啟。
+· 落地：
+  - node0/node1 docker-compose.35b.yml：num_speculative_tokens:6、spec attention_backend flash_attn、
+    kv_cache_dtype bfloat16、gpu_memory_utilization 0.80、max_num_batched_tokens 16384、max_num_seqs 8、
+    single enable_prefix_caching true（cluster 由 conf ENABLE_PREFIX_CACHING 控制）— 均 YAML_OK。
+  - cluster-profiles.d/35b.conf：NSPEC="6"、ENABLE_PREFIX_CACHING="true"（commit a5fcc54）。
+  - standalone.env 兩節點同步 VLLM_MAX_BATCHED_TOKENS=16384、VLLM_GPU_MEMORY_UTILIZATION=0.80
+    （VLLM_MAX_NUM_SEQS=8 原已正確；此檔為文件層，vLLM 實際以 compose 硬編旗標為主）。
+· engine argv 驗證（single + cluster rank0）全數生效：num_speculative_tokens=6、spec attention_backend=
+  flash_attn、kv_cache_dtype=bfloat16、enable_prefix_caching=True、max_num_batched_tokens=16384、
+  max_num_seqs=8、gpu_memory_utilization=0.8、MARLIN、FA2。
+```
+
+## 32.2 實測結果（C_total tok/s vs n=11 基準 / Accept%，詳見報告 n=6 Alignment 節）
+
+```text
+Single（n=6 vs n=11，Accept% n=6）：
+  C1   29.5 vs 26.6（+11%） 36.4% vs 24.1%
+  C2  100.1 vs 108.9（−8%） 32.9% vs 24.1%
+  C3  155.7 vs 142.6（+9%） 37.2% vs 22.6%
+  C4  170.9 vs 154.5（+11%） 35.2% vs 20.9%
+  C8  267.5 vs 229.2（+17%） 37.0% vs 21.8%
+  ctx 245,010 tok：97.841s / 2504.1 tok/s（vs 2518.7）
+Cluster（n=6 + prefix ON）：
+  C1   26.1 vs 30.0（−13%） 41.1% vs 24.2%
+  C2  151.5 vs 167.3（−9%） 35.8% vs 27.9%
+  C3  197.5 vs 206.5（−4%） 39.7% vs 24.1%
+  C4  239.8 vs 227.1（+6%） 40.2% vs 24.2%
+  C8  310.6 vs 341.9（−9%） 37.8% vs 25.0%
+  ctx 245,010 tok：61.806s / 3964.2 tok/s（vs 3986.4）
+觀察：Accept 全面 +12~17pp（single 33-37%、cluster 36-41%）；single C8 +17%、cluster C4 +6%
+（cluster C8 略降）；長文 prefill 無退化（single/cluster ctx 均 ~同 n=11）；any_errors=0。
+```
+
+## 32.3 報告＋本機 commit / push
+
+```text
+· docs/BENCHMARK_35B_AEON_BF16_FLASHATTN_2026-09-10.md：Speculative Configuration 改為 n=6 現況；
+  新增「n=6 Alignment (AEON official optimum) — re-verified single→cluster, 2026-09-10」章節
+  （有效設定表、n=6 vs n=11 對照、ctx、觀察）。
+· 本機 commit 1604fb9（docs-carrier-9041，+129 −1）已推 origin（Forgejo）+ github。
+```
+
+## 32.4 keystone a5fcc54 → Forgejo push（git daemon 路徑，§28.4 同款）
+
+```text
+· node0 起 git daemon：open-session background『git daemon --base-path=$HOME/workspace --export-all
+  --port=9418』（nohup + run-command 會卡 60s；background session 成功，ss 確認 0.0.0.0:9418 LISTEN）。
+· Windows：temp clone Forgejo（GCM）→ git://192.168.23.215/... keystone → FETCH_HEAD=a5fcc54 →
+  push『FETCH_HEAD:keystone』第一次被拒（前方無參數 fetch 覆寫 FETCH_HEAD）→ 改用『a5fcc54:keystone』成功
+  （2c70316..a5fcc54）。
+· 清理：close-session 未殺乾淨（ss 仍 LISTEN）→ 手動 kill 三 PID（873133/873135/874948，pgrep 列出）
+  → ss 確認 DOWN；temp clone 已刪。
+```
+
+## 32.5 keystone 升級為正式 main（unrelated-histories merge + v1.0.0）
+
+```text
+· 現況：keystone（root c5144b0，Node0 canonical，含 27b/35b/bench/cluster-*）與 main（root a6e4051，
+  先前 PR 合流線）無共同祖先（merge-base 空）。
+· 使用者選 A：merge keystone→main。作法：temp clone → checkout main →
+  『merge --allow-unrelated-histories -X theirs origin/keystone』（theirs=keystone 內容為主，main 獨有檔案
+  qwen38flash.conf、tp2.env.example、scripts/tp2-* 保留）。
+· 結果：merge commit 496c9b1（parents 09e765e + a5fcc54）push main（09e765e..496c9b1）；
+  HEAD 35b.conf=NSPEC 6/GMU 0.80/prefix ON（以 keystone 為準）；bin/gb10 → scripts/cluster-*。
+· Release：annotated tag v1.0.0 → push → Forgejo release『v1.0.0 — keystone promoted as main』。
+· keystone 分支保留（HEAD a5fcc54）。
+```
+
+## 32.6 移除退役 scripts/tp2-* ＋ 註解對齊
+
+```text
+· ec52508：git rm scripts/tp2-{common.sh,down,load,smoke,status,up}（6 files, 573 deletions）—
+  現役為 scripts/cluster-*；docs/ 內 tp2-* 參照皆歷史文件不改。
+· ee7e7a2：cluster-profiles.d/qwen38flash.conf:4 註解『consumed by scripts/tp2-common.sh loader』
+  →『scripts/cluster-common.sh loader』（與 35b.conf 標題註解一致）。
+· main 現況：main=ee7e7a2、keystone=a5fcc54、v1.0.0=merge 496c9b1；本機 origin/main 已同步。
+```
+
+## 32.7 工具教訓（本 session）
+
+```text
+· MCP run-command ~60s 超時殺 process tree：git daemon 的 nohup 起法會卡死 →
+  改用 open-session background；前景 wait（gb10 use）亦然。
+· background session 隱形壽命：同 session 內 bench-c 全序列後續接 bench-ctx 會整段消失 →
+  長任務拆 session（bench-c 一 session、bench-ctx 獨立 session）。
+· pwsh 吃括號：圖括號 message『(canonical runtime)』被拆 token → commit -m 用單引號、避免括號。
+· select-string 與 git diff 混用會撞 Pester Describe.ps1 → 純 git 輸出即可。
+· push 分支名勿用無參數 fetch 後的 FETCH_HEAD（會被覆寫成 remote HEAD=main）→ 用 SHA:branch。
+```
+
+> **未清事項**：cluster 35b 仍 running（「benchmark 完成即可 gb10 stop」尚未執行）；本 §32 完成後應
+> commit/push 本機 docs-carrier-9041。
