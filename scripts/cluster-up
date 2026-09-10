@@ -128,4 +128,8 @@ until curl -fsS -m 5 "http://localhost:${API_PORT}/health" >/dev/null 2>&1; do
   sleep 10
 done
 echo "$(date '+%F %T') TP2 profile=${PROFILE} READY on :${API_PORT}"
+# Background-boot handoff: mark ready so `gb10 wait <profile>` / `gb10 status` can
+# report completion even when `gb10 use/start` dispatched the boot detached.
+mkdir -p "${REPO_DIR}/state"
+echo "$(date '+%F %T')" > "${REPO_DIR}/state/boot-ready.${PROFILE}"
 sdk docker ps --filter name=cluster-node --format '{{.Names}} {{.Status}}' 2>/dev/null || true

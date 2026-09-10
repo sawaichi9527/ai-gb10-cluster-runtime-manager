@@ -7,10 +7,12 @@
 # TP2 cluster). Definitions live in ../runtimes.d/*.conf.
 #
 #   gb10-single list
-#   gb10-single use {node0|node1} <runtime>       # exclusive switch
-#   gb10-single start {node0|node1} <runtime>     # start add-on/exclusive
-#   gb10-single stop  {node0|node1} [runtime]
-#   gb10-single restart {node0|node1} [runtime]
+#   gb10-single use {node0|node1} <runtime>       # exclusive switch (background)
+#   gb10-single start {node0|node1} <runtime>     # start add-on/exclusive (background)
+#   gb10-single stop  {node0|node1} [runtime]     # stop (kills background boot if active)
+#   gb10-single restart {node0|node1} <runtime>   # stop then background up
+#   gb10-single wait {node0|node1} <runtime>      # foreground wait for background boot
+#   gb10-single free {node0|node1}            # stop ALL active runtimes on a node
 #   gb10-single status [node]
 #   gb10-single logs {node0|node1} [runtime]
 #   gb10-single doctor
@@ -23,9 +25,10 @@ set -Eeuo pipefail
 SELF="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(cd "$(dirname "${SELF}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+SCRIPTS="${REPO_DIR}/scripts"
 REG="${REPO_DIR}/runtimes.d"
 STATE="${REPO_DIR}/state"
-mkdir -p "${REG}" "${STATE}"
+mkdir -p "${STATE}"
 
 die(){ echo "ERROR: $*" >&2; exit 1; }
 
@@ -36,9 +39,10 @@ gb10-single - DGX Spark GB10 single-node runtime manager
   gb10-single list
   gb10-single use {node0|node1} <runtime>      # exclusive switch
   gb10-single start {node0|node1} <runtime>    # start add-on/exclusive
-  gb10-single stop {node0|node1} [runtime]
-  gb10-single free {node0|node1}            # stop ALL active runtimes on a node
-  gb10-single restart {node0|node1} [runtime]
+  gb10-single stop {node0|node1} [runtime]     # stop (kills background boot)
+  gb10-single restart {node0|node1} <runtime>  # stop then background up
+  gb10-single wait {node0|node1} <runtime>     # foreground wait for boot
+  gb10-single free {node0|node1}               # stop ALL active runtimes on a node
   gb10-single status [node0|node1]
   gb10-single logs {node0|node1} <runtime>
   gb10-single doctor
@@ -47,7 +51,11 @@ Runtimes (runtimes.d/*.conf):
   27b 35b comfyui minimaxh3   deployed
   qwen38flash glm53flash   placeholder (not deployed)
 
-Auto-protection (做法 B): `use/start node0|node1 <runtime>` auto-tears down
+Boot is backgrounded by default: `use/start` returns immediately,
+boot continues in the background.  Poll with `gb10-single status`,
+or foreground-wait with `gb10-single wait <node> <runtime>`.
+
+Auto-protection: `use/start node0|node1 <runtime>` auto-tears down
 an active TP2 cluster first (TP2 occupies both nodes' GPUs and shares port
 1234 with the single-node LLMs on node0).
 HELP
@@ -100,6 +108,51 @@ resolve(){
   [[ -n "$found" ]] || die "unknown runtime: $q"
   [[ -f "$found" ]] || die "runtime conf missing: $found"
   echo "$found"
+}
+
+# --- background boot helpers ---
+_pid_file(){ echo "${STATE}/boot-single.${1}.${2}.pid"; }
+_ready_file(){ echo "${STATE}/boot-ready.${1}.${2}"; }
+
+_boot_alive(){
+  local pf; pf="$(_pid_file "$1" "$2")"
+  [[ -f "$pf" ]] || return 1
+  local pid; pid="$(cat "$pf")"
+  kill -0 "$pid" 2>/dev/null
+}
+
+# node_boot_alive <node> — is ANY single-node background boot active on <node>?
+# Guards against concurrent boots of different runtimes on the same node
+# (each gb10-single-boot would otherwise race to stop the other's runtimes).
+node_boot_alive(){
+  local node="$1" pf pid
+  for pf in "${STATE}"/boot-single.${node}.*.pid; do
+    [[ -f "$pf" ]] || continue
+    pid="$(cat "$pf")"
+    kill -0 "$pid" 2>/dev/null && return 0
+  done
+  return 1
+}
+
+_kill_boot(){
+  local pf pid
+  for pf in "${STATE}"/boot-single.*.pid; do
+    [[ -f "$pf" ]] || continue
+    pid="$(cat "$pf")"
+    if kill -0 "$pid" 2>/dev/null; then
+      echo "Stopping background boot (PID ${pid})..."
+      kill "$pid" 2>/dev/null || true
+      local i
+      for i in $(seq 1 10); do
+        kill -0 "$pid" 2>/dev/null || break
+        sleep 0.5
+      done
+      kill -9 "$pid" 2>/dev/null || true
+      rm -f "$pf"
+    else
+      rm -f "$pf"
+    fi
+  done
 }
 
 # ---- node plumbing: local vs ssh ----
@@ -314,7 +367,7 @@ stop_group_except(){
 }
 
 # free_node <node> — stop EVERY active single-node runtime on a node.
-# Used by the cluster CLI (方向 B) to free node1's GPU before TP2 comes up.
+# Used by the cluster CLI (做法 B) to free node1's GPU before TP2 comes up.
 free_node(){
   local node="$1" f
   while read -r f; do
@@ -392,42 +445,130 @@ case "$cmd" in
     [[ $# == 3 ]] || die "usage: gb10-single $cmd <node0|node1> <runtime>"
     node="$2"; node_is_valid "$node" || die "unknown node: $node"
     f="$(resolve "$3")"; load "$f"
-    # Direction A: starting/exclusive-runtime on EITHER node must free the
-    # GPU from TP2 (TP2 occupies both nodes AND shares port 1234 with the
-    # single-node LLMs on node0). Skip when the target is already running
-    # (nothing new would be started).
+
+    # already active and READY -> nothing to do
+    if [[ "$PLACEHOLDER" != true ]] && active_loaded "$node" && [[ "$(health_of "$node" "$f")" == READY ]]; then
+      echo "$RUNTIME_ID: already active and READY on $node."
+      exit 0
+    fi
+
+    # prevent concurrent boots (same OR any other runtime on this node)
+    if node_boot_alive "$node"; then
+      pid="$(cat "$(ls -t "${STATE}"/boot-single.${node}.*.pid 2>/dev/null | head -n1)")"
+      die "background boot for another runtime already running on $node (PID ${pid})"
+    fi
+
+    # direction B: tear down TP2 before starting (unless already running)
     if [[ "$PLACEHOLDER" != true ]] && \
        { [[ "$MODE" != exclusive ]] || ! active_loaded "$node" || ! [[ "$(health_of "$node" "$f")" == READY ]]; }; then
       ensure_tp2_down
     fi
+
     if [[ "$cmd" == "use" ]]; then
-      [[ "$MODE" == exclusive ]] && use_file "$node" "$f" || die "use: gb10-single start $node $RUNTIME_ID"
+      [[ "$MODE" == exclusive ]] || die "use: gb10-single start $node $RUNTIME_ID"
+      # stop other exclusives (must happen in foreground before boot)
+      load "$f"
+      stop_group_except "$node" "$f"
+    fi
+
+    # launch background boot
+    LOG="${STATE}/boot-single.${node}.${3}.log"
+    ( setsid nohup "${SCRIPTS}/gb10-single-boot" "$node" "$3" </dev/null >"${LOG}" 2>&1 &
+      echo $! > "$(_pid_file "$node" "$3")" )
+    sleep 0.2
+    if _boot_alive "$node" "$3"; then
+      _pid="$(cat "$(_pid_file "$node" "$3")")"
+      echo "$(date '+%F %T') ${node}/${3}: background boot started (PID ${_pid})"
+      echo "  log:  ${LOG}"
+      echo "  wait: gb10-single wait $node $3"
+      echo "  poll: gb10-single status $node"
     else
-      if [[ "$MODE" == exclusive ]]; then use_file "$node" "$f"; else start_file "$node" "$f"; fi
+      echo "$(date '+%F %T') ${node}/${3}: boot launched (check log: ${LOG})"
+    fi
+    ;;
+  wait)
+    [[ $# == 3 ]] || die "usage: gb10-single wait <node0|node1> <runtime>"
+    node="$2"; node_is_valid "$node" || die "unknown node: $node"
+    runtime="$3"
+    RF="$(_ready_file "$node" "$runtime")"
+    PF="$(_pid_file "$node" "$runtime")"
+    if [[ -f "$RF" ]]; then
+      echo "$(date '+%F %T') ${node}/${runtime}: READY"
+      cat "$RF"
+      exit 0
+    fi
+    if ! _boot_alive "$node" "$runtime"; then
+      echo "$(date '+%F %T') ${node}/${runtime}: no background boot active"
+      exit 0
+    fi
+    echo "$(date '+%F %T') ${node}/${runtime}: waiting for background boot to complete..."
+    _begin=$SECONDS
+    while _boot_alive "$node" "$runtime"; do
+      if [[ -f "$RF" ]]; then
+        echo "$(date '+%F %T') ${node}/${runtime}: READY"
+        cat "$RF"
+        exit 0
+      fi
+      sleep 5
+    done
+    if [[ -f "$RF" ]]; then
+      echo "$(date '+%F %T') ${node}/${runtime}: READY"
+      cat "$RF"
+    else
+      echo "$(date '+%F %T') ${node}/${runtime}: boot process exited (not ready)"
+      echo "  log: ${STATE}/boot-single.${node}.${runtime}.log"
+      tail -20 "${STATE}/boot-single.${node}.${runtime}.log" 2>/dev/null || true
+      exit 1
     fi
     ;;
   stop)
     [[ $# == 3 ]] && node="$2" f="$(resolve "$3")" || { node="${2:-node0}"; f="$(default_file "$node")"; }
     node_is_valid "$node" || die "unknown node: $node"
+    _kill_boot
     stop_file "$node" "$f"
     ;;
   free|ensure-free)
     [[ $# == 2 ]] || die "usage: gb10-single free <node0|node1>"
     node="$2"; node_is_valid "$node" || die "unknown node: $node"
+    _kill_boot
     free_node "$node"
     ;;
   restart)
-    [[ $# == 3 ]] && node="$2" f="$(resolve "$3")" || { node="${2:-node0}"; f="$(default_file "$node")"; }
-    node_is_valid "$node" || die "unknown node: $node"
-    load "$f"
+    [[ $# == 3 ]] || die "usage: gb10-single restart <node0|node1> <runtime>"
+    node="$2"; node_is_valid "$node" || die "unknown node: $node"
+    f="$(resolve "$3")"; load "$f"
     if [[ "$PLACEHOLDER" == true ]]; then echo "$RUNTIME_ID: placeholder (not deployed)."; exit 0; fi
     NODE="$node"
     validate_loaded
+    # kill any existing boot for this runtime
+    if _boot_alive "$node" "$3"; then
+      pid="$(cat "$(_pid_file "$node" "$3")")"
+      echo "Stopping background boot (PID ${pid})..."
+      kill "$pid" 2>/dev/null || true
+      sleep 1
+      kill -9 "$pid" 2>/dev/null || true
+      rm -f "$(_pid_file "$node" "$3")"
+    fi
+    # stop and re-launch
     if active_loaded "$node"; then
-      echo "Restarting $RUNTIME_ID on $node..."; compose_node "$node" up -d --force-recreate
-      echo "$node/$RUNTIME_ID" > "${STATE}/last-runtime"; wait_ready "$node" "$f"
+      echo "Restarting $RUNTIME_ID on $node..."
+      compose_node "$node" up -d --force-recreate
+      echo "$node/$RUNTIME_ID" > "${STATE}/last-runtime"
+      wait_ready "$node" "$f"
     else
-      [[ "$MODE" == exclusive ]] && use_file "$node" "$f" || start_file "$node" "$f"
+      # launch background boot
+      LOG="${STATE}/boot-single.${node}.${3}.log"
+      ( setsid nohup "${SCRIPTS}/gb10-single-boot" "$node" "$3" </dev/null >"${LOG}" 2>&1 &
+        echo $! > "$(_pid_file "$node" "$3")" )
+      sleep 0.2
+      if _boot_alive "$node" "$3"; then
+        _pid="$(cat "$(_pid_file "$node" "$3")")"
+        echo "$(date '+%F %T') ${node}/${3}: background restart started (PID ${_pid})"
+        echo "  log:  ${LOG}"
+        echo "  wait: gb10-single wait $node $3"
+      else
+        echo "$(date '+%F %T') ${node}/${3}: restart launched (check log: ${LOG})"
+      fi
     fi
     ;;
   logs)

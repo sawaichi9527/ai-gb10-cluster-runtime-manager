@@ -5,11 +5,12 @@
 # Thin convenience layer over scripts/cluster-* (the authoritative TP2
 # deployment scripts). Sibling gb10-single manages single-node runtimes.
 #
-#   gb10 use <profile>        # switch exclusive cluster profile (27b|35b)
-#   gb10 start <profile>      # same as use (cluster profiles are exclusive)
-#   gb10 stop                 # cluster-down
-#   gb10 restart [profile]    # down + up
-#   gb10 status               # cluster-status
+#   gb10 use <profile>        # switch exclusive cluster profile (background)
+#   gb10 start <profile>      # same as use
+#   gb10 stop                 # cluster-down (kills background boot if active)
+#   gb10 restart [profile]    # stop then background up
+#   gb10 wait [profile]       # foreground wait for background boot to finish
+#   gb10 status               # cluster-status (shows booting/ready)
 #   gb10 logs                 # follow cluster-node0 logs
 #   gb10 smoke                # cluster-smoke chat test
 #   gb10 load                 # cluster-load concurrent load test
@@ -24,6 +25,8 @@ SELF="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]
 SCRIPT_DIR="$(cd "$(dirname "${SELF}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 SCRIPTS="${REPO_DIR}/scripts"
+STATE="${REPO_DIR}/state"
+mkdir -p "${STATE}"
 
 die(){ echo "ERROR: $*" >&2; exit 1; }
 
@@ -35,7 +38,8 @@ gb10 - DGX Spark GB10 2-node cluster (TP2) helper
   gb10 use <profile>          # 27b (default) | 35b | deepseek
   gb10 start <profile>        # same as use (cluster profiles are exclusive)
   gb10 stop                   # stop & remove both cluster containers
-  gb10 restart [profile]      # down then up
+  gb10 restart [profile]      # down then background up
+  gb10 wait [profile]         # foreground wait for background boot to finish
   gb10 status                 # both nodes, RDMA, KV, health
   gb10 logs                   # follow cluster-node0 logs
   gb10 smoke                  # chat smoke test
@@ -43,7 +47,11 @@ gb10 - DGX Spark GB10 2-node cluster (TP2) helper
   gb10 verify-models [profile] # SHA256SUMS integrity check (both nodes)
   gb10 doctor                 # validate image/models on both nodes
 
-Auto-protection (做法 B): `use/start 27b|35b` frees node1 of any active
+Boot is backgrounded by default: `use/start` returns immediately,
+boot continues in the background.  Poll status with `gb10 status`,
+or foreground-wait with `gb10 wait <profile>`.
+
+Auto-protection: `use/start 27b|35b|deepseek` frees node1 of any active
 single-node runtime (gb10-single free node1) before TP2 comes up.
 
 Single-node runtimes are managed with the sibling command: gb10-single
@@ -62,21 +70,48 @@ valid_profile(){
 UP_PROFILE="27b"
 down(){ "${SCRIPTS}/cluster-down"; }
 
-# Direction B: before TP2 comes up, free BOTH nodes' GPUs of any single-
-# node runtime (e.g. comfyui, single LLM). TP2 occupies both nodes and
-# shares port 1234 with the single-node LLMs, so a node0 single LLM must
-# also be stopped or it would collide on the port. gb10-single `free nodeX`
-# stops all active runtimes on that node.
-free_singles(){
-  local n
-  for n in node0 node1; do
-    "${REPO_DIR}/bin/gb10-single" free "$n"
-  done
+# --- background boot helpers ---
+_pid_file(){ echo "${STATE}/boot-cluster.${1}.pid"; }
+_ready_file(){ echo "${STATE}/boot-ready.${1}"; }
+
+_boot_alive(){
+  local pf; pf="$(_pid_file "$1")"
+  [[ -f "$pf" ]] || return 1
+  local pid; pid="$(cat "$pf")"
+  kill -0 "$pid" 2>/dev/null
 }
 
-up(){
-  free_singles
-  "${SCRIPTS}/cluster-up" "$1"
+# cluster_boot_alive — is ANY cluster profile background boot active?
+cluster_boot_alive(){
+  local pf pid
+  for pf in "${STATE}"/boot-cluster.*.pid; do
+    [[ -f "$pf" ]] || continue
+    pid="$(cat "$pf")"
+    kill -0 "$pid" 2>/dev/null && return 0
+  done
+  return 1
+}
+
+_kill_boot(){
+  local pf pid
+  for pf in "${STATE}"/boot-cluster.*.pid; do
+    [[ -f "$pf" ]] || continue
+    pid="$(cat "$pf")"
+    if kill -0 "$pid" 2>/dev/null; then
+      echo "Stopping background boot (PID ${pid})..."
+      kill "$pid" 2>/dev/null || true
+      # wait briefly for the process to exit (cleanup trap removes pidfile)
+      local i
+      for i in $(seq 1 10); do
+        kill -0 "$pid" 2>/dev/null || break
+        sleep 0.5
+      done
+      kill -9 "$pid" 2>/dev/null || true
+      rm -f "$pf"
+    else
+      rm -f "$pf"
+    fi
+  done
 }
 
 case "${1:-help}" in
@@ -91,22 +126,92 @@ case "${1:-help}" in
     valid_profile "$P" || die "unknown profile: $P"
     case "$P" in
       27b|35b|deepseek)
-        down
-        up "$P"
+        # prevent concurrent boots (any cluster profile shares port 1234 + GPUs)
+        if cluster_boot_alive; then
+          pid="$(cat "$(ls -t "${STATE}"/boot-cluster.*.pid 2>/dev/null | head -n1)")"
+          die "background boot for another profile already running (PID ${pid})"
+        fi
+        # launch background boot
+        LOG="${STATE}/boot-cluster.${P}.log"
+        ( setsid nohup "${SCRIPTS}/gb10-boot-cluster" "$P" </dev/null >"${LOG}" 2>&1 &
+          echo $! > "$(_pid_file "$P")" )
+        # brief pause to let setsid fork; then confirm PID
+        sleep 0.2
+        if _boot_alive "$P"; then
+          _pid="$(cat "$(_pid_file "$P")")"
+          echo "$(date '+%F %T') $P: background boot started (PID ${_pid})"
+          echo "  log:  ${LOG}"
+          echo "  wait: gb10 wait $P"
+          echo "  poll: gb10 status"
+        else
+          echo "$(date '+%F %T') $P: boot launched (check log: ${LOG})"
+        fi
         ;;
       *)
         die "profile '$P' not deployed yet (placeholder)"
         ;;
     esac
     ;;
+  wait)
+    P="${2:-27b}"
+    valid_profile "$P" || die "unknown profile: $P"
+    RF="$(_ready_file "$P")"
+    PF="$(_pid_file "$P")"
+    if [[ -f "$RF" ]]; then
+      echo "$(date '+%F %T') $P: READY"
+      cat "$RF"
+      exit 0
+    fi
+    if ! _boot_alive "$P"; then
+      echo "$(date '+%F %T') $P: no background boot active (use 'gb10 use $P' to start)"
+      exit 0
+    fi
+    echo "$(date '+%F %T') $P: waiting for background boot to complete..."
+    _begin=$SECONDS
+    while _boot_alive "$P"; do
+      if [[ -f "$RF" ]]; then
+        echo "$(date '+%F %T') $P: READY"
+        cat "$RF"
+        exit 0
+      fi
+      sleep 5
+    done
+    # process exited — check if ready or failed
+    if [[ -f "$RF" ]]; then
+      echo "$(date '+%F %T') $P: READY"
+      cat "$RF"
+    else
+      echo "$(date '+%F %T') $P: boot process exited (not ready)"
+      echo "  log: ${STATE}/boot-cluster.${P}.log"
+      tail -20 "${STATE}/boot-cluster.${P}.log" 2>/dev/null || true
+      exit 1
+    fi
+    ;;
   stop)
+    _kill_boot
     down
     ;;
   restart)
-    P="${2:-$(cat "${REPO_DIR}/state/last-cluster-profile" 2>/dev/null || echo 27b)}"
+    P="${2:-$(cat "${STATE}/last-cluster-profile" 2>/dev/null || echo 27b)}"
     valid_profile "$P" || die "unknown profile: $P"
     case "$P" in
-      27b|35b|deepseek) down; up "$P" ;;
+      27b|35b|deepseek)
+        _kill_boot
+        down
+        # launch background boot (same as use|start)
+        LOG="${STATE}/boot-cluster.${P}.log"
+        ( setsid nohup "${SCRIPTS}/gb10-boot-cluster" "$P" </dev/null >"${LOG}" 2>&1 &
+          echo $! > "$(_pid_file "$P")" )
+        sleep 0.2
+        if _boot_alive "$P"; then
+          _pid="$(cat "$(_pid_file "$P")")"
+          echo "$(date '+%F %T') $P: background restart started (PID ${_pid})"
+          echo "  log:  ${LOG}"
+          echo "  wait: gb10 wait $P"
+        else
+          echo "$(date '+%F %T') $P: restart launched (check log: ${LOG})"
+        fi
+        ;;
       *) die "profile '$P' not deployed yet (placeholder)" ;;
     esac
     ;;

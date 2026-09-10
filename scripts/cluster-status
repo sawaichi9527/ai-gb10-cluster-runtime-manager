@@ -73,6 +73,26 @@ if [[ "${NODE0_UP}" == "up" ]]; then
 fi
 
 # ---------------------------------------------------------------------
+# Background-boot visibility: a `gb10 use/start` dispatched detached boot
+# writes state/boot-cluster.<profile>.pid (in progress) and, on success,
+# state/boot-ready.<profile>. Surface it so status is meaningful even
+# before the containers appear (the boot script tears TP2 down first).
+# ---------------------------------------------------------------------
+BOOT_PROFILE=""
+readarray -t _boot_pids < <(ls "${REPO_DIR}"/state/boot-cluster.*.pid 2>/dev/null | head -1)
+if [[ -n "${_boot_pids[0]:-}" ]]; then
+  BOOT_PROFILE="${_boot_pids[0]##*boot-cluster.}"
+  BOOT_PROFILE="${BOOT_PROFILE%.pid}"
+fi
+if [[ -n "${BOOT_PROFILE}" ]] && [[ -f "${REPO_DIR}/state/boot-ready.${BOOT_PROFILE}" ]]; then
+  BOOT_STATE="ready"
+elif [[ -n "${BOOT_PROFILE}" ]]; then
+  BOOT_STATE="booting"
+else
+  BOOT_STATE=""
+fi
+
+# ---------------------------------------------------------------------
 # Summary block (before the per-node detail sections)
 # ---------------------------------------------------------------------
 echo ""
@@ -81,6 +101,12 @@ echo ""
 echo "TP2 cluster summary"
 echo ""
 echo "  status:  ${STATUS}"
+if [[ -n "${BOOT_STATE}" ]]; then
+  echo "  boot:    ${BOOT_PROFILE} ${BOOT_STATE}"
+  if [[ -f "${REPO_DIR}/state/boot-cluster.${BOOT_PROFILE}.log" ]]; then
+    echo "  log:     ${REPO_DIR}/state/boot-cluster.${BOOT_PROFILE}.log"
+  fi
+fi
 echo "  node:    node0 ${NODE0_UP} · node1 ${NODE1_UP}"
 if [[ "${NODE0_UP}" == "up" ]]; then
   echo "  image:   ${NODE0_IMG:-<unknown>}"
