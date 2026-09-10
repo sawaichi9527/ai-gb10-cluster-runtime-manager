@@ -1,6 +1,6 @@
 # DGX Spark GB10 本地 AI 部署狀態交接（最新版）
 
-> 更新日期：2026-09-09  
+> 更新日期：2026-09-10  
 > 主機：NVIDIA DGX Spark / GB10  
 > 主機名稱：`spark-25d5`  
 > 使用者：`eye`  
@@ -20,6 +20,8 @@
 > **2026-09-09 追加 — canonical repo（keystone）五項核准優化套用＋state/ 文件＋commit `32abcba`＋Forgejo push（git daemon + Windows GCM 路徑）**：rank1 env/mounts 改 rank0 序列化傳遞（無 eval）、bench-c/bench-ctx 移除硬編 `127.0.0.1:1234` 並統一 Bearer `${VLLM_API_KEY}` auth、gb10-single deepseek 除名、README/src-README 同步；Node0 對 Forgejo 無可用憑證 → 以「暫時 git daemon + Windows GCM 既有認證」完成推送並驗證同步。詳見下方 **# 28**。
 
 > **2026-09-10 追加 — 35B AEON（flashattn + bf16 + MARLIN + AEON drafter）跨 single/cluster 完成既 benchmark**：sakamakismile 35B-A3B herético NVFP4 + AEON 8L full-attn drafter（取代 z-lab，sha256 驗證 `6db5c712...`），兩節點同步；依 HF doc-flash requirements：single/cluster 統一 `VLLM_TEST_FORCE_FP8_MARLIN=1`、cluster `KV_DTYPE="bfloat16"`+`flash_attn`（spec 亦 flash_attn）、single `auto`/flash_attn、maxlen single 229376→262144（cluster 已 262144）；cluster 35b 首次啟動曾報 `--kv-cache-dtype: invalid choice 'bf16'` → 改 `bfloat16` 修復。C1-8 + 245k ctx 全跑完（cluster 全面 1.1–1.6x）。詳見下方 **# 31**。
+
+> **2026-09-10 追加 — TP2「v1.1.0」版本化：gb10/gb10-single use|start 背景執行（commit `87f59a9`/`71ccf20`）+ 有效 v1.0.0 升級為 main + v1.1.0 tag/release**：Node0 部署 clone 原為 `keystone`（a5fcc54），確認其為 main 祖先後切至 `main`@`71ccf20`；deepseek（非 placeholder）背景 boot 至 READY（~7min）、並行防護與同節點防護實測通過、27b single 因既有 vLLM `MergedColumnParallelLinear` 權重載入 bug 失敗（與本功能無關）；v1.1.0 tag+release 已建。詳見下方 **# 33**。
 
 ---
 
@@ -1994,3 +1996,99 @@ Cluster（n=6 + prefix ON）：
 · select-string 與 git diff 混用會撞 Pester Describe.ps1 → 純 git 輸出即可。
 · push 分支名勿用無參數 fetch 後的 FETCH_HEAD（會被覆寫成 remote HEAD=main）→ 用 SHA:branch。
 ```
+
+# 33. 2026-09-10 gb10/gb10-single use|start 背景執行改造 + Node0 切 main + v1.1.0 版本化
+
+> 依使用者決策：兩個 CLI 的 `use`/`start` 預設改為 **背景執行**（立即返回，開機於背景跑、log/pid 寫入
+> `state/`），並完成 Node0 部署 clone 由 keystone → main 之移轉，與 v1.1.0 tag/release 版本化。
+> 本機（Windows）：commit push 走既有 forgejo-head temp clone（GCM）；Node0 端以 SSH MCP 操作。
+
+## 33.1 背景執行設計
+
+```text
+· 行為：gb10 use|start <profile> ／ gb10-single use|start {node0|node1} <runtime> 立即返回；
+  完整開機由背景 job 執行（( setsid nohup cmd </dev/null >log 2>&1 & )）。
+· 追蹤：gb10 status（status: ready/loading · boot: <profile> booting · log: 路徑）、gb10 wait <profile>
+  （blocking 輪詢至 READY，已 READY 時立即回傳）。gb10-single 同構（wait {node0|node1} <runtime>）。
+· 完成：trap 清除 pidfile、寫入 state/boot-ready.<profile>（single 為 boot-ready.<node>.<runtime>）。
+· 並行防護：
+   - cluster：bin/gb10 新增 cluster_boot_alive()（掃 state/boot-cluster.*.pid），use|start 前攔截 →
+     die『background boot for another profile already running (PID ...)』；launch 後仍以 _boot_alive 驗證。
+   - single：gb10-single-boot 以 PID_FILE 唯一化，同節點第二個 use 被拒（原 boot 不受影響）。
+· 承改造：linux shell scripts（LF、#!/usr/bin/env bash、set -Eeuo pipefail）；cluster.env 非空 SUDO_PASS=
+  （config/cluster.env，gitignored）由 scripts/cluster-common.sh:21 source，故背景/no-tty 不 hang。
+```
+
+## 33.2 更動檔案（commit 87f59a9，+533 −45）
+
+```text
+· bin/gb10：use|start 改背景 + cluster_boot_alive 並行防護（+151）
+· bin/gb10-single：use|start 改背景 + node_boot singleton 防護（+185）
+· scripts/cluster-up：cluster 完成時寫 state/boot-ready.${PROFILE}（+4）
+· scripts/cluster-status：boot 進行中顯示『boot: <profile> booting · log: 路徑』（+26）
+· scripts/gb10-boot-cluster（新，45 行）：cluster 背景 boot job（$$ 覆寫 pidfile、trap 清理、
+  READY 寫 boot-ready、確保 TP2 down / free singles）
+· scripts/gb10-single-boot（新，167 行）：single 背景 boot job（含方向 A ensure_tp2_down、
+  free_node、wait_ready、log 時間戳 + status/restart 追蹤）
+· 兩新檔 mode 100755（git update-index --chmod=+x）。
+· 驗證：6 檔 bash -n 通過、LF 無 CRLF。
+```
+
+## 33.3 Node0 部署 clone：keystone → main
+
+```text
+· 發現：Node0 部署 clone（~/workspace/ai-gb10-cluster-runtime-manager）原 checkout 在 keystone（a5fcc54），
+  非 main；此為長期未察覺之偏離（3 個 unpushed keystone commit：bc74288/2c70316/a5fcc54）。
+· 判定：merge-base(keystone, origin/main)=a5fcc54（keystone HEAD）且 a5fcc54 為 87f59a9 之祖先
+  → keystone 內容全部在 main 內，切 main 無資訊遺失（舊本地 main=af572e6 等同已 push 之
+  origin/experiment/deepseek-v4-dspark-k5-r2，亦無遺失）。
+· 執行：刪 0-byte untracked 空檔 scripts/gb10-boot-cluster → git checkout -B main origin/main
+  → HEAD=87f59a9，6 檔就位且 -rwxrwxr-x，bash -n 全過；gitignore 補 boot-* 後 git pull → 71ccf20。
+· 既有 untracked cluster-profiles.d/27b.conf.bak-quant 保留（備份檔，不處理）。
+```
+
+## 33.4 實機驗證（Node0/Node1，全部通過）
+
+```text
+· gb10 use deepseek → 立即返回（PID 201197）；期間 gb10 status 顯示 boot: deepseek booting + log；
+  並行 gb10 use 35b 被拒（exit 1、原 boot 不受影響）；背景完成 cluster-down → free singles（各 27b/35b/
+  comfyui/minimaxh3 not active）→ 雙節點 checksum PASS → relaunch → 16:37:47 READY on :1234。
+  完成後 pidfile 清除、boot-ready.deepseek 寫入、status 回 ready、gb10 wait deepseek 立即回 READY（0.019s）。
+· gb10-single use node0 27b → 先拆 TP2（ensure_tp2_down）再背景 boot；同節點並行 use node0 comfyui 被拒
+  （exact rejection、exit 1、原 boot 不受影響）。
+· 失敗路徑 fail-safe：27b single 於 weight load 當掉（vLLM MergedColumnParallelLinear attribute error，
+  container restarting）→ boot 正確偵測錯誤、報錯退出、trap 清 pidfile（等 wait 顯示 no background boot）。
+  ⚠️ 此為既有 27b single 權重載入 bug（image/model 相容），與本背景功能無關，另案處理。
+· 還原：gb10 use deepseek 重建 TP2 → READY（順帶終止掛掉之 27b single）。
+```
+
+## 33.5 gitignore 補漏（commit 71ccf20）
+
+```text
+· 發現：state/boot-cluster.*.pid、boot-ready.*、boot-single.*.pid 原本未 ignore（舊 .gitignore 僅
+  *.log + state/last-runtime）→ git status 出現 ?? state/。
+· 修正：.gitignore 補『state/boot-cluster.*.pid / state/boot-ready.* / state/boot-single.*.pid』。
+  逐檔 check-ignore 驗證全 IGNORED；Node0 同步後 git status 乾淨（僅存 27b.conf.bak-quant）。
+```
+
+## 33.6 版本化：v1.1.0（tag + release）
+
+```text
+· 現況：v1.0.0 為 keystone→main 里程碑（merge 496c9b1），其後已有功能 commit（87f59a9, 71ccf20）。
+· 使用者決策：標記 v1.1.0 為最新 main（作業環境未消費版號，純標記 + release note）。
+· 執行：annotated tag v1.1.0 @ 71ccf20 push main→Forgejo；create_release
+  『v1.1.0 — gb10/gb10-single use/start background boot by default』
+  https://192.168.23.167:3000/829522/ai-gb10-cluster-runtime-manager/releases/tag/v1.1.0
+  （行為變更、commits、實機驗證摘要）。
+· final：origin/main = 71ccf20（forgejo-head）＝ Node0 HEAD ＝ v1.1.0；TP2 deepseek 於 :1234 health ready。
+```
+
+## 33.7 工具教訓（本 session）
+
+```text
+· pwsh 吃 $env:VAR='x'（&& 後指派不合法）→ 單獨 .ps1 檔執行；commit -m 內嵌多行亦不穩 → -F 用訊息檔。
+· ssh MCP run-command ~60s 上限 → 冷啟動 gb10 wait 會 timeout；長等待用短輪詢（每 ~60-90s）而非一次到底。
+· 背景 boot 來自 SSH 時，前端 timeout 中斷不影響已 dispatched 之 setsid 背景 job（後續調查仍可完成）。
+```
+
+---
