@@ -1994,6 +1994,3 @@ Cluster（n=6 + prefix ON）：
 · select-string 與 git diff 混用會撞 Pester Describe.ps1 → 純 git 輸出即可。
 · push 分支名勿用無參數 fetch 後的 FETCH_HEAD（會被覆寫成 remote HEAD=main）→ 用 SHA:branch。
 ```
-
-> **未清事項**：cluster 35b 仍 running（「benchmark 完成即可 gb10 stop」尚未執行）；本 §32 完成後應
-> commit/push 本機 docs-carrier-9041。
