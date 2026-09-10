@@ -19,6 +19,8 @@
 
 > **2026-09-09 追加 — canonical repo（keystone）五項核准優化套用＋state/ 文件＋commit `32abcba`＋Forgejo push（git daemon + Windows GCM 路徑）**：rank1 env/mounts 改 rank0 序列化傳遞（無 eval）、bench-c/bench-ctx 移除硬編 `127.0.0.1:1234` 並統一 Bearer `${VLLM_API_KEY}` auth、gb10-single deepseek 除名、README/src-README 同步；Node0 對 Forgejo 無可用憑證 → 以「暫時 git daemon + Windows GCM 既有認證」完成推送並驗證同步。詳見下方 **# 28**。
 
+> **2026-09-10 追加 — 35B AEON（flashattn + bf16 + MARLIN + AEON drafter）跨 single/cluster 完成既 benchmark**：sakamakismile 35B-A3B herético NVFP4 + AEON 8L full-attn drafter（取代 z-lab，sha256 驗證 `6db5c712...`），兩節點同步；依 HF doc-flash requirements：single/cluster 統一 `VLLM_TEST_FORCE_FP8_MARLIN=1`、cluster `KV_DTYPE="bfloat16"`+`flash_attn`（spec 亦 flash_attn）、single `auto`/flash_attn、maxlen single 229376→262144（cluster 已 262144）；cluster 35b 首次啟動曾報 `--kv-cache-dtype: invalid choice 'bf16'` → 改 `bfloat16` 修復。C1-8 + 245k ctx 全跑完（cluster 全面 1.1–1.6x）。詳見下方 **# 31**。
+
 ---
 
 # 1. 本次工作摘要
@@ -1821,3 +1823,69 @@ Cold start：single ~530s · cluster ~310s。
 · Windows repo（本機 docs-carrier-9041）：docs/BENCHMARK_27B_MIXED_V2_SINGLE_CLUSTER_2026-09-10.md ＋ 本 §30。
 · 後續：27b（cluster）已 gb10 stop；兩 repo 均已 commit ＋ push（forgejo 上 keystone / docs-carrier-9041）。
 ```
+
+# 31. 2026-09-10 35B AEON benchmark（DFlash n=11 / flash_attn / bf16 KV / MARLIN / AEON drafter）single→cluster
+
+> 依先前使用者決策逐步執行：35b 用 `2026-08-24-v0.27.1-omni` image（不升 reasoning-eos）、
+> drafter 換成 AEON 8L full-attn 版、single/cluster 統一 flash_attn + `VLLM_TEST_FORCE_FP8_MARLIN=1`、
+> cluster KV 改 bf16、single maxlen 229376→262144，然後 single→cluster 完整跑與 27b 相同之 c1-8 + 245k ctx。
+> 完整數據：`docs/BENCHMARK_35B_AEON_BF16_FLASHATTN_2026-09-10.md`。
+
+## 31.1 Drafter 替換（AEON 取代 z-lab）
+
+```text
+· 下載 AEON drafter qwen3.6-35b-a3b-dflash（config.json 1324B / dflash.py 8345B / model.safetensors
+  948,000,184B / README.md 4541B / .gitattributes 1630B）；sha256 6db5c712b4f3d924026162ad1aedf7fd1fef32437690451137f967d9b7160144
+  與 HF LFS oid 一致；config 顯示 DFlashDraftModel / dflash.DFlashDraftModel / block_size 16 /
+  mask_token_id 248070 / target_layer_ids [1,10,19,28,37]（8L full-attn）。
+· Node0：四檔放入 ~/docker-stacks/aeon-vllm-omni/models/qwen3.6-35b-a3b-dflash/；z-lab 備份目錄已刪。
+· Node1：z-lab 先備份為 qwen3.6-35b-a3b-dflash-zlab-backup-20260910，再 scp 同步新 drafter（RC=0），
+  node1 sha256 驗證一致；z-lab 備份保留。
+```
+
+## 31.2 參數調整（使用者決策 + HF requirements）
+
+```text
+· cluster-profiles.d/35b.conf（node0 keystone）：
+    KV_DTYPE="bf16" → "bfloat16"（vLLM 不接受 bf16，invalid choice，首次啟動即報）
+    ATTN_BACKEND="flash_attn" · SPEC_ATTN_BACKEND="flash_attn"
+    EXTRA_ENV + VLLM_TEST_FORCE_FP8_MARLIN=1（already had VLLM_CACHE_ROOT）
+    IMAGE 維持 2026-08-24-v0.27.1-omni（不升 reasoning-eos）
+· single node0/node1（standalone.env + docker-compose.35b.yml）：
+    AEON_IMAGE → ...2026-08-24-v0.27.1-omni（node1 原硬編 2026-08-16-v0.27.1）
+    env + VLLM_TEST_FORCE_FP8_MARLIN: "1"
+    --max-model-len 229376 → 262144（對齊 cluster，確保 245k ctx 可測）
+· 備份：/tmp/35b.conf.bak-20260910 · /tmp/standalone.env.bak-20260910（兩節點）· /tmp/dc35b.yml.bak-20260910
+· engine log 驗證：single 'Using FlashAttention version 2'、'Using MARLIN NvFp4 MoE backend'、kv bfloat16；
+  cluster 同 + world_size=2、spec attention_backend=flash_attn、max_seq_len=262144、prefix caching OFF。
+```
+
+## 31.3 實測結果（總結，詳見報告文件）
+
+```text
+Concurrency（C_total tok/s / Accept% / MeanLen）：
+  C1   single 26.6 / 24.1 / 2.65   cluster 30.0 / 24.2 / 2.67   → 1.13x
+  C2   single 108.9 / 24.1 / 2.66  cluster 167.3 / 27.9 / 3.07  → 1.54x
+  C3   single 142.6 / 22.6 / 2.48  cluster 206.5 / 24.1 / 2.65  → 1.45x
+  C4   single 154.5 / 20.9 / 2.30  cluster 227.1 / 24.2 / 2.66  → 1.47x
+  C8   single 229.2 / 21.8 / 2.40  cluster 341.9 / 25.0 / 2.75  → 1.49x
+Long ctx 245,010 tok：single wall 97.3s / 2518.7 tok/s · cluster wall 61.5s / 3986.4 tok/s（1.58x）。
+Cold start：single ~7min · cluster ~7min（model load 133s + compile 47s + autotune 88 cfg）。
+```
+
+## 31.4 觀察
+
+```text
+· 35B-A3B（MoE）long-context prefill 遠快於 27B dense（single 2518 vs 331 tok/s，~7.6x）。
+· 35b acceptance（DFlash n=11）整體低於 27b DFlash2 n=7（24-28% vs cluster 28-38%），
+  但 rate 已可接受、any_errors=0。
+· 所有變更（config/conf/compose）已直接落地至 node0/node1 實際部署，未另開 A/B。
+```
+
+## 31.5 commit / push 待辦
+
+```text
+· canonical repo（node0 keystone）：cluster-profiles.d/35b.conf（KV bfloat16 + ATTN/Spec flash_attn +
+  FP8_MARLIN env）→ commit + push（Windows GCM 路徑）
+· Windows repo（本機 docs-carrier-9041）：docs/BENCHMARK_35B_AEON_BF16_FLASHATTN_2026-09-10.md ＋ 本 §31。
+· 後續：cluster 35b 目前 running；benchmark 完成即可 gb10 stop。
