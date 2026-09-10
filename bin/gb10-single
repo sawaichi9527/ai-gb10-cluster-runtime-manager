@@ -15,8 +15,8 @@
 #   gb10-single logs {node0|node1} [runtime]
 #   gb10-single doctor
 #
-# Runtimes: 27b, 35b, comfyui, minimaxh3 (deployed) ; deepseek,
-# qwen38flash, glm53flash (placeholders - not deployed yet).
+# Runtimes: 27b, 35b, comfyui, minimaxh3 (deployed) ; qwen38flash,
+# glm53flash (placeholders - not deployed yet).
 # =====================================================================
 set -Eeuo pipefail
 
@@ -45,7 +45,7 @@ gb10-single - DGX Spark GB10 single-node runtime manager
 
 Runtimes (runtimes.d/*.conf):
   27b 35b comfyui minimaxh3   deployed
-  deepseek qwen38flash glm53flash   placeholder (not deployed)
+  qwen38flash glm53flash   placeholder (not deployed)
 
 Auto-protection (做法 B): `use/start node0|node1 <runtime>` auto-tears down
 an active TP2 cluster first (TP2 occupies both nodes' GPUs and shares port
@@ -63,7 +63,7 @@ profiles(){
 load(){
   unset RUNTIME_ID DISPLAY_NAME ALIASES MODE GROUP PLACEHOLDER
   unset STACK_DIR COMPOSE_FILE PROJECT SERVICE CONTAINER
-  unset IDENTITY_MOUNT HEALTH_URL TIMEOUT
+  unset IDENTITY_MOUNT HEALTH_URL TIMEOUT ENV_FILE
   # shellcheck disable=SC1090
   source "$1"
   : "${RUNTIME_ID:?}"
@@ -80,6 +80,7 @@ load(){
   : "${IDENTITY_MOUNT:=}"
   : "${HEALTH_URL:=}"
   : "${TIMEOUT:=1800}"
+  : "${ENV_FILE:=}"
   if [[ -n "$COMPOSE_FILE" && "${COMPOSE_FILE:0:1}" != "/" ]]; then
     COMPOSE_FILE="${STACK_DIR}/${COMPOSE_FILE}"
   fi
@@ -140,9 +141,9 @@ node_dc(){
 compose_node(){
   local node="$1"; shift
   if [[ "$node" == "node0" ]]; then
-    (cd "$STACK_DIR" && docker compose -p "$PROJECT" -f "$COMPOSE_FILE" "$@")
+    (cd "$STACK_DIR" && docker compose -p "$PROJECT" -f "$COMPOSE_FILE" ${ENV_FILE:+--env-file "$ENV_FILE"} "$@")
   else
-    n1 "cd '$STACK_DIR' && docker compose -p '$PROJECT' -f '$COMPOSE_FILE' $(printf '%q ' "$@")"
+    n1 "cd '$STACK_DIR' && docker compose -p '$PROJECT' -f '$COMPOSE_FILE' ${ENV_FILE:+--env-file '$ENV_FILE'} $(printf '%q ' "$@")"
   fi
 }
 
@@ -155,7 +156,7 @@ expected_mount(){
 
 actual_mount(){
   [[ -n "$IDENTITY_MOUNT" ]] || return
-  node_ps_q "$NODE" "$CONTAINER" '{{.Mounts}}' 2>/dev/null |
+  node_ps_q "$NODE" "$CONTAINER" 2>/dev/null |
     jq -r --arg t "$IDENTITY_MOUNT" \
     '.. | objects | select(has("Destination")) | select(.Destination==$t) | .Source' | head -n1
 }
@@ -177,9 +178,9 @@ inspect_q(){
 }
 
 node_ps_q(){
-  local node="$1" cname="$2" tmpl="$3"
+  local node="$1" cname="$2"
   if [[ "$node" == "node0" ]]; then
-    docker inspect "$cname" 2>/dev/null | jq -r --argjson s "false" '.[0]'
+    docker inspect "$cname" 2>/dev/null | jq -r '.[0]'
   else
     n1 "docker inspect '$cname' 2>/dev/null | jq -c '.[0]'"
   fi
@@ -188,15 +189,9 @@ node_ps_q(){
 active_loaded(){
   local node="$1"
   inspect_q "$node" "$CONTAINER" '{{.State.Status}}' >/dev/null 2>&1 || return 1
-  if [[ -n "$IDENTITY_MOUNT" ]]; then
-    local proj
-    proj="$(inspect_q "$node" "$CONTAINER" '{{index .Config.Labels "com.docker.compose.project"}}')"
-    [[ "$proj" == "$PROJECT" ]]
-  else
-    local proj
-    proj="$(inspect_q "$node" "$CONTAINER" '{{index .Config.Labels "com.docker.compose.project"}}')"
-    [[ "$proj" == "$PROJECT" ]]
-  fi
+  local proj
+  proj="$(inspect_q "$node" "$CONTAINER" '{{index .Config.Labels "com.docker.compose.project"}}')"
+  [[ "$proj" == "$PROJECT" ]]
 }
 
 state_of(){
@@ -372,13 +367,13 @@ default_file(){
 # node1's GPU, so it must never coexist with an active TP2 cluster. This
 # hook auto-tears TP2 down before a node1 runtime comes up (做法 B).
 tp2_active(){
-  docker ps -q -f name=tp2-node0 2>/dev/null | grep -q . && return 0 || return 1
+  docker ps -q -f name=cluster-node0 2>/dev/null | grep -q . && return 0 || return 1
 }
 
 ensure_tp2_down(){
   if tp2_active; then
     echo "TP2 cluster is running; tearing it down before starting a single-node runtime..."
-    "${REPO_DIR}/scripts/tp2-down"
+    "${REPO_DIR}/scripts/cluster-down"
   fi
 }
 

@@ -4,7 +4,7 @@
 
 把原本分家的兩套 GB10 管理邏輯統一進**單一 repo**：
 
-- `ai-gb10-cluster`（2-node TP2 叢集，`scripts/tp2-*`）
+- `ai-gb10-cluster`（2-node TP2 叢集，`scripts/cluster-*`）
 - `gb10-single`（單節點 `gb10` CLI + `runtimes.d`）
 
 統一後 repo 命名為 **`ai-gb10-cluster-runtime-manager`**，由兩個獨立 CLI 構成：
@@ -14,10 +14,10 @@
 
 | 舊位置 | 新位置 |
 |---|---|
-| `ai-gb10-cluster/scripts/tp2-*` | `scripts/`（不變，路徑可攜） |
+| `ai-gb10-cluster/scripts/cluster-*` | `scripts/`（不變，路徑可攜） |
 | `ai-gb10-cluster/tp2.env(.example)` | `tp2.env(.example)`（不變） |
 | `ai-gb10-cluster/docs/TP2_DEPLOYMENT_2026-08-30.md` | `docs/`（不變） |
-| `ai-gb10-cluster` CLI（無） | **新** `bin/gb10`（thin layer 於 scripts/tp2-*） |
+| `ai-gb10-cluster` CLI（無） | **新** `bin/gb10`（thin layer 於 scripts/cluster-*） |
 | `gb10-single/bin/gb10` | **改寫** 為 `bin/gb10-single`（加 node0/node1） |
 | `gb10-single/runtimes.d/*.conf` | `runtimes.d/*.conf`（改名 + 加 placeholder） |
 

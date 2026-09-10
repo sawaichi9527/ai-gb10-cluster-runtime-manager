@@ -29,7 +29,7 @@ only the image (same slim), the model dirs, and sudo docker.
 Common to every launch:
 
 ```bash
-docker run -d --name tp2-node0|tp2-node1 \
+docker run -d --name cluster-node0|cluster-node1 \
   --gpus all --ipc=host --shm-size=16g --net=host \
   -e VLLM_HOST_IP=10.0.101.10X \
   -e NCCL_SOCKET_IFNAME=enp1s0f0np0 -e GLOO_SOCKET_IFNAME=enp1s0f0np0 \
@@ -91,7 +91,7 @@ DFlash v1 acceptance 26.6 % → **81.8 % after warm-up** (per-position up to 1.0
 ## Operational cheatsheet
 
 ```bash
-gp() { scripts/tp2-up;  }            # 27B default
-gp 35b                               # or scripts/tp2-up 35b
-scripts/tp2-status | tp2-smoke | tp2-load | tp2-down
+gp() { scripts/cluster-up;  }            # 27B default
+gp 35b                               # or scripts/cluster-up 35b
+scripts/cluster-status | cluster-smoke | cluster-load | cluster-down
 ```

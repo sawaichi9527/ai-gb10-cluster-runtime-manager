@@ -5,45 +5,45 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
 ## Facts (don't "fix" these)
 
 - **Two CLIs, both in `bin/`:**
-  - `gb10` = **cluster (TP2)** — thin layer over `scripts/tp2-*`. Default target is
+  - `gb10` = **cluster (TP2)** — thin layer over `scripts/cluster-*`. Default target is
     the 2-node cluster; Node0 is the single side of control, Node1 is headless.
   - `gb10-single` = **single-node** runtime manager. `node0` runs compose locally,
     `node1` reaches it over `ssh -i ~/.ssh/id_gb10_cluster eye@10.0.101.102`.
-- **`tp2-common.sh` auto-resolves `REPO_DIR`** from its own path — the scripts are
+- **Canonical repo path (fixed 2026-09-09):** the only live checkout is
+  `~/workspace/ai-gb10-cluster-runtime-manager` (branch `keystone`, origin =
+  `http://192.168.23.167:3000/829522/ai-gb10-cluster-runtime-manager`). `~/bin/gb10`
+  and `~/bin/gb10-single` are symlinks into its `bin/`. The pre-restructure checkout
+  `~/ai-gb10-cluster-runtime-manager` was archived to `~/_archieve/` (2026-09-09): its
+  `tp2-*` scripts still look for `tp2-node*` containers and would report a false
+  `down` against the live `cluster-node*` stacks (plus a stray debug `:` line, fixed
+  in `e9d9602`). Do not resurrect it or re-point the symlinks.
+
+- **`cluster-common.sh` auto-resolves `REPO_DIR`** from its own path — the scripts are
   portable and do NOT need the repo to live at a fixed path. Keep it that way.
 - **Compose = source of truth; CLI = convenience layer.** Day-to-day ops go through
   `gb10`/`gb10-single`; compose files under `~/docker-stacks/` are the deploy contract.
 - **Cluster profiles are data-driven** (verified 2026-09-05) from `cluster-profiles.d/`
-  and loaded by `scripts/tp2-common.sh` (`load_profile`/`build_vllm_args`/`build_docker_env`).
+  and loaded by `scripts/cluster-common.sh` (`load_profile`/`build_vllm_args`/`build_docker_env`).
   27b = body `qwen3.8-27b-aeon-ultimate-uncensored-nvfp4` + drafter `qwen3.8-27b-dflash2`
   (dflash n=7, maxlen 262144, GMU 0.85, num_seqs 8, API :1234); 35b = body
   `qwen3.6-35b-a3b-heretic-nvfp4` + drafter `qwen3.6-35b-a3b-dflash` (n=11, maxlen
   131072, GMU 0.80, num_seqs 16). Both on `:1234` through Node0. Do NOT re-hard-code
-  profile data in `tp2-*` scripts — the registry is the only authoritative set.
-- **qwen38flash TP2 profile (added 2026-09-07)**: body-only `qwen3.8-flash-next-nvfp4`
-  (no drafter), official `vllm/vllm-openai:qwen38-flash-next` image, MTP3 speculative
-  decode (`--speculative-config {"method":"mtp","num_speculative_tokens":3,...}`,
-  no `model` field), maxlen 262144, num_seqs 8, GMU 0.80. Divergences from the Qwen
-  cluster profile defaults (deliberate, keep on the conf): `--quantization modelopt`,
-  `VLLM_PLE_CPU_OFFLOAD=1` (via `EXTRA_DOCKER_ENV`), `--ulimit nofile=1048576` (via
-  `DOCKER_RUN_EXTRA`), `--no-enable-flashinfer-autotune`. Both ranks get
-  `EXTRA_DOCKER_ENV`/`DOCKER_RUN_EXTRA`; rank1 receives them through the tp2-up
-  heredoc, rank0 via `build_docker_env`/`DOCKER_RUN_ARGS` in tp2-up. The legacy
-  single-node `runtimes.d/qwen38flash.conf` (`gpt-oss-38b` Flash placeholder) is a
-  **different model** — do not confuse it with this TP2 cluster profile.
+  profile data in `cluster-*` scripts — the registry is the only authoritative set.
 - **Unified LLM endpoint**: all LLM runtimes (TP2 + single, node0 & node1) serve the
-  OpenAI API on **port 1234** sharing one `VLLM_API_KEY`. Set the same key in `tp2.env`
-  and both nodes' `docker-stacks/aeon-vllm/.env`. TP2 and node0 single LLM share the
+  OpenAI API on **port 1234** sharing one `VLLM_API_KEY`. Set the same key in
+  `~/docker-stacks/config/cluster.env` and both nodes' `~/docker-stacks/config/standalone.env`.
+  TP2 and node0 single LLM share the
   port → they are **mutually exclusive**: `gb10 use` frees node0+node1 singles;
-  `gb10-single use/start` on either node tears down TP2 first. `scripts/tp2-smoke/load/
+  `gb10-single use/start` on either node tears down TP2 first. `scripts/cluster-smoke/load/
    status` pass the [REDACTED:bearer-auth:10] `api_curl()` (or their own header) when a key is configured.
-- **`scripts/tp2-*`**: `up [27b|35b]`, `down`, `status`, `smoke`, `load`. Never edit
+- **`scripts/cluster-*`**: `up [27b|35b]`, `down`, `status`, `smoke`, `load`. Never edit
   silently — `gb10` just forwards to them.
-- **Lazy sudo**: `scripts/tp2-common.sh` exposes `sudo_pass()` (private `_sudo_pass`).
-  It reuses an exported `SUDO_PASS` (from `tp2.env`) with no prompt; if unset it only
-  prompts interactively and otherwise errors rather than hanging. `sdk()`, `tp2-down`,
-  `tp2-status` and the `tp2-up` heredoc all go through `sudo_pass()` so they never block
-  on a non-tty password read. Credentials never echo to stdout/logs.
+- **Lazy sudo**: `scripts/cluster-common.sh` exposes `sudo_pass()` (private `_sudo_pass`).
+  It reuses an exported `SUDO_PASS` (from `~/docker-stacks/config/cluster.env`) with no
+  prompt; if unset it only prompts interactively and otherwise errors rather than hanging.
+  `sdk()`, `cluster-down`, `cluster-status` and the `cluster-up` heredoc all go through
+  `sudo_pass()` so they never block on a non-tty password read. Credentials never echo to
+  stdout/logs.
 - **Placeholder runtimes** (`PLACEHOLDER=true` in conf): CLI skeleton only. `gb10` and
   `gb10-single` must print "not deployed yet" and never touch a missing stack.
 - **Exclusive groups**: `runtimes.d/*.conf` use `MODE=exclusive` + `GROUP` for isolation
@@ -53,15 +53,17 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   active *exclusive* runtime on the same node **across groups** (minimaxh3 `video` vs comfyui
   `image`). Placeholders stay untouched and TP2 is handled by `ensure_tp2_down`, never the
   exclusive stop loop.
-- **Secrets**: `tp2.env`, `~/docker-stacks/*/.env`, keys — never commit. `.gitignore`
-  covers `tp2.env`, `state/last-runtime`, logs.
+- **Secrets**: `~/docker-stacks/config/{cluster,standalone}.env`, `~/docker-stacks/*/.env`,
+  keys — never commit. `.gitignore` covers `config/cluster.env`, `state/last-runtime`, logs.
 - **DeepSeek is cluster-only.** The legacy single-node `runtimes.d/deepseek.conf`
-  placeholder was **retired 2026-09-05**; the only DeepSeek placeholder is the
-  TP2-cluster `cluster-profiles.d/deepseek.conf` (safe-fails as "not deployed").
-  `gb10-single list` no longer shows `deepseek`.
+  placeholder was **retired 2026-09-05**, and `gb10-single list` no longer shows
+  `deepseek`. On the TP2 cluster, `cluster-profiles.d/deepseek.conf` is **mainline
+  (PLACEHOLDER=false since 2026-09-07)**: official deepseek-ai fp8 checkpoint +
+  public Anemll runtime `ghcr.io/anemll/dspark-vllm-gx10:0.1.1`, weights at the shared
+  pool `~/docker-stacks/models` — `gb10 use deepseek` is a real launch, not a placeholder.
 - **Node1 doesn't host the repo.** Only Node0. Node1 needs image + model dirs + sudo docker.
 - **Cold start** for TP2 is ~7-15 min (weight load + FlashInfer autotune + torch.compile);
-  `tp2-up`/`gb10 use` waits for `/health` 200 and reports READY.
+  `cluster-up`/`gb10 use` waits for `/health` 200 and reports READY.
 - **Prefix caching is DELIBERATELY OFF for the TP2 27B (DFlash2) runtime.** See
   `[REDACTED:entropy:42].md` for rationale + the pre-requisites
   (vLLM #53479/#52244/#50457/#50897/#53420/#53426) to check before a new image re-enables it.
@@ -76,15 +78,14 @@ The TP2 profile layer is **data-driven** (see `docs/TP2_PROFILE_REFACTOR_VALIDAT
 cluster-profiles.d/
   27b.conf          # deployed + live-validated (world_size=2, maxlen 262144)
   35b.conf          # deployed + live-validated (world_size=2, maxlen 131072)
-  deepseek.conf     # safe placeholder (not deployed; gb10 use deepseek fails safely)
-  qwen38flash.conf  # new 2026-09-07: Qwen3.8 Flash-Next 125B NVFP4, MTP3, official image
+  deepseek.conf     # mainline (onboarded 2026-09-07; dspark-vllm-gx10:0.1.1, pool weights)
 ```
 
 Key rules:
 
 - Preserve existing 27B and 35B effective launch behavior first; they are the regression controls.
 - Profile data lives in `cluster-profiles.d/*.conf` only — no hard-coded per-model branch in
-  `tp2-common.sh`, and no second copy in `tp2-up`. Rank0 constructs the authoritative argv;
+  `cluster-common.sh`, and no second copy in `cluster-up`. Rank0 constructs the authoritative argv;
   rank1 receives it as a shell-escaped array (no eval, no serialize+re-eval).
 - The image is **profile-scoped** (`IMG` in each conf), so a future DeepSeek-derived AEON image
   can be selected per-profile rather than assuming a single cluster-global `IMG`.
@@ -92,13 +93,12 @@ Key rules:
   `--disable-custom-all-reduce` remain cluster concerns.
 - Model-specific settings (KV dtype, attention/linear/MoE backend, speculative method, parser,
   graph mode, context/concurrency/GMU) belong to the cluster profile conf.
-- Do not build/patch the DeepSeek image in the same structural-refactor change. Planned lineage is:
-  base `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-08-24-v0.27.1-omni` -> derived
-  `2026-09-04-v0.27.1-omni-ds4flash0731-r1`, with image work handled as a separate follow-up.
-- DeepSeek r1 is a correctness/control bring-up (TP2, DSpark off, FP8 KV baseline, PIECEWISE,
-  shorter context first). DSpark / longer context belong to later validation, not this refactor.
-- Do not claim `deepseek` deployed until both nodes have the intended image/model and a real
-  generation has passed. Until then `gb10 use deepseek` must fail safely as a placeholder.
+- The TP2 structural refactor (2026-09-05) originally scoped DeepSeek as a correctness/control
+  bring-up; that NVFP4 AEON lane has since been **archived**
+  (`~/_archieve/cluster-profiles.d/deepseek-nvfp4.conf`) in favor of the **mainline** DeepSeek
+  lane (since 2026-09-07): official deepseek-ai fp8 checkpoint + public Anemll runtime
+  `ghcr.io/anemll/dspark-vllm-gx10:0.1.1` (manifest revision 9e165c…, SHA256SUMS-gated;
+  gate-passed 40K reference, retuned to the 256KB + DSpark + 8-stream production contract).
 
 ## Conventions
 
@@ -109,7 +109,7 @@ Key rules:
 - `comfyui` is the current Node1 Flux 2 Dev runtime. Old `comfyui-personal`/`comfyui-work`
   split is retired — do not resurrect it unless a future design explicitly requires it.
 - Scripts are LF, `#!/usr/bin/env bash`, `set -Eeuo pipefail`. No Windows CRLF.
-- `.env.example`/`tp2.env.example` are the sanitized templates; never add real keys.
+- `.env.example`/`cluster.env.example` are the sanitized templates; never add real keys.
 - Structural refactors and model/image patch work should be separate commits/PRs so regression
   ownership is obvious.
 

@@ -8,7 +8,7 @@ change that shipped alongside it.
 ## Objective
 
 Make TP2 launch data-driven before the DeepSeek-V4-Flash-0731 image work: move profile
-data out of `scripts/tp2-common.sh::set_profile()` into `cluster-profiles.d/*.conf`,
+data out of `scripts/cluster-common.sh::set_profile()` into `cluster-profiles.d/*.conf`,
 make the image **profile-scoped**, and ensure rank0/rank1 consume one authoritative argv —
 while **preserving 27B/35B effective launch behavior** as the regression controls.
 
@@ -16,24 +16,24 @@ while **preserving 27B/35B effective launch behavior** as the regression control
 
 | area | before | after |
 |---|---|---|
-| Profile data | hard-coded `set_profile()` + 2nd copy in `tp2-up` | `cluster-profiles.d/*.conf` loaded once by `tp2-common.sh` |
+| Profile data | hard-coded `set_profile()` + 2nd copy in `cluster-up` | `cluster-profiles.d/*.conf` loaded once by `cluster-common.sh` |
 | Image | cluster-global `IMG` in `tp2.env` | per-profile `IMG` (conf) wins when set |
 | Rank1 argv | hard-coded second copy | rank0 builds argv; rank1 receives shell-escaped array (no eval) |
 | DeepSeek | `runtimes.d/deepseek.conf` single-node placeholder | retired; `cluster-profiles.d/deepseek.conf` = only (cluster) placeholder |
-| sudo | `sdk()`/`tp2-down`/`tp2-status` assumed a tty password read | lazy `sudo_pass()` (reuse exported `SUDO_PASS`, else interactive-only, error w/o tty) |
+| sudo | `sdk()`/`cluster-down`/`cluster-status` assumed a tty password read | lazy `sudo_pass()` (reuse exported `SUDO_PASS`, else interactive-only, error w/o tty) |
 | inspect | n/a | `gb10 inspect <profile>` emits sanitized resolved-profile report |
 
-Behavioral change (distinct, ships in the same commit): **lazy sudo**. `tp2-common.sh`
+Behavioral change (distinct, ships in the same commit): **lazy sudo**. `cluster-common.sh`
 now exposes `sudo_pass()` (private `_sudo_pass`). If `SUDO_PASS` is already exported it is
 reused with no prompt; otherwise it only prompts on a tty and errors instead of hanging on a
-non-tty read. `sdk()`, `tp2-down`, `tp2-status` and the `tp2-up` heredoc all route through it.
+non-tty read. `sdk()`, `cluster-down`, `cluster-status` and the `cluster-up` heredoc all route through it.
 Credentials are never echoed to stdout/logs.
 
 ## Static checks (Node0, feature branch)
 
 | check | result |
 |---|---|
-| `bash -n` on `bin/gb10`, `bin/gb10-single`, `scripts/tp2-common.sh`, `tp2-up`, `tp2-down`, `tp2-status`, `tp2-smoke`, `tp2-load` | pass (8 files) |
+| `bash -n` on `bin/gb10`, `bin/gb10-single`, `scripts/cluster-common.sh`, `cluster-up`, `cluster-down`, `cluster-status`, `cluster-smoke`, `cluster-load` | pass (8 files) |
 | `gb10 list` | 27b, 35b + placeholders; no sudo prompt |
 | `gb10 inspect 27b` / `inspect 35b` | correct resolved args, **no** erroneous `(placeholder)` tag |
 | `gb10 inspect deepseek` | safe placeholder report |
@@ -101,9 +101,9 @@ bring-up (separate follow-up).
 
 ## Artifacts
 
-- Final Node0 file SHA-256s: `scripts/tp2-common.sh`=`38b6a505…`,
-  `scripts/tp2-up`=`312baed3…`, `scripts/tp2-down`=`a104c01f…`,
-  `scripts/tp2-status`=`feecdafb…`, `bin/gb10`=`7acb3ed4…`,
+- Final Node0 file SHA-256s: `scripts/cluster-common.sh`=`38b6a505…`,
+  `scripts/cluster-up`=`312baed3…`, `scripts/cluster-down`=`a104c01f…`,
+  `scripts/cluster-status`=`feecdafb…`, `bin/gb10`=`7acb3ed4…`,
   `cluster-profiles.d/27b.conf`=`0fa8d217…`, `35b.conf`=`d0915fcc…`,
   `deepseek.conf`=`1b411354…`.
-- Branch: `feature/tp2-profile-registry`.
+- Branch: `feature/cluster-profile-registry`.
