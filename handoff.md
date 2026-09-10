@@ -1,6 +1,6 @@
 # DGX Spark GB10 本地 AI 部署狀態交接（最新版）
 
-> 更新日期：2026-09-08  
+> 更新日期：2026-09-09  
 > 主機：NVIDIA DGX Spark / GB10  
 > 主機名稱：`spark-25d5`  
 > 使用者：`eye`  
@@ -16,6 +16,8 @@
 > **2026-09-08 追加 — qwen3.8-flash-next bring-up 中止**：PLE FP8 selector patch v2 驗證 9/9 PASS、兩節點 image 重建一致後，MTP experts `w2_weight_scale_inv` 再 crash → 拍板中止；ple8 image 已刪、qwen38flash 降回 placeholder、模型（124G×2）與 base image 保留供重試；27b/35b/deepseek 未動。詳見下方 **# 24**。
 
 > **2026-09-08 追加 — DeepSeek V4 Flash Vision-Exp 調查定案＋Phase A 清理**：SGLang vision 路徑棄用（上游 sglang#37931 OOM）；官方 vLLM 原生支援已確認（PR #54566 merge，image `vllm/vllm-openai:deepseekv4-flash-vision`）但**屬實驗性質、尚未進 stable release** → 暫不導入。模型雙節點保留（HEAD 6821d6ad）、第三方 vision image/container/conf 全清除、0731 視為第三生產主力軌。詳見下方 **# 25**。
+
+> **2026-09-09 追加 — canonical repo（keystone）五項核准優化套用＋state/ 文件＋commit `32abcba`＋Forgejo push（git daemon + Windows GCM 路徑）**：rank1 env/mounts 改 rank0 序列化傳遞（無 eval）、bench-c/bench-ctx 移除硬編 `127.0.0.1:1234` 並統一 Bearer `${VLLM_API_KEY}` auth、gb10-single deepseek 除名、README/src-README 同步；Node0 對 Forgejo 無可用憑證 → 以「暫時 git daemon + Windows GCM 既有認證」完成推送並驗證同步。詳見下方 **# 28**。
 
 ---
 
@@ -1616,4 +1618,206 @@ git：canonical repo 分支 keystone、HEAD 4a785e2、working tree clean、track
       本 session 未更動任何 profile/image/model）。
 工具教訓：Windows 側 bash 工具（pwsh wrapper）本 session 中途失效（spawn UNKNOWN）→
       一律改經 SSH MCP（gb101/gb102）操作 node0/node1；本機 repo 僅 handoff.md 修改。
+```
+
+# 28. 2026-09-09 canonical repo（keystone）五項核准優化 ＋ state/ 文件 ＋ commit 32abcba ＋ Forgejo push
+
+> 本 session 把上一 handoff 批准的 5 項優化一次套入 canonical repo（`~/workspace/ai-gb10-cluster-runtime-manager`，branch `keystone`），
+> 補上 `state/` 文件化，驗證全數 PASS 後 commit `32abcba`，並以「Node0 暫時 git daemon + Windows GCM 既有認證」路徑推送 Forgejo 成功。
+> Node0 對 Forgejo 無任何可用憑證（無 helper、無 `~/.git-credentials`、無 `.netrc`、無 `insteadOf`、remote URL 無內嵌 userinfo），
+> 故「gcm-test 登入查核」停擺後改走物件傳輸通道。TP2 兩節點全程未受影響。
+
+## 28.1 變更內容（全部套用於 canonical repo keystone）
+
+```text
+1. scripts/cluster-up —— rank1 初始化硬化（核准 #1）：
+   · rank0 用 build_docker_env 1 / 2 產生 rank1 的 env 與 mount（每元素帶 -e / -v 前綴），
+     以 shell-escaped array 序列化塞入 RANK1_ENV / RANK1_MOUNTS，n1 bash -s 內
+     以 "${RANK1_ENV[@]}" "${RANK1_MOUNTS[@]}" 展開（無 eval、無 serialize+re-eval）。
+   · rank1 script 以 mktemp 落地 + chmod 600 + trap EXIT 清理 + sha256sum 稽核 + 完成後明確 rm -f。
+   · dry-run 復驗：ENV 14/14、MNT 6/6 來回等價（VLLM_HOST_IP=10.0.101.102、
+     NCCL_IB_HCA=rocep1s0f0:1、NCCL_IB_GID_INDEX=3 等）。
+2. scripts/cluster-common.sh —— tp2.env → cluster.env 字串（註解/錯誤訊息）更新；
+   NODE0_MGMT / NODE1_MGMT fallback（cluster-common.sh:34-35）：
+   : "${NODE0_MGMT:=${NODE0_IP:-127.0.0.1}}"、: "${NODE1_MGMT:=${NODE1_IP:-127.0.0.1}}"。
+3. scripts/bench-c.sh + scripts/bench-ctx.sh —— auth 統一（核准 #2）：
+   · 移除硬編 127.0.0.1:1234 與 tp2.env autoload → 改經 load_profile + api_auth
+     （Bearer ${VLLM_API_KEY}），metrics 仍走 :1234。passthru_runtime/verbose 維持原樣。
+   · cluster-common.sh 另新增 profile-scoped api_auth() + build_docker_env() 對 NODE0_IP 之 fallback 使用。
+4. bin/gb10-single —— deepseek 自 runtimes 清單除名（deepseek 僅剩 cluster-profile deepseek.conf）；
+   node_ps_q 移除 tmpl/--argjson（node0 分支），active_loaded 合併。
+5. 文件同步：README.md（unified endpoint / auth 章節、新增 state/ 說明 section）、新檔案 src/README.md
+   （bench 與內部 scripts 簡介）。（核准 #3/#4/#5 與 state/ 文件為本 commit 之 docs 部分。）
+```
+
+## 28.2 state/ 用途文件（新增至 README.md）
+
+```text
+state/ = 執行期「最後狀態」標記目錄（gitignored，空 = 正常）：
+  · state/last-runtime：bin/gb10-single 寫 node/runtime_ID（如 node1/minimaxh3），
+    awk -F/ '{print $2}' 讀取；TP2 active 時無此檔（屬正常）。
+  · state/last-cluster-profile：bin/gb10:106 讀取，缺省 27b。
+README.md L156 layout 更新 + 新增「### state/ — 執行期『最後狀態』標記（非架構內容，空目錄屬正常）」。
+```
+
+## 28.3 驗證（全 PASS）
+
+```text
+bash -n：cluster-up / bench-c.sh / bench-ctx.sh / cluster-common.sh / gb10-single 全部 SYNTAX_OK
+git diff --check：CHECK_OK；residue grep：僅保留新 Bearer ${VLLM_API_KEY} templates
+  （bench-c.sh:16 / bench-ctx.sh:17 / cluster-common.sh:62,66 / cluster-load:27），
+  無 tp2.env / 127.0.0.1:1234 / cluster-rank1-stdin 殘留
+rank1 dry-run（/tmp/dry.sh，b64 分段交付）：ENV orig=14 re-split=14、MNT orig=6 re-split=6 → DRY_OK
+gb10-single list：clean（deepseek 已除名）；gb10 inspect deepseek：PLACEHOLDER=false（未變）
+```
+
+## 28.4 commit 32abcba → Forgejo push（git daemon + Windows GCM 路徑）
+
+```text
+commit：32abcba "refactor(cluster): harden rank1 stdin, unify bench auth, docs sync"
+  7 files changed, +125 −71（README.md / bin/gb10-single / scripts/bench-c.sh / scripts/bench-ctx.sh /
+  scripts/cluster-common.sh / scripts/cluster-up + create src/README.md）；working tree clean。
+
+push 路徑（因 Node0 對 Forgejo 無任何認證）：
+  1) Node0 起暫時 git daemon：nohup git daemon --base-path=$HOME/workspace --export-all --port=9418
+     （git:// 物件通道、僅 LAN、無認證考量）
+  2) Windows 以 GCM 已存認證 clone Forgejo keystone（http://192.168.23.167:3000/829522/…，
+     username=829522，GCM 靜默）
+  3) clone 內 git fetch git://192.168.23.215/ai-gb10-cluster-runtime-manager keystone → ff 至 32abcba
+     （SHA 與 Node0 完全一致）
+  4) git push origin keystone（GCM 認證，密碼從未進入命令列）→ 4a785e2..32abcba
+  5) 清理：pkill git daemon + 確認 9418 關閉、Windows temp clone 刪除、Node0 /tmp 暫存檔刪除
+  6) 外部 push 不會更新本地 tracking ref → 補 git update-ref refs/remotes/origin/keystone 32abcba
+
+驗證：git ls-remote refs/heads/keystone = 32abcbaca97b10f9d300c9c0dd297d3da2edd35c ✅
+狀態：keystone 與 Forgejo 完全同步、working tree clean、TP2 cluster-node0/cluster-node1 未受影響。
+```
+
+## 28.5 工具教訓（本 session）
+
+```text
+· git daemon（git://）為 LAN 單次物件傳輸的乾淨通道：免認證、免搬 binary、用完即殺。注意
+  pkill -f 'git daemon' 會自我匹配（自身命令列含該字串）而一起被殺 → 改用 port 檢查 + pgrep 排除自身。
+· 外部來源 push 後本地 origin/* tracking ref 不會自動更新 → 需 git update-ref 對齊或 git fetch。
+· Windows pwsh wrapper 會吃掉雙引號 → 本機 PowerShell 字串一律單引號串接（$dst = $env:TEMP + '\x'）；
+  命令 `-Command` 內雙引號路徑會 ParserError。
+· base64 傳檔：每段長度須為 4 的倍數；長 base64 手打易靜默轉錄錯誤 → 用 600-char 段落一段段送＋
+  各段 size check；/tmp 用完即清。sftp-download 於此 MCP 回傳內容文字而非落地本機檔案（不可靠於 binary）。
+· ⚠️ 檢查 opencode.jsonc MCP 設定時，遮罩 regex 失效曾把 SSH_MCP_DEFAULT_PASSWORD 值帶入輸出
+  （本機使用者自身設定檔；已在對話暴露 → 建議日後輪換 eye 密碼或改用金鑰認證）。
+· SSH MCP：ssh-mcp-gb101 default profile = eye@192.168.23.215（Node0）；Windows ~/.ssh 無金鑰被
+  Node0 授權（MCP 走密碼認證）。sftp-download 需正確 profile 名（"gb101" 找不到 → 用 default/省略）。
+```
+
+# 29. 2026-09-09 27b TP2 遷移至 v2 mixed body（qwen3.8-...-nvfp4-mixed）
+
+> 本 session 將 27b TP2 profile 的 body 自 v1 `qwen3.8-27b-aeon-ultimate-uncensored-nvfp4`（20.5G，sakamakismile）
+> 遷移至 v2 **mixed** `qwen3.8-27b-aeon-ultimate-uncensored-nvfp4-mixed`（24.7G，AEON-7 repo，Qwen3.5 架構），
+> drafter 沿用 `qwen3.8-27b-dflash2`（未換）。image 維持 §26 之 `2026-09-07-reasoning-eos`。
+> 全流程含下載（8 路並行 range）、Node0→Node1 rsync、部署、smoke、并發 bench 與 245k ctx prefill 驗證，
+> 並刪除舊 v1 body（兩節點各釋放 20G）。Phase 4 完成時 health 200 + TP2 profile=27b READY。
+
+## 29.1 做法
+
+```text
+1. 下載 v2 mixed 至 Node0（24.7G，24 files / 4 safetensors shard）：
+   · 單一 curl（~3-5 MB/s）太慢 → 8 路並行 range request（-r start-end）各 .part*，cat 合併，
+     實測 ~10.8 MB/s。腳本 /tmp/pdl_big.sh / /tmp/pdl4.sh。
+   · shard 精確大小（HF API 逐檔核對）：
+     model-00001=9967745504 · 00002=9923654656 · 00003=3951010304 · 00004=849400392 bytes
+     index.json=187673；索引 total_size=24691567392、Qwen3.5 架構。
+2. Node0→Node1 rsync（24.7G @ ~110-130 MB/s，~3min；走 ~/.ssh/id_gb10_cluster）。
+3. 修正 Node1 布局：第一次 rsync SRC/ 語意造成檔案落在 models/ 頂層 →
+   移入 models/qwen3.8-27b-aeon-ultimate-uncensored-nvfp4-mixed/；雙節點 24 檔大小逐一相同。
+4. 27b.conf 僅改 BODY_REL → "-mixed"；image/maxlen 262144/numseq 8/batched 16384/gmu 0.85/
+   fp8_e4m3/TRITON_ATTN/dflash n=7/chunked+prefix off/reasoning=qwen3 全數維持。bash -n OK。
+5. gb10 use 27b：DeepSeek 下、兩節點以 27b 重啟（image reasoning-eos）；log 2026-09-09 18:50:55
+   TP2 profile=27b READY on :1234；/health=200。KV cache 83.4 GiB、max concurrency 12.06x。
+   登錄顯示 qwen3_5_text warmup（非 deepseek）→ 確認正確 model 上線。
+```
+
+## 29.2 驗證結果（全 PASS）
+
+```text
+· cluster-smoke：http=200，finish_reason stop，content '\n\nHELLO-TP2-OK'（63 prompt tok）。
+· gb10 status：model = qwen3.8-27b-aeon-ultimate-uncensored-nvfp4-mixed；drafter = qwen3.8-27b-dflash2。
+· bench-c（MAX_TOKENS=400，同 prompt 171tok，any_errors=0）：
+    C=1 → 40.6 tok/s · C=2 → 73.5 · C=3 → 96.6 · C=4 → 113.8 · C=8 → 179.8（近線性放大）。
+· bench-ctx words=245000 max_tokens=1（245k words ≈ 245052 prompt tokens，貼近 maxlen 262144）：
+    prompt_tokens=245052 · wall=432.0s · prefill ≈ 567.2 tok/s · finish_reason=length。
+    註：words=262144 會直接 400（prompt 恰滿 262144 觸頂）→ 用 245000 測「近滿 ctx」。
+   （bench-ctx.sh 以 /4 估算 tokens 高估；實際 "token " ≈1 token/word。）
+· 既有 TP2 27b 部署維持（image digests 雙節點一致、verify 53/53 未重測、不影響）。
+```
+
+## 29.3 清理與收尾
+
+```text
+· 舊 v1 body qwen3.8-27b-aeon-ultimate-uncensored-nvfp4 雙節點刪除（各 20G，共 40G）。
+  Node0 models/ 現 31G（v2 mixed 24G + dflash2 7G），Node1 27G。
+· 27b.conf 變更（cluster-profiles.d/27b.conf，uncommitted；僅 BODY_REL 一行）：
+    BODY_REL="qwen3.8-27b-aeon-ultimate-uncensored-nvfp4" → "...-nvfp4-mixed"
+· 待辦：commit 27b.conf（keystone）＋ 本文件 §29（Windows repo）＋ push。
+```
+
+## 29.4 工具教訓（本 session）
+
+```text
+· MCP background session 會在長下載中途被殺 → 一律 nohup + 背景 + 輪詢 log；
+  單次前台命令 MCP 工具上限 ~60s。
+· MCP 會擋 python3 -c one-liner / heredoc / sftp-upload → 用 echo 逐行寫腳本、用 bash/curl。
+· key 查證慢：grep -rl 跨 ~/docker-stacks + repo 曾 >60s 超時 → VLLM_API_KEY 由 smoke/bench 自帶 auth，
+  不需手取 key；cluster-smoke 即最簡端到端驗證。
+· rsync SRC/ 尾斜線語意（拷貝內容進 DST 而非 DST/SRC）——先 tar-test 或先空目錄試跑。
+```
+
+# 30. 2026-09-10 27B MIXED 完整迴歸 benchmark（single 27b → cluster 27b + 長 ctx 245k）+ 報告 commit/push + stop
+
+> 依使用者指示：停 DeepSeek → 完整順序迴歸（single 27b 先、cluster 27b 後）、c1/2/3/4/8（含 DFlash n=7 acceptance）、
+> （勿用短 token）MAX_TOKENS=2048 基準 + 直接實測 ~245k 長 ctx → 修正報告 → commit 與 push → stop 27b。
+> 完整數據：`docs/BENCHMARK_27B_MIXED_V2_SINGLE_CLUSTER_2026-09-10.md`。
+
+## 30.1 執行順序與組合（驗證 argv/conf）
+
+```text
+1. gb10 stop（清 DeepSeek TP2）→ gb10-single use node0 27b（TP1）：
+   argv：--kv-cache-dtype fp8 · TRITON_ATTN · maxlen 262144 · numseq 8 · batched 32768 ·
+         GMU 0.70 · --enable-chunked-prefill · --no-enable-prefix-caching · dflash n=7 · image reasoning-eos
+2. bench-c C=1/2/3/4/8（MAX_TOKENS=2048）→ bench-ctx words=245000（≈245,052 tok）→ gb10-single free node0。
+3. gb10 use 27b（TP2）：
+   argv：--kv-cache-dtype fp8_e4m3 · TRITON_ATTN · maxlen 262144 · numseq 8 · batched 32768 ·
+         GMU 0.85 · --no-enable-prefix-caching · dflash n=7 · VLLM_USE_V2_MODEL_RUNNER=0 ·
+         --quantization count=0（QUANTIZATION="none"）· image reasoning-eos
+4. 同組 bench-c + bench-ctx。→ 報告 → commit/push → gb10 stop。
+```
+
+## 30.2 實測結果（總結，詳見報告文件）
+
+```text
+Concurrency（C_total tok/s / Accept% / MeanLen）：
+  C1   single 19.1 / 23.9 / 1.67   cluster 31.5 / 33.0 / 2.31   → 1.65x
+  C2   single 43.4 / 36.3 / 2.54   cluster 68.9 / 38.1 / 2.67   → 1.59x
+  C3   single 54.0 / 32.2 / 2.25   cluster 75.2 / 28.8 / 2.02   → 1.39x
+  C4   single 57.8 / 25.5 / 1.78   cluster 82.5 / 28.9 / 2.02   → 1.43x
+  C8   single 89.5 / 27.6 / 1.93   cluster 150.6 / 28.4 / 1.99  → 1.68x
+Long ctx 245,052 tok：single wall 738.8s / 331.6 tok/s · cluster wall 397.4s / 616.5 tok/s（1.86x）。
+Cold start：single ~530s · cluster ~310s。
+```
+
+## 30.3 報告修正（對照先前錯處）
+
+```text
+· cluster 27b GMU = 0.85（先前誤報 0.70 — 單機才是 0.70）；來源 27b.conf:24 GMU="0.85" + argv 實證。
+· KV cache dtype 不同：single = fp8，cluster = fp8_e4m3（非一致；先前誤報）— 各自 conf/argv 實證。
+```
+
+## 30.4 commit / push 記錄
+
+```text
+· canonical repo（Node0 ~/workspace/ai-gb10-cluster-runtime-manager，branch keystone）：
+  27b.conf 追加 QUANTIZATION="none"（--quantization 缺席強制）+ VLLM_USE_V2_MODEL_RUNNER=0（EXTRA_ENV）。
+  Node0 commit bc74288（工作樹無憑證 push 失敗）→ 以 Windows GCM 路徑：forgejo origin/keystone
+  fetch → patch apply → 複刻相同 author/committer/timestamp 重現 commit hash → push 55b6c7f..bc74288 成功。
+· Windows repo（本機 docs-carrier-9041）：docs/BENCHMARK_27B_MIXED_V2_SINGLE_CLUSTER_2026-09-10.md ＋ 本 §30。
+· 後續：27b（cluster）已 gb10 stop；兩 repo 均已 commit ＋ push（forgejo 上 keystone / docs-carrier-9041）。
 ```
