@@ -26,8 +26,8 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   and loaded by `scripts/cluster-common.sh` (`load_profile`/`build_vllm_args`/`build_docker_env`).
   27b = body `qwen3.8-27b-aeon-ultimate-uncensored-nvfp4` + drafter `qwen3.8-27b-dflash2`
   (dflash n=7, maxlen 262144, GMU 0.85, num_seqs 8, API :1234); 35b = body
-  `qwen3.6-35b-a3b-heretic-nvfp4` + drafter `qwen3.6-35b-a3b-dflash` (n=11, maxlen
-  131072, GMU 0.80, num_seqs 16). Both on `:1234` through Node0. Do NOT re-hard-code
+  `qwen3.6-35b-a3b-heretic-nvfp4` + drafter `qwen3.6-35b-a3b-dflash` (n=6, maxlen
+  262144, GMU 0.80, num_seqs 8). Both on `:1234` through Node0. Do NOT re-hard-code
   profile data in `cluster-*` scripts — the registry is the only authoritative set.
 - **Unified LLM endpoint**: all LLM runtimes (TP2 + single, node0 & node1) serve the
   OpenAI API on **port 1234** sharing one `VLLM_API_KEY`. Set the same key in
@@ -77,7 +77,7 @@ The TP2 profile layer is **data-driven** (see `docs/TP2_PROFILE_REFACTOR_VALIDAT
 ```text
 cluster-profiles.d/
   27b.conf          # deployed + live-validated (world_size=2, maxlen 262144)
-  35b.conf          # deployed + live-validated (world_size=2, maxlen 131072)
+  35b.conf          # deployed + live-validated (world_size=2, maxlen 262144)
   deepseek.conf     # mainline (onboarded 2026-09-07; dspark-vllm-gx10:0.1.1, pool weights)
 ```
 

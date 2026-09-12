@@ -12,3 +12,7 @@ state/boot-single.*.pid
 # Logs / transient
 *.log
 /tmp/
+
+# Profile/config backups (pre-upgrade snapshots) - never commit
+cluster-profiles.d/*.bak-*
+runtimes.d/*.bak-*

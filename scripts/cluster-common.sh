@@ -118,7 +118,7 @@ load_profile(){
         SPEC_METHOD SPEC_ATTN_BACKEND NSPEC GRAPH_MODE \
         REASONING_PARSER TOOL_CALL_PARSER ENABLE_AUTO_TOOL_CHOICE \
         ENABLE_CHUNKED_PREFILL ENABLE_PREFIX_CACHING \
-        QUANTIZATION SPEC_CONFIG CUDAGRAPH_CAPTURE \
+        QUANTIZATION SPEC_CONFIG PASS_CONFIG CUDAGRAPH_CAPTURE \
         EXTRA_ARGS EXTRA_ENV EXTRA_MOUNTS \
         DISABLE_CUSTOM_ALL_REDUCE SHM_SIZE ENGINE MODEL_ID TP_SIZE NNODES MEM_FRACTION_STATIC CHUNKED_PREFILL_SIZE CUDA_GRAPH_MAX_BS_DECODE MAX_RUNNING_REQUESTS MOE_RUNNER_BACKEND SPEC_MOE_RUNNER_BACKEND SPEC_ALGORITHM DISABLE_SHARED_EXPERTS_FUSION API_HOST MODELS_BASE 2>/dev/null || true
   # shellcheck disable=SC1090
@@ -201,7 +201,13 @@ build_vllm_args(){
   [[ "${ENABLE_CHUNKED_PREFILL:-true}" == "true" ]] && VLLM_ARGS+=(--enable-chunked-prefill)
   [[ "${ENABLE_PREFIX_CACHING:-false}" == "true" ]] && VLLM_ARGS+=(--enable-prefix-caching) \
     || VLLM_ARGS+=(--no-enable-prefix-caching)
-  VLLM_ARGS+=(--compilation-config "{\"cudagraph_mode\":\"${GRAPH_MODE:-FULL_AND_PIECEWISE}\"}")
+  # Compilation config: base template + optional profile-owned PASS_CONFIG
+  # (raw JSON) merged as the "pass_config" value (0.29 B0 recipe).
+  if [[ -n "${PASS_CONFIG:-}" ]]; then
+    VLLM_ARGS+=(--compilation-config "{\"cudagraph_mode\":\"${GRAPH_MODE:-FULL_AND_PIECEWISE}\",\"pass_config\":${PASS_CONFIG}}")
+  else
+    VLLM_ARGS+=(--compilation-config "{\"cudagraph_mode\":\"${GRAPH_MODE:-FULL_AND_PIECEWISE}\"}")
+  fi
   [[ -n "${CUDAGRAPH_CAPTURE:-}" ]] \
     && VLLM_ARGS+=(--max-cudagraph-capture-size "${CUDAGRAPH_CAPTURE}")
   # Speculative decode: a profile-owned raw SPEC_CONFIG JSON wins over the
