@@ -34,7 +34,7 @@ fi
 : "${NODE0_MGMT:=${NODE0_IP:-127.0.0.1}}"
 : "${NODE1_MGMT:=${NODE1_IP:-127.0.0.1}}"
 # Cluster-global default image (fallback; a cluster profile may override).
-: "${IMG:=ghcr.io/aeon-7/aeon-vllm-ultimate:2026-08-24-v0.27.1-omni}"
+: "${IMG:=ghcr.io/aeon-7/aeon-vllm-ultimate:2026-09-11-v0.29.0-omni}"
 
 # ---- SUDO_PASS: prefer env, else prompt on first docker use (lazy) ----
 # Lazy so read-only/registry commands (gb10 list|inspect|help, profiles)

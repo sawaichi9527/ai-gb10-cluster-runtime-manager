@@ -22,6 +22,7 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   portable and do NOT need the repo to live at a fixed path. Keep it that way.
 - **Compose = source of truth; CLI = convenience layer.** Day-to-day ops go through
   `gb10`/`gb10-single`; compose files under `~/docker-stacks/` are the deploy contract.
+- **Unified AEON stack dir (2026-09-13)**: since 27b and 35b both run the v0.29.0-omni image, their composes/models/patches live under one dir `~/docker-stacks/aeon-vllm-omni/` (`docker-compose.27b.yml` + `docker-compose.35b.yml` + `models/` + `*_029_patched.py`). `aeon-vllm-reasoning-eos/` is retired.
 - **Cluster profiles are data-driven** (verified 2026-09-05) from `cluster-profiles.d/`
   and loaded by `scripts/cluster-common.sh` (`load_profile`/`build_vllm_args`/`build_docker_env`).
   27b = body `qwen3.8-27b-aeon-ultimate-uncensored-nvfp4` + drafter `qwen3.8-27b-dflash2`

@@ -259,7 +259,7 @@ case "${1:-help}" in
     echo "Node0: $(hostname)"
     docker version --format 'node0 docker {{.Server.Version}}' 2>/dev/null || echo "node0 docker: unavailable (sudo?)"
     echo "Node data dirs:"
-    ls -d "$HOME"/docker-stacks/{aeon-vllm-reasoning-eos,aeon-vllm-omni,models}/models/*/ 2>/dev/null || true
+    ls -d "$HOME"/docker-stacks/{aeon-vllm-omni,models}/models/*/ 2>/dev/null || true
     ;;
   help|-h|--help) usage ;;
   *) usage; exit 2 ;;
