@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+# =====================================================================
+# gb10-single-boot — background boot job for bin/gb10-single use/start.
+#
+# Runs the full ensure_tp2_down -> stop_group_except -> compose up ->
+# wait_ready sequence in the background.  Called via setsid nohup from
+# bin/gb10-single (not directly).
+#
+# Arguments: <node> <runtime>
+#   node:    node0 | node1
+#   runtime: runtime id (e.g. 27b, comfyui)
+#
+# State files (all in ${REPO_DIR}/state/, gitignored):
+#   boot-single.<NODE>.<RUNTIME>.pid  — running PID (removed on exit)
+#   boot-ready.<NODE>.<RUNTIME>       — written on READY
+# =====================================================================
+set -Eeuo pipefail
+
+NODE="${1:?usage: gb10-single-boot <node> <runtime>}"
+RUNTIME="${2:?usage: gb10-single-boot <node> <runtime>}"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REG="${REPO_DIR}/runtimes.d"
+STATE="${REPO_DIR}/state"
+
+PID_FILE="${STATE}/boot-single.${NODE}.${RUNTIME}.pid"
+READY_FILE="${STATE}/boot-ready.${NODE}.${RUNTIME}"
+
+cleanup(){ rm -f "${PID_FILE}"; }
+trap cleanup EXIT
+
+mkdir -p "${STATE}"
+echo "${$}" > "${PID_FILE}"
+rm -f "${READY_FILE}"
+
+echo "$(date '+%F %T') [boot-single] background boot started: ${NODE}/${RUNTIME}"
+
+# --- resolve runtime conf ---
+RUNTIME_CONF=""
+for f in "${REG}"/*.conf; do
+  [[ -f "$f" ]] || continue
+  _id="$(basename "$f" .conf)"
+  [[ "$_id" == "$RUNTIME" ]] && { RUNTIME_CONF="$f"; break; }
+done
+[[ -n "$RUNTIME_CONF" ]] || { echo "ERROR: unknown runtime: $RUNTIME" >&2; exit 1; }
+
+# --- source the runtime conf ---
+# shellcheck disable=SC1090
+source "${RUNTIME_CONF}"
+: "${RUNTIME_ID:?}"
+: "${MODE:=exclusive}"
+: "${PLACEHOLDER:=false}"
+: "${STACK_DIR:=}"
+: "${COMPOSE_FILE:=}"
+: "${PROJECT:=}"
+: "${SERVICE:=}"
+: "${CONTAINER:=}"
+: "${HEALTH_URL:=}"
+: "${TIMEOUT:=1800}"
+: "${ENV_FILE:=}"
+: "${IDENTITY_MOUNT:=}"
+if [[ -n "$COMPOSE_FILE" && "${COMPOSE_FILE:0:1}" != "/" ]]; then
+  COMPOSE_FILE="${STACK_DIR}/${COMPOSE_FILE}"
+fi
+
+if [[ "$PLACEHOLDER" == "true" ]]; then
+  echo "${RUNTIME_ID}: placeholder (not deployed yet)." | tee "${READY_FILE}"
+  exit 0
+fi
+
+# --- SSH helper for node1 ---
+NODE1_IP="${NODE1_IP:-10.0.101.102}"
+NODE1_SSH_USER="${NODE1_SSH_USER:-eye}"
+NODE1_SSH_KEY="${NODE1_SSH_KEY:-$HOME/.ssh/id_gb10_cluster}"
+
+n1_remote(){
+  ssh -o BatchMode=yes -o StrictHostKeyChecking=no -i "${NODE1_SSH_KEY}" "${NODE1_SSH_USER}@${NODE1_IP}" "$@"
+}
+
+node_is_remote(){ [[ "$1" == "node1" ]]; }
+
+# --- compose helpers ---
+compose_run(){
+  local node="$1"; shift
+  if [[ "$node" == "node0" ]]; then
+    (cd "$STACK_DIR" && docker compose -p "$PROJECT" -f "$COMPOSE_FILE" ${ENV_FILE:+--env-file "$ENV_FILE"} "$@")
+  else
+    n1_remote "cd '$STACK_DIR' && docker compose -p '$PROJECT' -f '$COMPOSE_FILE' ${ENV_FILE:+--env-file '$ENV_FILE'} $(printf '%q ' "$@")"
+  fi
+}
+
+inspect_state(){
+  local node="$1" cname="$2"
+  if [[ "$node" == "node0" ]]; then
+    docker inspect -f '{{.State.Status}}' "$cname" 2>/dev/null || echo inactive
+  else
+    n1_remote "docker inspect -f '{{.State.Status}}' '$cname' 2>/dev/null" || echo inactive
+  fi
+}
+
+# --- ensure_tp2_down: tear down TP2 if it's running ---
+TP2_ACTIVE=false
+if docker ps -q -f name=cluster-node0 2>/dev/null | grep -q .; then
+  TP2_ACTIVE=true
+fi
+if [[ "$TP2_ACTIVE" == "true" ]]; then
+  echo "$(date '+%F %T') [boot-single] TP2 cluster running; tearing it down..."
+  "${REPO_DIR}/scripts/cluster-down"
+fi
+
+# --- stop other exclusive runtimes on the node ---
+for _f in "${REG}"/*.conf; do
+  [[ -f "$_f" ]] || continue
+  _id="$(basename "$_f" .conf)"
+  [[ "$_id" == "$RUNTIME" ]] && continue
+  # shellcheck disable=SC1090
+  ( source "$_f"
+    [[ "${PLACEHOLDER:-false}" == true ]] && exit 0
+    [[ "${MODE:-exclusive}" == "exclusive" ]] || exit 0
+    _state="$(inspect_state "$NODE" "$CONTAINER")"
+    [[ "$_state" != "running" ]] && exit 0
+    echo "$(date '+%F %T') [boot-single] stopping ${RUNTIME_ID} on ${NODE}..."
+    compose_run "$NODE" down 2>/dev/null || true
+  )
+done
+
+# --- start: compose up ---
+echo "$(date '+%F %T') [boot-single] starting ${RUNTIME_ID} on ${NODE}..."
+compose_run "$NODE" up -d
+
+# --- wait for health ---
+if [[ -n "$HEALTH_URL" ]]; then
+  echo "Waiting for ${RUNTIME_ID} on ${NODE}..."
+  _begin=$SECONDS
+  while ((SECONDS - _begin < TIMEOUT)); do
+    if [[ "$NODE" == "node0" ]]; then
+      if curl -fsS --connect-timeout 2 --max-time 5 "$HEALTH_URL" >/dev/null 2>&1; then
+        echo "$(date '+%F %T') ${RUNTIME_ID}: READY"
+        break
+      fi
+      _st="$(docker inspect -f 'status={{.State.Status}} restart={{.RestartCount}}' "$CONTAINER" 2>/dev/null || echo missing)"
+    else
+      if n1_remote "curl -fsS -m 5 '$HEALTH_URL' >/dev/null 2>&1"; then
+        echo "$(date '+%F %T') ${RUNTIME_ID}: READY"
+        break
+      fi
+      _st="$(n1_remote "docker inspect -f 'status={{.State.Status}} restart={{.RestartCount}}' '$CONTAINER' 2>/dev/null" || echo missing)"
+    fi
+    if ((SECONDS - _begin >= TIMEOUT)); then
+      echo "$(date '+%F %T') ${RUNTIME_ID}: loading... ${_st} (TIMEOUT)"
+      echo "ERROR: ${RUNTIME_ID} health timeout (${TIMEOUT}s)" >&2
+      exit 1
+    fi
+    echo "$(date '+%F %T') ${RUNTIME_ID}: loading... ${_st}"
+    [[ "$_st" == status=running* ]] || {
+      echo "ERROR: ${RUNTIME_ID} container not running: ${_st}" >&2
+      exit 1
+    }
+    sleep 10
+  done
+fi
+
+# --- mark ready ---
+echo "$(date '+%F %T') [boot-single] ${NODE}/${RUNTIME_ID} READY" | tee "${READY_FILE}"
+
+echo "$(date '+%F %T') [boot-single] boot complete: ${NODE}/${RUNTIME_ID}"

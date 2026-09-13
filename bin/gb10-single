@@ -1,0 +1,568 @@
+#!/usr/bin/env bash
+# =====================================================================
+# gb10-single — DGX Spark GB10 single-node runtime manager.
+#
+# Manages independent / add-on runtimes via docker compose on either
+# node. Node0 runs locally; node1 is reached over ssh (same key as the
+# TP2 cluster). Definitions live in ../runtimes.d/*.conf.
+#
+#   gb10-single list
+#   gb10-single use {node0|node1} <runtime>       # exclusive switch (background)
+#   gb10-single start {node0|node1} <runtime>     # start add-on/exclusive (background)
+#   gb10-single stop  {node0|node1} [runtime]     # stop (kills background boot if active)
+#   gb10-single restart {node0|node1} <runtime>   # stop then background up
+#   gb10-single wait {node0|node1} <runtime>      # foreground wait for background boot
+#   gb10-single free {node0|node1}            # stop ALL active runtimes on a node
+#   gb10-single status [node]
+#   gb10-single logs {node0|node1} [runtime]
+#   gb10-single doctor
+#
+# Runtimes: 27b, 35b, comfyui, minimaxh3 (deployed) ; qwen38flash,
+# glm53flash (placeholders - not deployed yet).
+# =====================================================================
+set -Eeuo pipefail
+
+SELF="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(cd "$(dirname "${SELF}")" && pwd)"
+REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REG="${REPO_DIR}/runtimes.d"
+STATE="${REPO_DIR}/state"
+mkdir -p "${STATE}"
+
+die(){ echo "ERROR: $*" >&2; exit 1; }
+
+usage(){
+cat <<'HELP'
+gb10-single - DGX Spark GB10 single-node runtime manager
+
+  gb10-single list
+  gb10-single use {node0|node1} <runtime>      # exclusive switch
+  gb10-single start {node0|node1} <runtime>    # start add-on/exclusive
+  gb10-single stop {node0|node1} [runtime]     # stop (kills background boot)
+  gb10-single restart {node0|node1} <runtime>  # stop then background up
+  gb10-single wait {node0|node1} <runtime>     # foreground wait for boot
+  gb10-single free {node0|node1}               # stop ALL active runtimes on a node
+  gb10-single status [node0|node1]
+  gb10-single logs {node0|node1} <runtime>
+  gb10-single doctor
+
+Runtimes (runtimes.d/*.conf):
+  27b 35b comfyui minimaxh3   deployed
+  qwen38flash glm53flash   placeholder (not deployed)
+
+Boot is backgrounded by default: `use/start` returns immediately,
+boot continues in the background.  Poll with `gb10-single status`,
+or foreground-wait with `gb10-single wait <node> <runtime>`.
+
+Auto-protection: `use/start node0|node1 <runtime>` auto-tears down
+an active TP2 cluster first (TP2 occupies both nodes' GPUs and shares port
+1234 with the single-node LLMs on node0).
+HELP
+}
+
+profiles(){
+  shopt -s nullglob
+  local p=("${REG}"/*.conf)
+  shopt -u nullglob
+  ((${#p[@]})) && printf '%s\n' "${p[@]}" | sort
+}
+
+load(){
+  unset RUNTIME_ID DISPLAY_NAME ALIASES MODE GROUP PLACEHOLDER
+  unset STACK_DIR COMPOSE_FILE PROJECT SERVICE CONTAINER
+  unset IDENTITY_MOUNT HEALTH_URL TIMEOUT ENV_FILE
+  # shellcheck disable=SC1090
+  source "$1"
+  : "${RUNTIME_ID:?}"
+  : "${DISPLAY_NAME:=$RUNTIME_ID}"
+  : "${ALIASES:=}"
+  : "${MODE:=exclusive}"
+  : "${GROUP:=default}"
+  : "${PLACEHOLDER:=false}"
+  : "${STACK_DIR:=}"
+  : "${COMPOSE_FILE:=}"
+  : "${PROJECT:=}"
+  : "${SERVICE:=}"
+  : "${CONTAINER:=}"
+  : "${IDENTITY_MOUNT:=}"
+  : "${HEALTH_URL:=}"
+  : "${TIMEOUT:=1800}"
+  : "${ENV_FILE:=}"
+  if [[ -n "$COMPOSE_FILE" && "${COMPOSE_FILE:0:1}" != "/" ]]; then
+    COMPOSE_FILE="${STACK_DIR}/${COMPOSE_FILE}"
+  fi
+}
+
+resolve(){
+  local q="$1" f a found=""
+  while read -r f; do
+    [[ -n "$f" ]] || continue
+    load "$f"
+    if [[ "$q" == "$RUNTIME_ID" ]]; then
+      found="$f"
+    else
+      for a in $ALIASES; do [[ "$q" == "$a" ]] && found="$f"; done
+    fi
+  done < <(profiles)
+  [[ -n "$found" ]] || die "unknown runtime: $q"
+  [[ -f "$found" ]] || die "runtime conf missing: $found"
+  echo "$found"
+}
+
+# --- background boot helpers ---
+_pid_file(){ echo "${STATE}/boot-single.${1}.${2}.pid"; }
+_ready_file(){ echo "${STATE}/boot-ready.${1}.${2}"; }
+
+_boot_alive(){
+  local pf; pf="$(_pid_file "$1" "$2")"
+  [[ -f "$pf" ]] || return 1
+  local pid; pid="$(cat "$pf")"
+  kill -0 "$pid" 2>/dev/null
+}
+
+_kill_boot(){
+  local pf pid
+  for pf in "${STATE}"/boot-single.*.pid; do
+    [[ -f "$pf" ]] || continue
+    pid="$(cat "$pf")"
+    if kill -0 "$pid" 2>/dev/null; then
+      echo "Stopping background boot (PID ${pid})..."
+      kill "$pid" 2>/dev/null || true
+      local i
+      for i in $(seq 1 10); do
+        kill -0 "$pid" 2>/dev/null || break
+        sleep 0.5
+      done
+      kill -9 "$pid" 2>/dev/null || true
+      rm -f "$pf"
+    else
+      rm -f "$pf"
+    fi
+  done
+}
+
+# ---- node plumbing: local vs ssh ----
+node_is_remote(){ [[ "$1" == "node1" ]]; }
+node_is_valid(){ [[ "$1" == "node0" || "$1" == "node1" ]]; }
+
+# Node1 ssh target (interconnect; same key/user as TP2 cluster)
+NODE1_IP="${NODE1_IP:-10.0.101.102}"; NODE1_SSH_USER="${NODE1_SSH_USER:-eye}"
+NODE1_SSH_KEY="${NODE1_SSH_KEY:-$HOME/.ssh/id_gb10_cluster}"
+
+n1(){ # run a command on node1; n1 bash -s <<EOF ... EOF
+  local sshcmd=(ssh -o BatchMode=yes -o StrictHostKeyChecking=no -i "${NODE1_SSH_KEY}" "${NODE1_SSH_USER}@${NODE1_IP}")
+  "${sshcmd[@]}" "$@" </dev/null
+}
+
+# run <node> <bash-script-via-stdin>
+run_node(){
+  local node="$1"; shift
+  if [[ "$node" == "node0" ]]; then
+    bash -s "$@"
+  else
+    n1 bash -s "$@"
+  fi
+}
+
+# fetch per-node values we need inside the remote script
+node_dc(){
+  local node="$1"; shift
+  local f="$STACK_FILE"
+  if [[ "$node" == "node0" ]]; then
+    docker "$@"
+  else
+    n1 docker "$@"
+  fi
+}
+
+# ---- compose helpers ----
+# compose on a node: compose_node <node> <compose-args>
+compose_node(){
+  local node="$1"; shift
+  if [[ "$node" == "node0" ]]; then
+    (cd "$STACK_DIR" && docker compose -p "$PROJECT" -f "$COMPOSE_FILE" ${ENV_FILE:+--env-file "$ENV_FILE"} "$@")
+  else
+    n1 "cd '$STACK_DIR' && docker compose -p '$PROJECT' -f '$COMPOSE_FILE' ${ENV_FILE:+--env-file '$ENV_FILE'} $(printf '%q ' "$@")"
+  fi
+}
+
+expected_mount(){
+  [[ -n "$IDENTITY_MOUNT" ]] || return
+  compose_node "$NODE" config --format json 2>/dev/null |
+    jq -r --arg s "$SERVICE" --arg t "$IDENTITY_MOUNT" \
+    '.services[$s].volumes[]? | select(.target==$t) | .source' | head -n1
+}
+
+actual_mount(){
+  [[ -n "$IDENTITY_MOUNT" ]] || return
+  node_ps_q "$NODE" "$CONTAINER" 2>/dev/null |
+    jq -r --arg t "$IDENTITY_MOUNT" \
+    '.. | objects | select(has("Destination")) | select(.Destination==$t) | .Source' | head -n1
+}
+
+inspect_q(){
+  local node="$1" cname="$2" tmpl="$3"
+  if [[ "$node" == "node0" ]]; then
+    docker inspect -f "$tmpl" "$cname" 2>/dev/null || echo ""
+  else
+    # {{ }} go-template quoting is lost over ssh; use jq instead.
+    local jqf
+    case "$tmpl" in
+      '{{.State.Status}}') jqf='.[0].State.Status' ;;
+      '{{index .Config.Labels "com.docker.compose.project"}}') jqf='.[0].Config.Labels["com.docker.compose.project"]' ;;
+      *) jqf='.[0]' ;;
+    esac
+    n1 "docker inspect '$cname' 2>/dev/null | jq -r '$jqf'"
+  fi
+}
+
+node_ps_q(){
+  local node="$1" cname="$2"
+  if [[ "$node" == "node0" ]]; then
+    docker inspect "$cname" 2>/dev/null | jq -r '.[0]'
+  else
+    n1 "docker inspect '$cname' 2>/dev/null | jq -c '.[0]'"
+  fi
+}
+
+active_loaded(){
+  local node="$1"
+  inspect_q "$node" "$CONTAINER" '{{.State.Status}}' >/dev/null 2>&1 || return 1
+  local proj
+  proj="$(inspect_q "$node" "$CONTAINER" '{{index .Config.Labels "com.docker.compose.project"}}')"
+  [[ "$proj" == "$PROJECT" ]]
+}
+
+state_of(){
+  local node="$1" f="$2"
+  (
+    load "$f"
+    local st
+    st="$(inspect_q "$node" "$CONTAINER" '{{.State.Status}}')"
+    [[ -n "$st" && "$st" != "<no value>" ]] && echo "$st" || echo inactive
+  )
+}
+
+health_of(){
+  local node="$1" f="$2"
+  (
+    load "$f"
+    [[ "$(state_of "$node" "$f")" == running ]] || { echo "-"; exit; }
+    [[ -n "$HEALTH_URL" ]] || { echo running; exit; }
+    if [[ "$node" == "node0" ]]; then
+      curl -fsS --connect-timeout 2 --max-time 5 "$HEALTH_URL" >/dev/null 2>&1 \
+        && echo READY || echo LOADING
+    else
+      n1 "curl -fsS --connect-timeout 2 --max-time 5 '$HEALTH_URL' >/dev/null 2>&1 && echo READY || echo LOADING"
+    fi
+  )
+}
+
+current_file(){
+  local node="$1" f
+  while read -r f; do
+    [[ -n "$f" ]] || continue
+    [[ "$(state_of "$node" "$f")" == running ]] && { echo "$f"; return; }
+  done < <(profiles)
+  return 1
+}
+
+validate_loaded(){
+  [[ -d "$STACK_DIR" ]] || die "$RUNTIME_ID: missing stack dir: $STACK_DIR"
+  [[ -f "$COMPOSE_FILE" ]] || die "$RUNTIME_ID: missing compose: $COMPOSE_FILE"
+  local node="$NODE"
+  compose_node "$node" config --quiet >/dev/null 2>&1 || die "$RUNTIME_ID: compose config invalid"
+  if [[ -n "$IDENTITY_MOUNT" && -z "$(expected_mount)" ]]; then
+    die "$RUNTIME_ID: identity mount not found"
+  fi
+}
+
+show_list(){
+  local node="$1" f
+  printf '%-16s %-9s %-10s %-10s %-9s %s\n' RUNTIME MODE GROUP STATE HEALTH
+  while read -r f; do
+    [[ -n "$f" ]] || continue
+    load "$f"
+    local state health
+    if [[ "$PLACEHOLDER" == true ]]; then
+      state="placeholder"; health="-"
+    else
+      state="$(state_of "$node" "$f")"; health="$(health_of "$node" "$f")"
+    fi
+    printf '%-16s %-9s %-10s %-10s %-9s %s\n' \
+      "$RUNTIME_ID" "$MODE" "$GROUP" "$state" "$health" "$DISPLAY_NAME"
+  done < <(profiles)
+}
+
+show_status(){
+  local node="$1"
+  echo "===== $node ====="
+  show_list "$node"
+}
+
+wait_ready(){
+  local node="$1" f="$2" begin=$SECONDS st
+  load "$f"
+  [[ -n "$HEALTH_URL" ]] || return
+  echo "Waiting for $RUNTIME_ID on $node..."
+  while ((SECONDS-begin < TIMEOUT)); do
+    if [[ "$node" == "node0" ]]; then
+      if curl -fsS --connect-timeout 2 --max-time 5 "$HEALTH_URL" >/dev/null 2>&1; then
+        echo "$(date '+%F %T') $RUNTIME_ID: READY"; return
+      fi
+      st="$(docker inspect -f 'status={{.State.Status}} restart={{.RestartCount}}' "$CONTAINER" 2>/dev/null || echo missing)"
+    else
+      if n1 "curl -fsS -m 5 '$HEALTH_URL' >/dev/null 2>&1"; then
+        echo "$(date '+%F %T') $RUNTIME_ID: READY"; return
+      fi
+      st="$(n1 "docker inspect -f 'status={{.State.Status}} restart={{.RestartCount}}' '$CONTAINER' 2>/dev/null || echo missing")"
+    fi
+    echo "$(date '+%F %T') $RUNTIME_ID: loading... $st"
+    [[ "$st" == status=running* ]] || {
+      [[ "$node" == "node0" ]] && docker logs --tail=300 "$CONTAINER" 2>/dev/null || \
+        n1 "docker logs --tail=300 '$CONTAINER' 2>/dev/null" || true
+      return 1
+    }
+    sleep 10
+  done
+  die "$RUNTIME_ID health timeout"
+}
+
+stop_file(){
+  local node="$1" f="$2"
+  load "$f"
+  if [[ "$PLACEHOLDER" == true ]]; then echo "$RUNTIME_ID: placeholder (not deployed)."; return; fi
+  if active_loaded "$node"; then echo "Stopping $RUNTIME_ID on $node..."; compose_node "$node" down
+  else echo "$RUNTIME_ID: not active on $node."; fi
+}
+
+# stop_group_except — stop every OTHER active EXCLUSIVE runtime on the node.
+# An exclusive runtime monopolises the node, so `use` also frees runtimes in
+# OTHER groups (e.g. minimaxh3 video vs comfyui image). Placeholders and the
+# target itself are skipped. TP2 is torn down by ensure_tp2_down, never here.
+stop_group_except(){
+  local node="$1" target="$2" id f
+  load "$target"; id="$RUNTIME_ID"
+  while read -r f; do
+    [[ -n "$f" ]] || continue
+    load "$f"
+    [[ "$PLACEHOLDER" == true ]] && continue
+    [[ "$MODE" == exclusive && "$RUNTIME_ID" != "$id" ]] || continue
+    if [[ "$(state_of "$node" "$f")" != inactive ]]; then stop_file "$node" "$f"; fi
+  done < <(profiles)
+}
+
+# free_node <node> — stop EVERY active single-node runtime on a node.
+# Used by the cluster CLI (做法 B) to free node1's GPU before TP2 comes up.
+free_node(){
+  local node="$1" f
+  while read -r f; do
+    [[ -n "$f" ]] || continue
+    load "$f"
+    [[ "$PLACEHOLDER" == true ]] && continue
+    if [[ "$(state_of "$node" "$f")" != inactive ]]; then stop_file "$node" "$f"; fi
+  done < <(profiles)
+  return 0
+}
+
+start_file(){
+  local node="$1" f="$2"
+  load "$f"; NODE="$node"
+  validate_loaded
+  if active_loaded "$node" && [[ "$(inspect_q "$node" "$CONTAINER" '{{.State.Status}}')" == running ]]; then
+    echo "$RUNTIME_ID: already running on $node."; return
+  fi
+  echo "Starting $RUNTIME_ID on $node..."
+  compose_node "$node" up -d
+  echo "$node/$RUNTIME_ID" > "${STATE}/last-runtime"
+  wait_ready "$node" "$f"
+}
+
+use_file(){
+  local node="$1" f="$2"
+  load "$f"
+  [[ "$PLACEHOLDER" == true ]] && { echo "$RUNTIME_ID: placeholder (not deployed yet)."; exit 0; }
+  [[ "$MODE" == exclusive ]] || die "use: gb10-single start $node $RUNTIME_ID"
+  if active_loaded "$node" && [[ "$(health_of "$node" "$f")" == READY ]]; then
+    echo "$RUNTIME_ID: already active and READY on $node."; return
+  fi
+  stop_group_except "$node" "$f"
+  load "$f"
+  start_file "$node" "$f"
+}
+
+default_file(){
+  local node="$1" f
+  f="$(current_file "$node" 2>/dev/null || true)"
+  [[ -n "$f" ]] && { echo "$f"; return; }
+  [[ -f "${STATE}/last-runtime" ]] || die "no active or previous runtime on $node"
+  local last
+  last="$(awk -F/ '{print $2}' "${STATE}/last-runtime")"
+  resolve "$last"
+}
+
+# ---- cross-protection: single-node runtime on node1 vs TP2 cluster ----
+# TP2 occupies BOTH nodes. Starting a single-node runtime on node1 needs
+# node1's GPU, so it must never coexist with an active TP2 cluster. This
+# hook auto-tears TP2 down before a node1 runtime comes up (做法 B).
+tp2_active(){
+  docker ps -q -f name=cluster-node0 2>/dev/null | grep -q . && return 0 || return 1
+}
+
+ensure_tp2_down(){
+  if tp2_active; then
+    echo "TP2 cluster is running; tearing it down before starting a single-node runtime..."
+    "${REPO_DIR}/scripts/cluster-down"
+  fi
+}
+
+# ---- dispatch ----
+cmd="${1:-help}"
+case "$cmd" in
+  list)
+    node="${2:-node0}"; node_is_valid "$node" || die "unknown node: $node"
+    show_list "$node"
+    ;;
+  status)
+    node="${2:-node0}"; node_is_valid "$node" || die "unknown node: $node"
+    show_status "$node"
+    ;;
+  use|start)
+    [[ $# == 3 ]] || die "usage: gb10-single $cmd <node0|node1> <runtime>"
+    node="$2"; node_is_valid "$node" || die "unknown node: $node"
+    f="$(resolve "$3")"; load "$f"
+
+    # prevent concurrent boots
+    if _boot_alive "$node" "$3"; then
+      pid="$(cat "$(_pid_file "$node" "$3")")"
+      die "background boot for ${node}/${3} already running (PID ${pid}; see $(_ready_file "$node" "$3"))"
+    fi
+
+    # direction B: tear down TP2 before starting (unless already running)
+    if [[ "$PLACEHOLDER" != true ]] && \
+       { [[ "$MODE" != exclusive ]] || ! active_loaded "$node" || ! [[ "$(health_of "$node" "$f")" == READY ]]; }; then
+      ensure_tp2_down
+    fi
+
+    if [[ "$cmd" == "use" ]]; then
+      [[ "$MODE" == exclusive ]] || die "use: gb10-single start $node $RUNTIME_ID"
+      # stop other exclusives (must happen in foreground before boot)
+      load "$f"
+      stop_group_except "$node" "$f"
+    fi
+
+    # launch background boot
+    LOG="${STATE}/boot-single.${node}.${3}.log"
+    ( setsid nohup "${SCRIPTS}/gb10-single-boot" "$node" "$3" </dev/null >"${LOG}" 2>&1 &
+      echo $! > "$(_pid_file "$node" "$3")" )
+    sleep 0.2
+    if _boot_alive "$node" "$3"; then
+      _pid="$(cat "$(_pid_file "$node" "$3")")"
+      echo "$(date '+%F %T') ${node}/${3}: background boot started (PID ${_pid})"
+      echo "  log:  ${LOG}"
+      echo "  wait: gb10-single wait $node $3"
+      echo "  poll: gb10-single status $node"
+    else
+      echo "$(date '+%F %T') ${node}/${3}: boot launched (check log: ${LOG})"
+    fi
+    ;;
+  wait)
+    [[ $# == 3 ]] || die "usage: gb10-single wait <node0|node1> <runtime>"
+    node="$2"; node_is_valid "$node" || die "unknown node: $node"
+    runtime="$3"
+    RF="$(_ready_file "$node" "$runtime")"
+    PF="$(_pid_file "$node" "$runtime")"
+    if [[ -f "$RF" ]]; then
+      echo "$(date '+%F %T') ${node}/${runtime}: READY"
+      cat "$RF"
+      exit 0
+    fi
+    if ! _boot_alive "$node" "$runtime"; then
+      echo "$(date '+%F %T') ${node}/${runtime}: no background boot active"
+      exit 0
+    fi
+    echo "$(date '+%F %T') ${node}/${runtime}: waiting for background boot to complete..."
+    _begin=$SECONDS
+    while _boot_alive "$node" "$runtime"; do
+      if [[ -f "$RF" ]]; then
+        echo "$(date '+%F %T') ${node}/${runtime}: READY"
+        cat "$RF"
+        exit 0
+      fi
+      sleep 5
+    done
+    if [[ -f "$RF" ]]; then
+      echo "$(date '+%F %T') ${node}/${runtime}: READY"
+      cat "$RF"
+    else
+      echo "$(date '+%F %T') ${node}/${runtime}: boot process exited (not ready)"
+      echo "  log: ${STATE}/boot-single.${node}.${runtime}.log"
+      tail -20 "${STATE}/boot-single.${node}.${runtime}.log" 2>/dev/null || true
+      exit 1
+    fi
+    ;;
+  stop)
+    [[ $# == 3 ]] && node="$2" f="$(resolve "$3")" || { node="${2:-node0}"; f="$(default_file "$node")"; }
+    node_is_valid "$node" || die "unknown node: $node"
+    _kill_boot
+    stop_file "$node" "$f"
+    ;;
+  free|ensure-free)
+    [[ $# == 2 ]] || die "usage: gb10-single free <node0|node1>"
+    node="$2"; node_is_valid "$node" || die "unknown node: $node"
+    _kill_boot
+    free_node "$node"
+    ;;
+  restart)
+    [[ $# == 3 ]] || die "usage: gb10-single restart <node0|node1> <runtime>"
+    node="$2"; node_is_valid "$node" || die "unknown node: $node"
+    f="$(resolve "$3")"; load "$f"
+    if [[ "$PLACEHOLDER" == true ]]; then echo "$RUNTIME_ID: placeholder (not deployed)."; exit 0; fi
+    NODE="$node"
+    validate_loaded
+    # kill any existing boot for this runtime
+    if _boot_alive "$node" "$3"; then
+      pid="$(cat "$(_pid_file "$node" "$3")")"
+      echo "Stopping background boot (PID ${pid})..."
+      kill "$pid" 2>/dev/null || true
+      sleep 1
+      kill -9 "$pid" 2>/dev/null || true
+      rm -f "$(_pid_file "$node" "$3")"
+    fi
+    # stop and re-launch
+    if active_loaded "$node"; then
+      echo "Restarting $RUNTIME_ID on $node..."
+      compose_node "$node" up -d --force-recreate
+      echo "$node/$RUNTIME_ID" > "${STATE}/last-runtime"
+      wait_ready "$node" "$f"
+    else
+      # launch background boot
+      LOG="${STATE}/boot-single.${node}.${3}.log"
+      ( setsid nohup "${SCRIPTS}/gb10-single-boot" "$node" "$3" </dev/null >"${LOG}" 2>&1 &
+        echo $! > "$(_pid_file "$node" "$3")" )
+      sleep 0.2
+      if _boot_alive "$node" "$3"; then
+        _pid="$(cat "$(_pid_file "$node" "$3")")"
+        echo "$(date '+%F %T') ${node}/${3}: background restart started (PID ${_pid})"
+        echo "  log:  ${LOG}"
+        echo "  wait: gb10-single wait $node $3"
+      else
+        echo "$(date '+%F %T') ${node}/${3}: restart launched (check log: ${LOG})"
+      fi
+    fi
+    ;;
+  logs)
+    [[ $# == 3 ]] || die "usage: gb10-single logs <node0|node1> <runtime>"
+    node="$2"; f="$(resolve "$3")"; load "$f"
+    if [[ "$node" == "node0" ]]; then docker logs -f --tail=150 "$CONTAINER"
+    else n1 "docker logs -f --tail=150 '$CONTAINER'"; fi
+    ;;
+  doctor)
+    echo "Node0: $(hostname)"
+    docker version --format 'docker {{.Server.Version}}' 2>/dev/null || echo "docker: n/a"
+    echo "runtimes.d confs:"
+    profiles
+    ;;
+  help|-h|--help) usage ;;
+  *) usage; exit 2 ;;
+esac

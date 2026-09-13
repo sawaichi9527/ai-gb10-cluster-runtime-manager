@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# =====================================================================
+# gb10-boot-cluster — background boot job for bin/gb10 use/start.
+#
+# Runs the full cluster-down → free_singles → cluster-up sequence in
+# the background.  Called via setsid nohup from bin/gb10 (not directly).
+#
+# State files (all in ${REPO_DIR}/state/, gitignored):
+#   boot-cluster.<PROFILE>.pid  — running PID (removed on exit)
+#   boot-ready.<PROFILE>        — written on READY; read by gb10 wait/status
+# =====================================================================
+set -Eeuo pipefail
+
+PROFILE="${1:?usage: gb10-boot-cluster <profile>}"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+PID_FILE="${REPO_DIR}/state/boot-cluster.${PROFILE}.pid"
+READY_FILE="${REPO_DIR}/state/boot-ready.${PROFILE}"
+
+cleanup(){ rm -f "${PID_FILE}"; }
+trap cleanup EXIT
+
+mkdir -p "${REPO_DIR}/state"
+echo "${$}" > "${PID_FILE}"
+rm -f "${READY_FILE}"
+
+echo "$(date '+%F %T') [boot-cluster] background boot started: profile=${PROFILE}"
+
+# --- cluster-down (stop existing TP2) ---
+"${REPO_DIR}/scripts/cluster-down"
+
+# --- free singles on both nodes (TP2 occupies both, shares port 1234) ---
+for _n in node0 node1; do
+  "${REPO_DIR}/bin/gb10-single" free "$_n"
+done
+
+# --- cluster-up (checksum + launch + health wait) ---
+"${REPO_DIR}/scripts/cluster-up" "${PROFILE}"
+
+# --- mark ready (consumed by gb10 wait / gb10 status) ---
+echo "$(date '+%F %T') [boot-cluster] profile=${PROFILE} READY" | tee "${READY_FILE}"
+
+echo "$(date '+%F %T') [boot-cluster] boot complete: profile=${PROFILE}"

@@ -1,0 +1,7 @@
+state/
+output/
+.playwright-mcp/
+tp2.env
+*.log
+__pycache__/
+*.pyc
