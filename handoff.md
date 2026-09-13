@@ -2246,10 +2246,16 @@ vs 2026-09-10（v0.27.1-omni, n=6）：
 ## 35.5 keystone commit / push / README
 
 ```text
-· keystone（Node0 main）：b97a9c8（27b v0.29 升級，5 files）＋本批 consolidation + 35b fix
-  （AGENTS.md, bin/gb10, cluster-profiles.d/27b.conf, cluster-profiles.d/35b.conf,
-  runtimes.d/27b.conf, scripts/cluster-common.sh）→ push origin/main（Forgejo）。
-· Forgejo repo 首頁 README.md：新增「Deployed services & benchmark」章節，
-  列 27b/35b single+cluster 與 deepseek cluster 之最新 image 基準數值。
-· 本機 maintenance repo（branch docs-carrier-9041）：handoff §35 ＋兩份 benchmark 報告 commit+push。
+· keystone（Node0 main）三個 commit：
+    b97a9c8 27b v0.29 升級（5 files）
+    4232a89 aeon-vllm-omni 目錄統一 + 35b env 修正（6 files）
+    ffd02ea README 部署服務/benchmark 章節
+  Forgejo  origin/main ：71ccf20 → ffd02ea（push OK）
+  GitHub   github/main ：0534dac → a6d4249（merge commit、非 force-push；GitHub 僅落後
+    3 個舊 docs commit 85b8b04/68bad1c/0534dac，內容已被 Forgejo 線取代，AGENTS.md /
+    README.md 衝突以 Forgejo 側解決）→ 與 ffd02ea 內容一致。
+· Forgejo repo 首頁 README.md：新增「Deployed services & benchmark results (latest image)」
+  章節（第 12 行、Topology 之前），列 27b/35b single+cluster 與 deepseek cluster 最新 image 數值。
+· 本機 maintenance repo（branch docs-carrier-9041）：handoff §35 ＋ 27b/35b 兩份報告
+  → commit d102349；push origin（Forgejo）＋ github 皆已到 d102349。
 ```
