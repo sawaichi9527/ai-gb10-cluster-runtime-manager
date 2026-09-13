@@ -2372,3 +2372,45 @@ GB10-validated NVFP4 image。
 每週（使用者自行）：比對官方 tag digest；異動才評估 qwen38flash 重啟。
 不在本節範圍：違反 §27 的「不靠週邊偵測交易」等既有政策；不主動拉取/建置 engine。
 ```
+
+# 38. 2026-09-13 DeepSeek-V4-Flash-Vision-Exp FP8 TP=2 部署態勢追蹤
+
+## 38.1 現狀
+
+```text
+· 官方 HF 卡（deepseek-ai/DeepSeek-V4-Flash-Vision-Exp）：305B params, FP8 (F8_E4M3),
+  MIT license；官方 vLLM / SGLang recipe 僅給單機 4×GB300 TP=4，無 TP=2 cluster 指引。
+· NVIDIA DGX Spark 論壇已有社群 TP=2 成功案例，但皆需自組 image / validator patch。
+· 現役推理仍為 deepseek-v4-flash-0731（好用、穩定）；Vision-Exp 為額外追蹤，不動部署。
+```
+
+## 38.2 社群成功案例（2× DGX Spark, TP=2）
+
+```text
+| 來源 | Image | KV dtype | MAX_MODEL_LEN | K 值 | 備註 |
+|------|-------|----------|---------------|------|------|
+| Forum #382675 (2026-09-08) | sparkrun-vllm-ds4-gb10:production-3.73-vision | fp8 | 393,216 | K=6 stock / K=5 需 patch | B12X_MLA_SPARSE, MAX_NUM_SEQS=6, RoCE bind |
+| Forum #381911 帖 102 | custom build | fp8_ds_mla | 524,288 | K=6 | B12X, num_seqs=5 |
+| tonyd2wild GitHub | custom build | nvfp4_ds_mla（非 fp8） | 1,048,576 | K=5 | Patch3/4 + K=5 validator patch, 1M ctx |
+| SGLang cookbook (HF 卡引用) | sglang (b12x kernel) | — | — | — | 2-node, b12x 直跑 |
+```
+
+## 38.3 K=5 vs K=6 限制
+
+```text
+· stock Vision-Exp validator 的 divisibility logic 自然產生 K=6（ceil(5/3)*3=6）。
+· 要 K=5 需 DSpark-only validator patch（runtime 演算法層，非 image 層可內建；
+  production-3.73-vision 內建的是 Vision-Exp 前處理 strip，不是 K=5）。
+· K=6 可用但 draft tree 較大、可用 KV 池少一輪。
+· Vision-Exp 長 agent chain 穩定度不如 0731（Forum #382675 評價；48h 壓測通過）。
+```
+
+## 38.4 追蹤政策
+
+```text
+· Vision-Exp 等月底或底層推理 image（sparkrun / dspark-vllm-gx10 / SGLang b12x）
+  更成熟、版本支援度更好後再評估；目前 deepseek-v4-flash-0731 繼續當現役。
+· 下次檢查：~2026-10-13（與 §36 DeepSeek 0731 月檢同週）。
+· 檢查內容：NVIDIA DGX Spark forum + HF deepseek-ai org + tonyd2wild repo，
+  確認是否有新 image / K=5 validator patch 正式化 / 官方 TP=2 recipe。
+```
