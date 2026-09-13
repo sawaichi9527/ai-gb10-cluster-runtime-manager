@@ -8,6 +8,55 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 - **`cluster-profiles.d/*.conf`** — TP2 叢集 profile 定義（data-driven registry）
 - **`scripts/cluster-*`** — 叢集部署腳本（ver detail 見 `docs/TP2_DEPLOYMENT_2026-08-30.md`）
 
+
+## Deployed services & benchmark results (latest image)
+
+> 2026-09-13 實測。27B/35B 使用最新 `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-09-11-v0.29.0-omni`；DeepSeek 為歷史主力線 `ghcr.io/anemll/dspark-vllm-gx10:0.1.1` 之既有結果。
+
+### 已部署服務
+
+| service | 模型 / 方法 | image | endpoint | 狀態 |
+|---|---|---|---|---|
+| 27B single (TP1) | `qwen3.8-27b-aeon-ultimate-uncensored-nvfp4-mixed` + DFlash2 n=7 | `2026-09-11-v0.29.0-omni` | `:1234/v1` | deployed |
+| 27B cluster (TP2) | 同上 | `2026-09-11-v0.29.0-omni` | `http://192.168.23.215:1234/v1` | deployed |
+| 35B single (TP1) | `qwen3.6-35b-a3b-heretic-nvfp4` + DFlash n=6 | `2026-09-11-v0.29.0-omni` | `:1234/v1` | deployed |
+| 35B cluster (TP2) | 同上 | `2026-09-11-v0.29.0-omni` | `http://192.168.23.215:1234/v1` | deployed |
+| DeepSeek V4 Flash cluster (TP2) | `deepseek-v4-flash-0731-official` + DSpark n=7 | `anemll/dspark-vllm-gx10:0.1.1` | `http://192.168.23.215:1234/v1` | deployed (mainline) |
+
+### 27B v0.29.0-omni (bench-c C1-C8, MAX_TOKENS=2048; 245k cold prefill)
+
+| C | Single tok/s | Cluster tok/s | Speedup |
+|---|---|---|---|
+| 1 | 23.3 | 41.0 | 1.76x |
+| 2 | 38.3 | 69.0 | 1.80x |
+| 3 | 55.0 | 96.2 | 1.75x |
+| 4 | 73.9 | 93.8 | 1.27x |
+| 8 | 106.7 | 180.8 | 1.69x |
+| 245k prefill (tok/s) | 347.2 | 578.6 | 1.67x |
+
+### 35B v0.29.0-omni (bench-c C1-C8, MAX_TOKENS=2048; 245k cold prefill)
+
+| C | Single tok/s | Cluster tok/s | Speedup |
+|---|---|---|---|
+| 1 | 76.4 | 113.9 | 1.49x |
+| 2 | 121.6 | 199.0 | 1.64x |
+| 3 | 134.7 | 249.0 | 1.85x |
+| 4 | 171.8 | 273.2 | 1.59x |
+| 8 | 269.5 | 402.6 | 1.49x |
+| 245k prefill (tok/s) | 2601.0 | 3940.7 | 1.52x |
+
+### DeepSeek V4 Flash fp8 mainline (bench-c C1-C8; 200K probe) - 歷史結果
+
+| C | Cluster tok/s | Acceptance |
+|---|---|---|
+| 1 | 35.3 | 23.8% |
+| 2 | 45.9 | 25.1% |
+| 4 | 56.6 | 31.0% |
+| 8 | 85.9 | 26.8% |
+| 200K prefill (tok/s) | 1600.3 | - |
+
+> 完整報告：maintenance repo `docs/BENCHMARK_27B_MIXED_V3_V029_SINGLE_CLUSTER_2026-09-13.md`、`docs/BENCHMARK_35B_V029_SINGLE_CLUSTER_2026-09-13.md`；DeepSeek 見 handoff §23.3。
+
 ## Topology
 
 ```text
