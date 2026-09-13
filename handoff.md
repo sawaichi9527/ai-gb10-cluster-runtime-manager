@@ -2414,3 +2414,53 @@ GB10-validated NVFP4 image。
 · 檢查內容：NVIDIA DGX Spark forum + HF deepseek-ai org + tonyd2wild repo，
   確認是否有新 image / K=5 validator patch 正式化 / 官方 TP=2 recipe。
 ```
+
+# 39. 2026-09-13 DeepSeek-V4-Flash-0731 三種 TP2 鏡像配方比較（anemll vs eugr b12x vs infernal-invocation）
+
+> 依使用者指示：本機現役 deepseek lane 為 `ghcr.io/anemll/dspark-vllm-gx10:0.1.1` + 官方 0731 FP8（§23.2），
+> 對網路上另兩種「配方」做差異研究。結論：`dev/infernal-invocation` 非獨立 image，與 `eugr/spark-vllm-b12x`
+> 同血統收斂；兩者皆不構成換線理由，維持 §36 do-nothing default。本節唯讀研究，未動部署。
+
+## 39.1 血統釐清（重要）
+
+```text
+· dev/infernal-invocation 不是 docker image，是 local-inference-lab/vllm（Luke Alonso）的 vLLM fork 分支。
+  其「可 pull 產物」：Docker Hub voipmonitor/vllm:infernal-invocation-…（II 組合打包）與
+  GHCR ghcr.io/liquidgravityai/2x-dgx-spark-deepseek-v4-flash-0731:r29-…（II r16 composition, 私人 org）。
+· eugr/spark-vllm-b12x 與 II 同血統：eugr README 明寫 B12X source builds 改用
+  local-inference-lab/vllm@dev/infernal-invocation → 2026-08-23 後 eugr nightly b12x 即由 II 分支建。
+· 故「三種配方」實為兩條血統：Anemll（現役）↔ eugr/II（同一 vLLM fork 線）。
+```
+
+## 39.2 三方比較（權重皆官方 0731 FP8，model revision 9e165c30…，換線不需重下模型）
+
+```text
+| 維度 | A. Anemll 0.1.1（現役） | B. eugr/spark-vllm-b12x | C. II / liquidgravityai r29 |
+|------|------------------------|-------------------------|---------------------------|
+| image | ghcr.io/anemll/dspark-vllm-gx10:0.1.1 | docker.io/eugr/spark-vllm-b12x:latest（nightly） | ghcr.io/liquidgravityai/…:r29 |
+| vLLM base | 0.27.x omni 系 | 0.1.dev19023+g30038602b（dev build, 無 stable） | a47a2f8 + PR #52645；torch 2.13.0+cu132, CUDA 13.2 |
+| KV dtype | nvfp4_ds_mla（4-bit，KV 密度最高） | fp8（§36：fp8 系 KV pool -27.3%） | fp8 + KV_CACHE_MEMORY_BYTES=20GB 明確 |
+| attention / MoE | flashinfer_b12x | B12X_MLA_SPARSE / b12x | B12X sparse MLA / b12x |
+| DSpark | 7 tokens greedy | 5 tokens probabilistic | 5 tokens greedy（對齊 checkpoint block=5） |
+| load | 內建 drafter | instanttensor + hybrid draft loader mod | instanttensor + model-config.json overlay |
+| MAXLEN | 262144（已 verified） | ~200K（auto） | 262144（僅 qualify 到 65K）|
+| NUMSEQ / GMU / BATCHED | 8 / 0.80 / 16384 | 8 / 0.85 / 8192（論壇建議改 4096） | 16 / 0.86 / 8192 |
+| API | :1234 unified | :8000 | :8000 |
+```
+
+## 39.3 已知問題與定案
+
+```text
+· eugr b12x：nightly-20260823（0.1.dev20133）有 DSML tool-call closers leak（Forum #381835，
+  回滾 gilded-gnosis 分支 image 才解）；prefix-cache invalidation（Forum #376220：hybrid MLA/SWA
+  block 映射被無關 request 擊穿，需 VLLM_PREFIX_CACHE_RETENTION_INTERVAL=4096 +
+  long_prefill_token_threshold=1024 + batched ≤4096）；2048 batched 崩潰（B12X compressed-MLA workspace）。
+· liquidgravityai r29：官方 0731 僅 100/100 exact structured DSpark K5 greedy 驗證；效能數字
+  （66.55 e2e / 82.21 peak tok/s）來自 preview DeepSeek-V4-Flash-DSpark checkpoint，不算官方 0731；
+  262K 明確未 qualify。
+· 定案：不換線。現役 Anemll 0.1.1 已 verified 262K、nvfp4_ds_mla 為三者中 KV 密度最高，
+  無 DSML/prefix-cache 已知坑；eugr/II 皆無 262K qualification。維持 §36 do-nothing default。
+· 追蹤信號（保持現狀、手動留意，使用者核准不寫自動規則）：
+  現役 Anemll 出新 >0.1.1 image（含 §36 PR #2 DSpark SWA prefix-cache fix）為優先評估對象；
+  eugr 出非 nightly 穩定 release 次之。
+```
