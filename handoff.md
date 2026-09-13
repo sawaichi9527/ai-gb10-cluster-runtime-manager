@@ -2259,3 +2259,116 @@ vs 2026-09-10（v0.27.1-omni, n=6）：
 · 本機 maintenance repo（branch docs-carrier-9041）：handoff §35 ＋ 27b/35b 兩份報告
   → commit d102349；push origin（Forgejo）＋ github 皆已到 d102349。
 ```
+
+---
+
+# 36. 2026-09-13 DeepSeek-V4-Flash-0731 NVFP4 併行路線可行性調查（只讀研究，未動部署）
+
+> 依使用者指示：以 `nvidia/DeepSeek-V4-Flash-0731-NVFP4`（NVFP4 權重）為獨立路線
+> （`gb10 use deepseek-nvfp4`）做可行性調查，擴及 HF 模型卡/discussion 與 NVIDIA 官方
+> DGX Spark/GB10 論壇；**不侷限 Anemll 0.1.1 配方/image**，檢視是否有可 pull 部署的獨立成熟
+> SGLang/vLLM docker image。本 session 全程唯讀：**未量測、未建 image、未動容器與
+> deepseek.conf**。完整證據：
+> `docs/DEEPSEEK_V4_FLASH_0731_NVFP4_LANE_FEASIBILITY_2026-09-13.md`。
+
+## 36.1 結論
+
+```text
+2x GB10 上沒有任何「可 pull 的獨立成熟 SGLang/vLLM image」能服務 NVFP4 權重。
+唯一可 pull 的 Anemll 0.1.1 就是現役路線（官方 0731 FP8 + nvfp4_ds_mla KV）；
+NVFP4 在 Anemll 語境 = KV 格式、非權重。全部 NVFP4 權重實跑實例皆為本地 fork build
+（vLLM 0.21.1rc1-tonyd2wild lineage）+ bind-mount patches + SM121 compile，非 pull-able。
+GB10 上 NVFP4 權重無可量測優勢（≈FP8 大小；sm_121 FP4 GEMM 軟體模擬）→ Tier 2 不建。
+```
+
+## 36.2 四路線排查（詳見報告）
+
+```text
+SGLang   #37479 merged 2026-09-01：DGX Spark recipe = 官方 FP4 + lmsysorg/sglang:dev-v4f-2dgx
+         （preview、DGX-only、ctx 327680、~224 tok/s）→ 非 NVFP4 權重、非成熟。
+vLLM     上游 0.26.0 實測 rollback：無 nvfp4_ds_mla（最佳 fp8_ds_mla，KV pool -27.3%）、
+         SM120-family DSpark sparse-MLA decode warmup crash、sm_121 不在 published wheels。
+Anemll   0.1.1（唯一 pull-able）= 現役路線（官方 0731 FP8 + nvfp4_ds_mla KV）。
+fork     dkmode22（653 tok/s 1M / accept 0.63 / 4 patches）→ NVFP4 權重唯一實跑，本地 build。
+```
+
+## 36.3 關鍵發現（對現役路線的提示）
+
+```text
+· HF #2（2026-09-13 開啟，takashito）：nvidia NVFP4 checkpoint as-shipped 的 DSpark 無效 root
+  cause = hf_quant_config.json 排除 mtp.*，vLLM 載入 tensor 改名 layers.43+ 後失配 → MXFP4
+  draft experts 被誤讀為 NVFP4。lossless fix：ModelOpt --cast_mxfp4_to_nvfp4（RTX PRO 6000 2.1x，
+  非 GB10）。NVIDIA 已出預轉換版 nvidia/DeepSeek-V4-Flash-nvfp4-DSpark。
+· dkmode22：「0731 REQUIRES shared-expert loader fix，否則 acceptance 崩到 ~0.14」。該 4 patches
+  已 upstream ≥0.26.0 → Anemll 0.1.1（vLLM 0.27.x omni 系）很可能已含，但現役 DSpark acceptance
+  從未量測（Tier 1 政策 = 不主動動手，等成熟 Anemll 新 image 再評估）。
+· 協議坑：reasoning_content 已 deprecated 恆空 → 讀 message.reasoning / delta.reasoning。
+```
+
+## 36.4 追蹤政策（月檢，下次檢查 ~2026-09-30）
+
+```text
+Do-nothing default：現役 deepseek lane 原地不動。（使用者核准）
+(a) Anemll dspark-vllm-gx10 新 release/tag image（0.1.1 最新；PR #2 已合未發 image）
+    → 成熟新 image 發布才評估升級（含 acceptance 量測），否則不動。
+(b) 上游 vLLM 三條件全落地才重估：nvfp4_ds_mla + SM120-family DSpark sparse-MLA fix
+    + sm_121 進 published aarch64 wheels。
+(c) SGLang dev-v4f-2dgx 成熟度 + NVFP4 權重涵蓋度 → 涵蓋 NVFP4 即成可 pull 之候選路線。
+Tier 1 併入 (a)；Tier 2（NVFP4 fork-build 併行路線）不建，重估觸發同 (b)/(c) 或 NVIDIA
+GB10-validated NVFP4 image。
+```
+
+# 37. 2026-09-13 qwen38-flash-next 官方 image 審計（結論：官方 tag 仍不能跑 NVFP4，不動部署）＋ 舊 image 清理
+
+## 37.1 審計結論
+
+```text
+· 官方 tag vllm/vllm-openai:qwen38-flash-next 自 2026-08-26 後未更新（Hub last_pushed，
+  digest sha256:fc120ece… 不變）。本週無新版。
+· image 內建舊樹 vllm/models/qwen3_8_flash_next/（§24 plefix patch 目標路徑）；上游已全數
+  改名 qwen4_exp（2026-09-13 search_code qwen3_8_flash_next → 0 hits）。
+· NVFP4 所需修補 d4d703caf = PR #54882（2026-09-03，sychen52）晚於 image 一週 → 現役官方 tag
+  仍缺，直接跑官方 NVIDIA NVFP4 仍會踩 §24 crash #3/#4。
+· crash #4（MTP w2_weight_scale_inv）已於上游 v0.29.0（git tag 09-08）架構層修復
+  （Qwen4ExpMTP 繼承 Qwen4ExpMixtureOfExperts + get_draft_quant_config/configure_quant_config/
+  set_moe_parameters/_remap_ignored_layers）。
+· 本節 = 只讀研究定調（使用者決策）：不換 engine、不拉新 image、不改 profile。
+  qwen38flash profile 維持現狀，官方 tag digest 更新前不得 boot。
+· 每週手動 diff：docker manifest inspect vllm/vllm-openai:qwen38-flash-next 比對 fc120ece…
+  或 Hub tag API 看 last_pushed；只有 digest 異動才可能內建 fix（詳見 audit doc）。
+```
+
+## 37.2 node1 Image ID 語意（防止後人誤判）
+
+```text
+· 先前質疑：node1 vllm image ID fc120ece… = manifest-list digest、size 30.6GB vs node0 20.6GB，
+  疑為不同平台/未完全解析。實查結論：純儲存驅動差異，image 內容相同。
+· node1 = containerd snapshotter（docker info：overlayfs + io.containerd.snapshotter.v1）
+  → docker images 的 ID 欄顯示 content digest（＝RepoDigest）。node0 = classic overlay2
+  → ID = config digest；arm64 config digest d464f3b… 恰與 node0 顯示 ID 吻合。
+· 兩節點同 RepoDigest sha256:fc120ece…、同 arm64、同 CREATED 2026-08-26T09:14:37Z。
+  node1 不需要 re-pull、平台沒有錯亂。size 差異僅為 overlay2 vs containerd 計量方式。
+```
+
+## 37.3 舊 image 清理（2026-09-13 執行，兩節點 docker ps -a 皆空後移除）
+
+```text
+移除（使用者指定，node0/1 各自只移本機存在者）：
+  aeon 2026-09-07-reasoning-eos        node0(18.8GB) + node1(19.3GB)
+  aeon 2026-08-24-v0.27.1-omni         node0(18.8GB) + node1(19.3GB)
+  lmsysorg/sglang:nightly-429ac2d      node1(45.5GB)
+  lmsysorg/sglang:v0.5.18-cu130        node1(44.6GB)
+保留：
+  aeon 2026-09-11-v0.29.0-omni（現役 TP2/27b/35b）、2026-08-16-v0.27.1（rollback 用）、
+  dspark-vllm-gx10:0.1.1、qwen38-flash-next（每週 diff 留底）、comfyui-aeon-spark:slim
+  （Node1 現役、Node0 保留使用者決策）、cuda:13.0.1-base、busybox、
+  minimax-h3-sglang:* / minimax-h3-dgx-spark:sm121-fp8（保留）。
+清理後複核：node0 → 8 images；node1 → 8 images（見 audit doc）。
+```
+
+## 37.4 追蹤政策
+
+```text
+每週（使用者自行）：比對官方 tag digest；異動才評估 qwen38flash 重啟。
+不在本節範圍：違反 §27 的「不靠週邊偵測交易」等既有政策；不主動拉取/建置 engine。
+```
