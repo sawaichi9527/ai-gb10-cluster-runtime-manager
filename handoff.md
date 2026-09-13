@@ -1,6 +1,6 @@
 # DGX Spark GB10 本地 AI 部署狀態交接（最新版）
 
-> 更新日期：2026-09-10  
+> 更新日期：2026-09-13  
 > 主機：NVIDIA DGX Spark / GB10  
 > 主機名稱：`spark-25d5`  
 > 使用者：`eye`  
@@ -22,6 +22,8 @@
 > **2026-09-10 追加 — 35B AEON（flashattn + bf16 + MARLIN + AEON drafter）跨 single/cluster 完成既 benchmark**：sakamakismile 35B-A3B herético NVFP4 + AEON 8L full-attn drafter（取代 z-lab，sha256 驗證 `6db5c712...`），兩節點同步；依 HF doc-flash requirements：single/cluster 統一 `VLLM_TEST_FORCE_FP8_MARLIN=1`、cluster `KV_DTYPE="bfloat16"`+`flash_attn`（spec 亦 flash_attn）、single `auto`/flash_attn、maxlen single 229376→262144（cluster 已 262144）；cluster 35b 首次啟動曾報 `--kv-cache-dtype: invalid choice 'bf16'` → 改 `bfloat16` 修復。C1-8 + 245k ctx 全跑完（cluster 全面 1.1–1.6x）。詳見下方 **# 31**。
 
 > **2026-09-10 追加 — TP2「v1.1.0」版本化：gb10/gb10-single use|start 背景執行（commit `87f59a9`/`71ccf20`）+ 有效 v1.0.0 升級為 main + v1.1.0 tag/release**：Node0 部署 clone 原為 `keystone`（a5fcc54），確認其為 main 祖先後切至 `main`@`71ccf20`；deepseek（非 placeholder）背景 boot 至 READY（~7min）、並行防護與同節點防護實測通過、27b single 因既有 vLLM `MergedColumnParallelLinear` 權重載入 bug 失敗（與本功能無關）；v1.1.0 tag+release 已建。詳見下方 **# 33**。
+
+> **2026-09-13 追加 — v0.29.0-omni 升級 + 27b single/cluster 完整回歸 benchmark + keystone commit `b97a9c8`**：27b/35b（cluster profiles + standalone.env）升 `2026-09-11-v0.29.0-omni`；V2 runner（`VLLM_USE_V2_MODEL_RUNNER=1`）、`fuse_allreduce_rms:false`（PASS_CONFIG 併入 compilation-config）、V2 下 27b 需 3 patch binds（modelopt/qwen3_dflash2/triton_attn）、35b 需 flash_attn bind；27b single+cluster C1-8 + 245k ctx 回歸完成 — 對比 §30（reasoning-eos）多數全面升幅（single C1 +22~+28%、cluster C1 +30%、C8 +19~+20%），單點例外 single C2 −12%、cluster ctx −6%。**未 push**。詳見下方 **# 34**。
 
 ---
 
@@ -2091,4 +2093,163 @@ Cluster（n=6 + prefix ON）：
 · 背景 boot 來自 SSH 時，前端 timeout 中斷不影響已 dispatched 之 setsid 背景 job（後續調查仍可完成）。
 ```
 
+# 34. 2026-09-13 v0.29.0-omni 升級 + 27b single/cluster 完整回歸 benchmark + keystone commit
+
+> 依使用者決策：single 27b 升到 **v0.29.0-omni** 再測（與 cluster 統一 image）。完成 27b single+cluster
+> C1-8（MAX_TOKENS=2048）＋ 245k bench-ctx 全回歸，對比 2026-09-10 §30（reasoning-eos）。
+> 完整數據：`docs/BENCHMARK_27B_MIXED_V3_V029_SINGLE_CLUSTER_2026-09-13.md`。
+> keystone commit `b97a9c8`（5 files）。**未 push**（本 session 未要求）。
+
+## 34.1 image 與 kernel binds（v0.29.0 必要變更）
+
+```text
+· Image：ghcr.io/aeon-7/aeon-vllm-ultimate:2026-09-11-v0.29.0-omni（27b/35b cluster profiles + standalone.env）。
+· VLLM_USE_V2_MODEL_RUNNER=0 → 1（0.29 V1 runner 拒絕 dflash2；V2 whitelist dflash）。
+· VLLM_ALLREDUCE_USE_FLASHINFER=0 + VLLM_USE_FLASHINFER_SAMPLER=0（27b/35b EXTRA_ENV）。
+· PASS_CONFIG='{"fuse_allreduce_rms":false}'（27b/35b；0.29 B0 fused all-reduce RMS norm regression 關閉）。
+· cluster-common.sh build_vllm_args：profile-owned PASS_CONFIG 併入 --compilation-config 之 pass_config。
+· 27b 需 3 patch binds（container 內覆寫，單機 & cluster 皆需）：modelopt_029_patched.py（2-hunk fold）、
+  qwen3_dflash2_029_patched.py（decoder layer 補 layer_type kwarg）、triton_attn_029_patched.py
+  （TritonAttentionImpl 補 use_mm_prefix kwarg）。
+· 35b 需 1 patch bind：flash_attn_029_patched.py（use_mm_prefix）。
+· 全部列於 cluster-profiles.d/27b.conf / 35b.conf EXTRA_MOUNTS（cluster）＋ docker-compose 同名 binds（single）。
+```
+
+## 34.2 concurrency benchmark（bench-c，MAX_TOKENS=2048）
+
+| C | Single tok/s | Single Acc% | Cluster tok/s | Cluster Acc% | Speedup |
+|---|---|---|---|---|---|
+| 1 | 23.3 | 32.2 | 41.0 | 31.7 | 1.76x |
+| 2 | 38.3 | 27.0 | 69.0 | 31.5 | 1.80x |
+| 3 | 55.0 | 33.7 | 96.2 | 33.5 | 1.75x |
+| 4 | 73.9 | 41.8 | 93.8 | 32.7 | 1.27x |
+| 8 | 106.7 | 29.9 | 180.8 | 34.2 | 1.69x |
+
+**vs 2026-09-10 reasoning-eos（多數 v0.29 全面升幅）：single C1 +22%、C3 +2%、C4 +28%、C8 +19%、
+cluster C1 +30%、C3 +28%、C4 +14%、C8 +20%；單點例外 single C2 −12%、C2 +0.1%、cluster ctx −6%。**
+
+## 34.3 245k prefill（bench-ctx，245,052 tok，max_tokens=1）
+
+```text
+· single：wall 705.7s（11.8 min）· 347.2 tok/s（09-10: 738.8s / 331.6，+5%）。
+· cluster：wall 423.5s（7.1 min）· 578.6 tok/s（09-10: 397.4s / 616.5，−6%）。
+· 兩者 finish_reason=length，245k context 均正確處理。
+```
+
+## 34.4 keystone commit 內容（b97a9c8，5 files +34/−8）
+
+```text
+· AGENTS.md：35b profile facts 同步（n=6、maxlen 262144、numseq 8）。
+· cluster-profiles.d/27b.conf：IMAGE→v0.29、V2 runner=1、PASS_CONFIG、3 patch binds。
+· cluster-profiles.d/35b.conf：IMAGE→v0.29、PASS_CONFIG、allreduce/sampler off、flash_attn bind。
+· scripts/cluster-common.sh：PASS_CONFIG 併入 compilation-config。
+· .gitignore：新增 cluster-profiles.d/*.bak-* / runtimes.d/*.bak-*（§26.5 備份不 commit 之落實）。
+```
+
+## 34.5 工具教訓（本 session）
+
+```text
+· MCP background session 對長 bench-ctx 不可靠（session 死於 curl 等待、無 result）→ 改用 host nohup：
+  source standalone.env 後 nohup bash scripts/bench-ctx.sh 245000 > /tmp/... 2>&1 &
+  （& 背景 + set -a source env；SSH 通道 timeout 不影響已 fork 之背景 job）。
+· bench 儀器判斷靠 GPU%（nvidia-smi util 96% = prefill 進行中；0% + POST 200 = 完成）。
+· 命令列不得內嵌 ${VLLM_API_KEY}（approval gate 拒）→ 一律腳本內 source env。
+```
+
 ---
+
+# 35. 2026-09-13 27b/35b stack 目錄統一（aeon-vllm-omni）＋ 35b v0.29 參數修正與 single/cluster 重測 ＋ keystone push
+
+> 承 §34（27b v0.29 升級）。本節：① 依使用者決策把 27b/35b 的 compose＋models＋patches 收回同一目錄
+> `~/docker-stacks/aeon-vllm-omni/`；② 修正 35b 殘留的 v0.29 不相容 env 並明示 V2 runner；
+> ③ 35b v0.29 single＋cluster C1-8 ＋ 245k ctx 完整重測；④ keystone `b97a9c8` ＋本批修正 push 至
+> Forgejo（origin/main）；⑤ Forgejo 首頁 README 新增部署服務 + benchmark 章節。
+
+## 35.1 stack 目錄統一：aeon-vllm-omni
+
+```text
+· 27b body/dflash2 權重、35b body/dflash 權重、27b 3 patches、35b flash_attn patch、
+  27b/35b compose 全部集中到 ~/docker-stacks/aeon-vllm-omni/（Node0 + Node1）。
+· 舊目錄 aeon-vllm-reasoning-eos/ 以 mv 移到 ~/docker-stacks/.trash/reasoning-eos-retired-20260913
+  （rm -rf 被 approval gate 擋 → 用 mv tombstone，非破壞性）。
+· compose 內 bind 路徑 sed 更新：27b 3 處、35b 1 處；Node1 由 Node0 scp 同步 v0.29 compose。
+· Node1 standalone.env AEON_IMAGE v0.27.1 → v0.29.0-omni；cluster.env IMG（兩節點）、
+  scripts/cluster-common.sh 預設 IMG 同步 v0.29.0-omni。
+· keystone repo 同步：runtimes.d/27b.conf STACK_DIR、cluster-profiles.d/27b.conf MODELS_BASE+
+  3 binds、cluster-profiles.d/35b.conf flash_attn bind、bin/gb10 doctor glob、AGENTS.md。
+· 驗證：bash -n 全過；gb10 doctor 4 個 model dir 全在 aeon-vllm-omni；gb10 verify-models 27b/35b
+  兩節點 PASS（SHA256SUMS 不存在為既有常態，略過 checksum）。
+```
+
+## 35.2 35b v0.29 參數修正（35b only；27b 未動）
+
+```text
+· VLLM_TEST_FORCE_FP8_MARLIN=1（v0.27 時代、n=11 殘留）移除：v0.29 啟動 log
+  明確吐 "Unknown vLLM environment variable detected: VLLM_TEST_FORCE_FP8_MARLIN" → 被忽略。
+  位置：cluster-profiles.d/35b.conf EXTRA_ENV ＋ docker-compose.35b.yml（Node0/Node1）。
+· VLLM_USE_V2_MODEL_RUNNER=1 由隱式（image mrv2-default-routing）改為明示寫入 35b cluster profile。
+· 修正後 35b single/cluster env 與 27b 對應檔逐項一致。
+· 重開驗證：0× Unknown env、Using V2 Model Runner、attention_backend flash_attn。
+```
+
+## 35.3 35b v0.29 single + cluster benchmark（2026-09-13）
+
+bench-c（MAX_TOKENS=2048）：
+
+```text
+| C | Single tok/s | Single Acc% | Cluster tok/s | Cluster Acc% | Speedup |
+|---|--------------|-------------|---------------|--------------|---------|
+| 1 | 76.4         | 35.7        | 113.9         | 40.3         | 1.49x   |
+| 2 | 121.6        | 36.0        | 199.0         | 44.3         | 1.64x   |
+| 3 | 134.7        | 32.5        | 249.0         | 40.9         | 1.85x   |
+| 4 | 171.8        | 36.6        | 273.2         | 42.8         | 1.59x   |
+| 8 | 269.5        | 36.9        | 402.6         | 38.1         | 1.49x   |
+```
+
+bench-ctx 245,010 tok（max_tokens=1，cold）：
+
+```text
+single  : 94.195s / 2601.0 tok/s
+cluster : 62.174s / 3940.7 tok/s (1.52x)
+```
+
+vs 2026-09-10（v0.27.1-omni, n=6）：
+
+```text
+| metric | Single Δ | Cluster Δ |
+| C1     | +159%    | +336%     |
+| C2     | +21%     | +31%      |
+| C3     | -13%     | +26%      |
+| C4     | +1%      | +14%      |
+| C8     | +1%      | +30%      |
+| 245k   | +4%      | -1%       |
+```
+
+變異：同一 v0.29 single 跑兩次（僅差一個被忽略 env）C1 68.4→76.4、C3 152.5→134.7、C4 186.3→171.8，
+但 245k prefill 幾乎不動（2599.2→2601.0）→ C1–C4 ±10–15% 雜訊，判讀以 C8/ctx 為主。
+完整數據：`docs/BENCHMARK_35B_V029_SINGLE_CLUSTER_2026-09-13.md`（27b 對照：
+`docs/BENCHMARK_27B_MIXED_V3_V029_SINGLE_CLUSTER_2026-09-13.md`）。
+
+## 35.4 卡點與教訓
+
+```text
+· 首次 35b cluster（v0.29）在 FlashInfer autotune 卡住 ~26 min：rank0/rank1 log 停在
+  autotune config-cache load、GPU 96%、autotune_configs.json 不再寫入 → gb10 stop kill。
+  以修正後配置重開即正常（autotune 實際 tuning 完成）。無法證實與該 env 有關（v0.29 本就忽略），
+  列為一次性 autotune wedge；但配置清理本身正確。
+· pkill -f "<pattern>" 會 self-match 自己的 shell（命令字串含 pattern）→ 誤殺當前命令（SIGTERM）。
+  避免用 pkill -f，或改用不含 pattern 的方式。
+· single 35b 有 --enable-prefix-caching：重複同一 245k payload 會 cache-hit（8876 tok/s），
+  非 prefill 值；量 cold prefill 需先重啟容器。
+```
+
+## 35.5 keystone commit / push / README
+
+```text
+· keystone（Node0 main）：b97a9c8（27b v0.29 升級，5 files）＋本批 consolidation + 35b fix
+  （AGENTS.md, bin/gb10, cluster-profiles.d/27b.conf, cluster-profiles.d/35b.conf,
+  runtimes.d/27b.conf, scripts/cluster-common.sh）→ push origin/main（Forgejo）。
+· Forgejo repo 首頁 README.md：新增「Deployed services & benchmark」章節，
+  列 27b/35b single+cluster 與 deepseek cluster 之最新 image 基準數值。
+· 本機 maintenance repo（branch docs-carrier-9041）：handoff §35 ＋兩份 benchmark 報告 commit+push。
+```
