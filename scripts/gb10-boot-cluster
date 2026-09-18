@@ -16,6 +16,11 @@ PROFILE="${1:?usage: gb10-boot-cluster <profile>}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
+# Preflight: fail fast before the teardown/launch sequence when the
+# checkout has drifted from upstream.  The background job logs the
+# refusal; gb10 wait/status surface the boot error.
+"${REPO_DIR}/scripts/check-git-sync.sh" --block
+
 PID_FILE="${REPO_DIR}/state/boot-cluster.${PROFILE}.pid"
 READY_FILE="${REPO_DIR}/state/boot-ready.${PROFILE}"
 

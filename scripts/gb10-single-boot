@@ -24,6 +24,11 @@ REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 REG="${REPO_DIR}/runtimes.d"
 STATE="${REPO_DIR}/state"
 
+# Preflight: fail fast before the teardown/start sequence when the
+# checkout has drifted from upstream.  The background job logs the
+# refusal; gb10-single wait/status surface the boot error.
+"${REPO_DIR}/scripts/check-git-sync.sh" --block
+
 PID_FILE="${STATE}/boot-single.${NODE}.${RUNTIME}.pid"
 READY_FILE="${STATE}/boot-ready.${NODE}.${RUNTIME}"
 

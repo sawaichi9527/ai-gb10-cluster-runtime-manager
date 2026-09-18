@@ -439,6 +439,7 @@ case "$cmd" in
     ;;
   status)
     node="${2:-node0}"; node_is_valid "$node" || die "unknown node: $node"
+    "${SCRIPTS}/check-git-sync.sh" --warn
     show_status "$node"
     ;;
   use|start)
@@ -451,6 +452,10 @@ case "$cmd" in
       echo "$RUNTIME_ID: already active and READY on $node."
       exit 0
     fi
+
+    # Preflight: refuse to deploy from a checkout drifted from upstream.
+    # Teardown (stop/free) and read-only commands are not guarded.
+    "${SCRIPTS}/check-git-sync.sh" --block
 
     # prevent concurrent boots (same OR any other runtime on this node)
     if node_boot_alive "$node"; then
@@ -536,6 +541,7 @@ case "$cmd" in
   restart)
     [[ $# == 3 ]] || die "usage: gb10-single restart <node0|node1> <runtime>"
     node="$2"; node_is_valid "$node" || die "unknown node: $node"
+    "${SCRIPTS}/check-git-sync.sh" --block
     f="$(resolve "$3")"; load "$f"
     if [[ "$PLACEHOLDER" == true ]]; then echo "$RUNTIME_ID: placeholder (not deployed)."; exit 0; fi
     NODE="$node"

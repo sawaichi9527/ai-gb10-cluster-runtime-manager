@@ -21,6 +21,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/cluster-common.sh"
 
+# Preflight: refuse to deploy from a checkout that has drifted from
+# upstream.  Self-contained subprocess; exits 1 when behind/diverged.
+# (bin/gb10 already gates the foreground path; this is the second line
+# for direct invocations of this script.)
+"${SCRIPT_DIR}/check-git-sync.sh" --block
+
 PROFILE_ARG="${1:-27b}"
 load_profile "${PROFILE_ARG}"
 
