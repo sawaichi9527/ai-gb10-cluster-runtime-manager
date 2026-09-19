@@ -119,7 +119,7 @@ load_profile(){
         REASONING_PARSER TOOL_CALL_PARSER ENABLE_AUTO_TOOL_CHOICE \
         ENABLE_CHUNKED_PREFILL ENABLE_PREFIX_CACHING \
         QUANTIZATION SPEC_CONFIG PASS_CONFIG CUDAGRAPH_CAPTURE \
-        EXTRA_ARGS EXTRA_ENV EXTRA_MOUNTS \
+        EXTRA_ARGS EXTRA_ENV EXTRA_MOUNTS CMD_WRAPPER \
         DISABLE_CUSTOM_ALL_REDUCE SHM_SIZE ENGINE MODEL_ID TP_SIZE NNODES MEM_FRACTION_STATIC CHUNKED_PREFILL_SIZE CUDA_GRAPH_MAX_BS_DECODE MAX_RUNNING_REQUESTS MOE_RUNNER_BACKEND SPEC_MOE_RUNNER_BACKEND SPEC_ALGORITHM DISABLE_SHARED_EXPERTS_FUSION API_HOST MODELS_BASE 2>/dev/null || true
   # shellcheck disable=SC1090
   source "$conf"
@@ -345,11 +345,27 @@ _compose_service(){ # <service> <rank> -> emits one service block to stdout
   echo "  ${svc}:"
   echo "    image: ${IMG}"
   printf '    container_name: cluster-node%s\n' "$rank"
-  printf '    entrypoint: [%s]\n' "$entry"
-  echo '    command:'
-  for a in "serve" "/model" "${ARGS[@]}"; do
-    printf '      - %s\n' "$(_yaml_dq "$a")"
-  done
+  if [[ -n "${CMD_WRAPPER:-}" ]]; then
+    # Optional per-profile startup wrapper (default-off; unset => the legacy
+    # entrypoint+command below is emitted byte-for-byte unchanged). Used by the
+    # vision lane, whose runtime support (ViT/Aligner encoder + hotfix patchers)
+    # must run INSIDE the container before vllm serve. CMD_WRAPPER is the
+    # profile-owned prelude; the shared build_vllm_args argv is appended as the
+    # exec line so model args stay data-driven (no per-profile arg duplication).
+    local _exec="exec /usr/local/bin/vllm serve /model" _a
+    for _a in "${ARGS[@]}"; do _exec+=" $(printf '%q' "$_a")"; done
+    echo '    entrypoint: []'
+    echo '    command:'
+    echo '      - "bash"'
+    echo '      - "-lc"'
+    printf '      - %s\n' "$(_yaml_dq "${CMD_WRAPPER}; ${_exec}")"
+  else
+    printf '    entrypoint: [%s]\n' "$entry"
+    echo '    command:'
+    for a in "serve" "/model" "${ARGS[@]}"; do
+      printf '      - %s\n' "$(_yaml_dq "$a")"
+    done
+  fi
   echo '    environment:'
   i=0
   while (( i < ${#ENV[@]} )); do
