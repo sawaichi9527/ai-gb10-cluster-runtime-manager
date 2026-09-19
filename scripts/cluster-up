@@ -60,6 +60,27 @@ trap 'rm -f -- "${RENDER_YML}"' EXIT
 if [[ "${LAUNCH_STYLE:-docker}" == "compose" ]]; then
   render_tp2_compose "${RENDER_YML}"
 
+  # ---- optional per-profile dir sync (default-off) ----
+  # SYNC_DIRS entries are "SRC:DEST" pairs. SRC lives on Node0 (usually the
+  # repo, the source of truth); DEST is staged at the same ABSOLUTE path on
+  # BOTH nodes before the worker starts. Needed because Node1 does not host
+  # the repo and this path only ships the rendered compose, so any bind-mount
+  # source (e.g. the vision lane's hotfix dir) must be provisioned on Node1
+  # too. Unset => strict no-op (27b/35b/deepseek unchanged).
+  if [[ -n "${SYNC_DIRS+x}" ]]; then
+    for _pair in "${SYNC_DIRS[@]}"; do
+      _src="${_pair%%:*}"; _dst="${_pair#*:}"
+      echo "== syncing dir ${_src} -> ${_dst} (node0) =="
+      mkdir -p "${_dst}"
+      rm -rf "${_dst:?}"/*
+      cp -a "${_src}"/. "${_dst}"/
+      echo "== syncing dir ${_src} -> ${_dst} (node1) =="
+      tar -C "$(dirname "${_src}")" -cf - "$(basename "${_src}")" \
+        | n1 "mkdir -p '${_dst}' && rm -rf '${_dst:?}'/* && tar -C '${_dst}' -xf - --strip-components=1"
+    done
+    unset _pair _src _dst
+  fi
+
   # ---- Node1 headless worker (rank1): ship compose, then up -d worker ----
   echo "== launching Node1 headless worker (rank1, compose, profile=${PROFILE}) =="
   cat "${RENDER_YML}" | n1 "cat > /tmp/tp2-compose-${PROFILE}.yml"
