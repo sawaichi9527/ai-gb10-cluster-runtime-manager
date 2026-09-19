@@ -20,7 +20,13 @@ NIMG="${1:-1}"
 C="${2:-1}"
 MAX_TOKENS="${3:-200}"
 
-IMG_FILE="${MM_IMAGE:-${BODY}/inference/examples/images/carrots.jpeg}"
+IMG_FILE="${MM_IMAGE:-}"
+if [[ -z "$IMG_FILE" ]]; then
+  # Resolve the served model dir from the profile (data-driven; default = the
+  # vision lane). Override the whole path with MM_IMAGE=.
+  load_profile "${MM_PROFILE:-deepseek-vision}"
+  IMG_FILE="${BODY}/inference/examples/images/carrots.jpeg"
+fi
 [[ -f "$IMG_FILE" ]] || { echo "ERROR: test image not found: $IMG_FILE (set MM_IMAGE=)" >&2; exit 1; }
 
 URL="http://127.0.0.1:${API_PORT}/v1/chat/completions"
