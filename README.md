@@ -91,6 +91,18 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 | 32K | 1941.0 |
 | 131K | 1825.3 |
 | 200K | 1710.2 |
+| 245K | 1671.3 |
+| 260K | 1638.0 |
+
+| 圖片輸入 (`bench-mm.sh`, max_tokens=200) | prompt tok | wall (s) | agg tok/s |
+|---|---|---|---|
+| 1 img, C=1 | 407 | 3.76 | 53.1 |
+| 4 img, C=1 | 1346 | 5.51 | 36.3 |
+| 8 img, C=1 | 2598 | 12.37 | 16.2 |
+| 1 img, C=4 | 407 ×4 | 7.21 | 111.0 |
+
+> 多模態：OpenAI `image_url`（base64）正常，每張圖約 320–390 prompt tokens（checkpoint `vision_max_n_token=384`）；`--limit-mm-per-prompt {"image":8}`。長上下文 prefill 到 260K 仍線性（1638 tok/s @ 260K）。
+> 節點部署：vision 的 hotfix 目錄由 `cluster-up` 的 `SYNC_DIRS` 於每次 boot 從 repo 自動同步到兩節點（node1 不 host repo）。
 
 ### DeepSeek V4 Flash 0731 mainline — 2026-09-20 同 session 重測
 
