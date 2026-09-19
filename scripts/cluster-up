@@ -126,8 +126,8 @@ echo "node0 docker run rc=$rc"
 echo "== waiting for API health on :${API_PORT} (cold start can take ~10-15 min) =="
 begin=$SECONDS
 until curl -fsS -m 5 "http://localhost:${API_PORT}/health" >/dev/null 2>&1; do
-  if ((SECONDS-begin > 2400)); then
-    echo "ERROR: health timeout (2400s)" >&2
+  if ((SECONDS-begin > ${HEALTH_TIMEOUT:-2400})); then
+    echo "ERROR: health timeout (${HEALTH_TIMEOUT:-2400}s)" >&2
     sdk docker logs --tail 60 cluster-node0 2>&1 || true
     exit 1
   fi
