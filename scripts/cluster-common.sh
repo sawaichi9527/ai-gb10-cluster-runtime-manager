@@ -112,7 +112,7 @@ load_profile(){
     exit 2
   fi
   # reset state so a partial conf can't leak a previous profile
-  unset PROFILE_ID DISPLAY_NAME PLACEHOLDER IMAGE IMG_SHA256 BODY_REL DRAF_REL \
+  unset PROFILE_ID DISPLAY_NAME PLACEHOLDER IMAGE IMG_SHA256 LAUNCH_STYLE BODY_REL DRAF_REL \
         MAXLEN NUMSEQ BATCHED GMU NSPEC \
         KV_DTYPE ATTN_BACKEND LINEAR_BACKEND MOE_BACKEND \
         SPEC_METHOD SPEC_ATTN_BACKEND NSPEC GRAPH_MODE \
@@ -306,6 +306,104 @@ build_docker_env(){
   [[ -n "${DRAF:-}" ]] && DOCKER_MOUNTS+=(-v "${DRAF}:/drafter:ro")
   [[ -n "${EXTRA_MOUNTS+x}" ]] && DOCKER_MOUNTS+=("${EXTRA_MOUNTS[@]}")
   export DOCKER_ENV_EXTRA DOCKER_MOUNTS
+}
+
+# =====================================================================
+# Compose lane (LAUNCH_STYLE=compose)
+# ---------------------------------------------------------------------
+# deepseek lanes declare LAUNCH_STYLE="compose" in their conf. cluster-up
+# renders the compose file per launch from the SAME profile data and the
+# SAME build_vllm_args/build_docker_env used by the docker-run path, so
+# the compose-launched container spec equals today's docker run (zero
+# drift). Services: worker -> cluster-node1, head -> cluster-node0; the
+# owners run `up -d worker` (node1) then `up -d head` (node0). The
+# container_name pin keeps cluster-down/status/smoke unchanged.
+# The image manifest gate (IMG_SHA256) still applies before launch.
+# =====================================================================
+_yaml_dq(){ # double-quoted YAML scalar (escapes backslash + double quote)
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  printf '"%s"' "$s"
+}
+
+_compose_service(){ # <service> <rank> -> emits one service block to stdout
+  local svc="$1" rank="$2"
+  local -a ARGS ENV MNT
+  local i tok v entry="${ENTRY:-}"
+  [[ -z "$entry" ]] && { entry="vllm"; [[ "${ENGINE}" == "sglang" ]] && entry="sglang"; }
+  if [[ "${ENGINE}" == "sglang" ]]; then
+    build_sglang_args "$rank"; ARGS=( "${SGLANG_ARGS[@]}" )
+  else
+    build_vllm_args "$rank"; ARGS=( "${VLLM_ARGS[@]}" )
+  fi
+  # DOCKER_ENV_EXTRA mixes "pair" form (-e then K=V) with "token" form
+  # (-e K=V in one element from EXTRA_ENV/EXTRA_MOUNTS); accept both.
+  build_docker_env "$rank"
+  ENV=( "${DOCKER_ENV_EXTRA[@]}" ); MNT=( "${DOCKER_MOUNTS[@]}" )
+
+  echo "  ${svc}:"
+  echo "    image: ${IMG}"
+  printf '    container_name: cluster-node%s\n' "$rank"
+  printf '    entrypoint: [%s]\n' "$entry"
+  echo '    command:'
+  for a in "serve" "/model" "${ARGS[@]}"; do
+    printf '      - %s\n' "$(_yaml_dq "$a")"
+  done
+  echo '    environment:'
+  i=0
+  while (( i < ${#ENV[@]} )); do
+    tok="${ENV[i]}"
+    if [[ "$tok" == "-e" ]]; then
+      v="${ENV[$((i+1))]}"; (( i += 2 ))
+    elif [[ "$tok" == "-e "* ]]; then
+      v="${tok#-e }"; (( i += 1 ))
+    else
+      v=""; (( i += 1 ))
+    fi
+    printf '      %s: %s\n' "${v%%=*}" "$(_yaml_dq "${v#*=}")"
+  done
+  echo '    volumes:'
+  i=0
+  while (( i < ${#MNT[@]} )); do
+    tok="${MNT[i]}"
+    if [[ "$tok" == "-v" ]]; then
+      v="${MNT[$((i+1))]}"; (( i += 2 ))
+    elif [[ "$tok" == "-v "* ]]; then
+      v="${tok#-v }"; (( i += 1 ))
+    else
+      v=""; (( i += 1 ))
+    fi
+    printf '      - %s\n' "$(_yaml_dq "$v")"
+  done
+  echo '    network_mode: host'
+  echo '    ipc: host'
+  printf '    shm_size: %s\n' "${SHM_SIZE:-16g}"
+  echo '    devices:'
+  echo '      - /dev/infiniband'
+  echo '    cap_add:'
+  echo '      - IPC_LOCK'
+  echo '    ulimits:'
+  echo '      memlock: {soft: -1, hard: -1}'
+  echo '      stack: {soft: 67108864, hard: 67108864}'
+  echo '    deploy:'
+  echo '      resources:'
+  echo '        reservations:'
+  echo '          devices:'
+  echo '            - driver: nvidia'
+  echo '              count: all'
+  echo '              capabilities: [gpu]'
+}
+
+render_tp2_compose(){ # <outfile> — single file, worker + head services
+  local out="$1"
+  {
+    printf 'name: tp2-%s\n' "${PROFILE}"
+    echo 'services:'
+    _compose_service worker 1
+    _compose_service head 0
+  } > "$out"
+  chmod 600 "$out"
 }
 
 # =====================================================================
