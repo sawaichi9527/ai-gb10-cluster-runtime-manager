@@ -110,6 +110,14 @@ Key rules:
 - `comfyui` is the current Node1 Flux 2 Dev runtime. Old `comfyui-personal`/`comfyui-work`
   split is retired — do not resurrect it unless a future design explicitly requires it.
 - Scripts are LF, `#!/usr/bin/env bash`, `set -Eeuo pipefail`. No Windows CRLF.
+- **TP2 FlashInfer autotune cache must stay symmetric across the two nodes.** Both ranks
+  run the same collective autotune; a divergent cache desyncs them and deadlocks the boot
+  (rank0 spin-wait, rank1 idle, `/health` never ready). `scripts/cluster-up` calls
+  `ensure_autotune_cache_symmetry` (in `cluster-common.sh`) before launch — it fingerprints
+  `~/.cache/huggingface/vllm-cache/flashinfer_autotune_cache` on both nodes and clears both
+  on divergence (`AUTOTUNE_CACHE_POLICY=verify|always-clear|off`, default `verify`).
+  Keep single-node LLM runtimes on their OWN cache root (`~/.cache/vllm`, `~/.cache/vllm-<id>`,
+  never TP2's `vllm-cache`); `gb10-single-boot` warns if a compose violates this.
 - `.env.example`/`cluster.env.example` are the sanitized templates; never add real keys.
 - Structural refactors and model/image patch work should be separate commits/PRs so regression
   ownership is obvious.

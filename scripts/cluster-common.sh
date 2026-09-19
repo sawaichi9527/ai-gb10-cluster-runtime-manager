@@ -423,6 +423,78 @@ _verify_remote_checksum(){
   return $rc
 }
 
+# =====================================================================
+# FlashInfer autotune cache symmetry gate (TP2)
+# ---------------------------------------------------------------------
+# Both ranks run the SAME collective FlashInfer autotune sequence at boot.
+# If the per-node autotune cache diverges (one rank hits a config the
+# other still has to tune) the ranks desynchronise and TP2 deadlocks in
+# the autotune step: rank0 spins in the collective (high GPU util, low
+# power draw) while rank1 sits idle, and /health never becomes ready.
+#
+# Heal: fingerprint the cache on both nodes before launch; when they
+# differ, clear BOTH and let the ranks re-tune from an identical state.
+# (closing a cache dir needs only write on its eye-owned parent, so no
+# sudo is required.)
+#
+# AUTOTUNE_CACHE_POLICY:
+#   verify       (default) clear only on divergence
+#   always-clear clear every boot (belt-and-braces; +~1-2 min autotune)
+#   off          skip the check entirely
+# =====================================================================
+_AUTOTUNE_CACHE_REL=".cache/huggingface/vllm-cache/flashinfer_autotune_cache"
+
+# Path+size fingerprint of the cache tree. What matters for lockstep is
+# WHICH autotune problems are cached (that decides which collective
+# tuning steps a rank skips); the file bytes are incidental. Also
+# read-permission-free — the cache files are root-owned, so eye cannot
+# hash their contents. "absent" when the dir does not exist.
+_autotune_fingerprint(){
+  local dir="$1"
+  if [[ -d "$dir" ]]; then
+    ( cd "$dir" && find . -type f -printf '%P %s\n' 2>/dev/null \
+        | sort | sha256sum | awk '{print $1}' )
+  else
+    echo absent
+  fi
+}
+
+_autotune_clear_local(){
+  local dir="${HOME}/${_AUTOTUNE_CACHE_REL}"
+  [[ -e "$dir" ]] && mv "$dir" "${dir}.cleared-$(date +%Y%m%d-%H%M%S)" 2>/dev/null || true
+}
+
+_autotune_clear_remote(){
+  n1 "d=\"\$HOME/${_AUTOTUNE_CACHE_REL}\"; if [ -e \"\$d\" ]; then mv \"\$d\" \"\${d}.cleared-\$(date +%Y%m%d-%H%M%S)\" 2>/dev/null || true; fi; exit 0"
+}
+
+ensure_autotune_cache_symmetry(){
+  local policy="${AUTOTUNE_CACHE_POLICY:-verify}"
+  case "$policy" in
+    off)
+      echo "INFO: autotune cache gate skipped (AUTOTUNE_CACHE_POLICY=off)"
+      return 0 ;;
+    always-clear)
+      echo "INFO: autotune cache policy=always-clear — clearing both nodes"
+      _autotune_clear_local; _autotune_clear_remote
+      return 0 ;;
+    verify) ;;
+    *) echo "WARN: unknown AUTOTUNE_CACHE_POLICY='${policy}' (treating as verify)" >&2 ;;
+  esac
+  local local_fp remote_fp
+  local_fp="$(_autotune_fingerprint "${HOME}/${_AUTOTUNE_CACHE_REL}")"
+  remote_fp="$(n1 "d=\"\$HOME/${_AUTOTUNE_CACHE_REL}\"; if [ -d \"\$d\" ]; then (cd \"\$d\" && find . -type f -printf '%P %s\n' 2>/dev/null | sort | sha256sum | awk '{print \$1}'); else echo absent; fi")"
+  remote_fp="${remote_fp//[[:space:]]/}"
+  if [[ "$local_fp" == "$remote_fp" ]]; then
+    echo "INFO: autotune cache in sync (fp=${local_fp:0:12})"
+    return 0
+  fi
+  echo "WARN: autotune cache diverged (rank0=${local_fp:0:12} rank1=${remote_fp:0:12})" >&2
+  echo "WARN: clearing both nodes (prevents TP2 autotune collective deadlock)" >&2
+  _autotune_clear_local
+  _autotune_clear_remote
+}
+
 # Common validation: profiles exist on both nodes, ssh reachable
 node_up(){
   local _v="${VERIFY_SHARDS:-8}"

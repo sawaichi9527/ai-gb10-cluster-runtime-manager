@@ -51,7 +51,7 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 | 245k prefill (tok/s) | 2580.1 | 3951.9 | 1.53x |
 
 > 245k prefill 用 `bench-ctx.sh 245000 1`（max_tokens=1 純 prefill）。
-> **踩雷**：兩節點 FlashInfer autotune cache 若不一致，換 image/profile 後 TP2 會在 `Autotuning` 階段集體死鎖（rank0 高 GPU spin-wait、rank1 閒置，`/health` 永不 ready）。解法：拆掉後清兩節點 `~/.cache/huggingface/vllm-cache/flashinfer_autotune_cache` 再 boot（本次即以此解）。
+> **踩雷（已自動化）**：兩節點 FlashInfer autotune cache 若不一致，TP2 會在 `Autotuning` 階段集體死鎖（rank0 高 GPU spin-wait、rank1 閒置，`/health` 永不 ready）。`scripts/cluster-up` 現於啟動前呼叫 `ensure_autotune_cache_symmetry`（`cluster-common.sh`）：兩節點指紋不一致就自動清掉並重 tune；可用 `AUTOTUNE_CACHE_POLICY=verify|always-clear|off`（預設 `verify`）調整。單節點 runtime 另用獨立 cache root（`~/.cache/vllm*`），不污染 TP2 路徑（`gb10-single-boot` 會檢查）。
 
 ### DeepSeek V4 Flash fp8 mainline (bench-c C1-C8; 200K probe) - 歷史結果
 
