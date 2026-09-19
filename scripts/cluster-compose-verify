@@ -89,7 +89,8 @@ exp_mnt_lines(){ # rank -> "SRC;DEST;true|false" lines (Source;Destination;RW)
 TM_SCALARS='{{json .Config.Entrypoint}}||{{json .Config.Cmd}}||{{.HostConfig.NetworkMode}}||{{.HostConfig.IpcMode}}||{{.HostConfig.ShmSize}}||{{join .HostConfig.Devices "|"}}||{{join .HostConfig.CapAdd "|"}}||{{range .HostConfig.Ulimits}}{{.Name}}={{.Soft}}={{.Hard}};{{end}}||{{range .HostConfig.DeviceRequests}}[{{.Driver}}|{{.Count}}|{{join .Capabilities ","}}];{{end}}'
 
 get_facts(){ # <rank> -> sets GET_* and NODE_HOME ; 0 runs locally, 1 over n1 (sudo)
-  local rank="$1" cid="cluster-node${rank}" out SP
+  local rank="$1"
+  local cid="cluster-node${rank}" out SP
   if [[ "$rank" == "0" ]]; then
     NODE_HOME="$HOME"
     GET_ENV="$(sdk docker inspect "$cid" --format '{{range .Config.Env}}{{println .}}{{end}}')"
@@ -113,7 +114,8 @@ get_facts(){ # <rank> -> sets GET_* and NODE_HOME ; 0 runs locally, 1 over n1 (s
 
 fail=0
 verify_rank(){ # 0 | 1
-  local rank="$1" label="cluster-node${rank}" kv
+  local rank="$1"
+  local label="cluster-node${rank}" kv
   get_facts "$rank"
   exp_env_map  "$rank"      > "/tmp/cv-exp-env.$$"
   exp_mnt_lines "$rank"     > "/tmp/cv-exp-mnt.$$"
