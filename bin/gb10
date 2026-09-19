@@ -123,7 +123,7 @@ case "${1:-help}" in
     echo "  27b  [default]  Qwen3.8 27B (body + DFlash2 drafter)"
     echo "  35b             Qwen3.6 35B-A3B (body + DFlash drafter)"
     echo "  deepseek        DeepSeek-V4-Flash-0731 (fp8 DSpark mainline, 256K)"
-    echo "  deepseek-vision  DeepSeek-V4-Flash-Vision-Exp (vLLM multimodal, 32K) [placeholder]"
+    echo "  deepseek-vision  DeepSeek-V4-Flash-Vision-Exp (vLLM multimodal, 32K)"
     ;;
   use|start)
     # Preflight: refuse to deploy from a checkout drifted from upstream.
@@ -155,9 +155,9 @@ case "${1:-help}" in
         fi
         ;;
       *)
-        # Placeholder profile (e.g. deepseek-vision pre-landing): never
-        # start a background boot (gb10-boot-cluster would tear down the
-        # live stack first). Informational exit 0 — mirrors cluster-up.
+        # Placeholder / not-yet-bootable profile: never start a background
+        # boot (gb10-boot-cluster would tear down the live stack first).
+        # Informational exit 0 — mirrors cluster-up.
         echo "$(date '+%F %T') $P: not deployed yet (placeholder)"
         echo "  flip PLACEHOLDER=false in cluster-profiles.d/${P}.conf + lock IMG_SHA256 first"
         exit 0
