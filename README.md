@@ -13,6 +13,7 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 
 > 2026-09-13 實測。27B/35B 原使用 `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-09-11-v0.29.0-omni`；DeepSeek 為歷史主力線 `ghcr.io/anemll/dspark-vllm-gx10:0.1.1` 之既有結果。
 > **2026-09-19 更新**：35B 與 27B 皆已升 `2026-09-18-v0.29.0-omni` 並重新實測（單節點啟用 `VLLM_USE_V2_MODEL_RUNNER=1`）。27B 先前在 09-18 首次冷啟動觸及 `cluster-up` 硬編碼 2400s health timeout 而誤判失敗（非 image 缺陷）；已改為 profile 可覆寫（27B `HEALTH_TIMEOUT=3600`），實測 READY 並完成 cluster/single benchmark。
+> **2026-09-20 新增**：DeepSeek V4 Flash **Vision-Exp**（多模態）以**與 mainline deepseek 同一顆** Anemll image + 啟動 wrapper 上線（`gb10 use deepseek-vision`，互斥）；bench-c / bench-ctx 實測見下方。
 
 ### 已部署服務
 
@@ -23,6 +24,7 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 | 35B single (TP1) | `qwen3.6-35b-a3b-heretic-nvfp4` + DFlash n=6 | `2026-09-18-v0.29.0-omni` | `:1234/v1` | deployed（09-19 實測） |
 | 35B cluster (TP2) | 同上 | `2026-09-18-v0.29.0-omni` | `http://192.168.23.215:1234/v1` | deployed（09-19 實測） |
 | DeepSeek V4 Flash cluster (TP2) | `deepseek-v4-flash-0731-official` + DSpark n=7 | `anemll/dspark-vllm-gx10:0.1.1` | `http://192.168.23.215:1234/v1` | deployed (mainline) |
+| DeepSeek V4 Flash **Vision-Exp** cluster (TP2) | `deepseek-v4-flash-vision-exp` + DSpark n=6 (multimodal) | `anemll/dspark-vllm-gx10:0.1.1`（**與 deepseek 同 image / 同 digest**） | `http://192.168.23.215:1234/v1` | deployed（09-20 實測，文字＋圖片） |
 
 ### 27B v0.29.0-omni (bench-c C1-C8, MAX_TOKENS=2048; 245k cold prefill)
 
@@ -64,6 +66,51 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 | 200K prefill (tok/s) | 1600.3 | - |
 
 > 完整報告：maintenance repo `docs/BENCHMARK_27B_MIXED_V3_V029_SINGLE_CLUSTER_2026-09-13.md`、`docs/BENCHMARK_35B_V029_SINGLE_CLUSTER_2026-09-13.md`；DeepSeek 見 handoff §23.3。
+
+### DeepSeek V4 Flash Vision-Exp (TP2, 與 deepseek 同 image) — 2026-09-20 實測
+
+> `cluster-profiles.d/deepseek-vision.conf` 使用**與 mainline deepseek 完全相同**的 image
+> `ghcr.io/anemll/dspark-vllm-gx10:0.1.1`（digest `a8394849…`）。Vision-Exp 支援不在 image 內，
+> 而是靠**啟動 wrapper**（`entrypoint: []` + `bash -lc`：安裝 checkpoint 的 ViT/Aligner encoder
+> → 套 17 個社群 hotfix → `exec vllm serve`）；hotfix 已 vendored 於 `patches/dspark-vision/`
+> （MiaAI-Lab，MIT）。`nvfp4_ds_mla` KV、`flashinfer_b12x` MoE、DSpark k=6、
+> **262144 ctx / 8-way（與 mainline 0731 相同）**。兩 profile 互斥切換
+> （`gb10 use deepseek` ↔ `gb10 use deepseek-vision`）。實測 `/v1/chat/completions` 文字與
+> `image_url` 圖片輸入皆正常；KV pool 381,364 tokens（0731 為 405,179，差異來自 ViT encoder 佔用權重記憶體）。
+
+| C | Vision-Exp tok/s | accept % |
+|---|---|---|
+| 1 | 36.7 | 29.9% |
+| 2 | 48.8 | 29.6% |
+| 3 | 58.0 | 32.5% |
+| 4 | 67.3 | 30.9% |
+| 8 | 73.4 | 30.1% |
+
+| prefill probe (`bench-ctx.sh`, max_tokens=1) | Vision-Exp tok/s |
+|---|---|
+| 32K | 1941.0 |
+| 131K | 1825.3 |
+| 200K | 1710.2 |
+
+### DeepSeek V4 Flash 0731 mainline — 2026-09-20 同 session 重測
+
+> 與上方 Vision-Exp 同一顆 image、同一台 TP2、同一組 `bench-c.sh` / `bench-ctx.sh`（`MAX_TOKENS=400`），作為對照。`bench-c` 之 prompt：0731 約 118 tok、Vision-Exp 約 197 tok（同文字，tokenizer/chat template 差異）。
+
+| C | 0731 tok/s | accept % |
+|---|---|---|
+| 1 | 35.7 | 25.1% |
+| 2 | 55.7 | 29.3% |
+| 3 | 45.1 | 25.4% |
+| 4 | 55.5 | 27.1% |
+| 8 | 93.1 | 28.8% |
+
+| prefill probe (`bench-ctx.sh`, max_tokens=1) | 0731 tok/s |
+|---|---|
+| 32K | 1516.9 |
+| 131K | 1682.3 |
+| 200K | 1725.0 |
+
+> 觀察：C≥4 兩者吞吐相近；C=8 0731 較高（93.1 vs 73.4）；短/中長 prefill Vision-Exp 略快、200K 同級。
 
 ## Topology
 
@@ -111,9 +158,9 @@ gb10 load                     # concurrent load
 gb10 doctor
 ```
 
-Current deployed TP2 profiles are 27B, 35B and DeepSeek (data-driven from
-`cluster-profiles.d/`). `qwen38flash` and `glm53flash` are single-node placeholders
-until their runtimes land.
+Current deployed TP2 profiles are 27B, 35B, DeepSeek (mainline 0731) and
+DeepSeek Vision-Exp (data-driven from `cluster-profiles.d/`). `qwen38flash` and
+`glm53flash` are single-node placeholders until their runtimes land.
 
 ### TP2 profile registry (completed 2026-09-05)
 
@@ -125,6 +172,7 @@ cluster-profiles.d/
   27b.conf          # deployed + live-validated (world_size=2, maxlen 262144)
   35b.conf          # deployed + live-validated (world_size=2, maxlen 131072)
   deepseek.conf     # deployed + live-validated (fp8 DSpark mainline, 256k ctx)
+  deepseek-vision.conf  # deployed + live-validated (Vision-Exp, same image as deepseek)
 ```
 
 Each conf carries the **profile-scoped image** and per-model vLLM arguments, loaded once by
