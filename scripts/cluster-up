@@ -39,10 +39,10 @@ fi
 
 node_up
 
-# TP2 ranks must start from identical FlashInfer autotune caches — a
-# divergent cache desyncs the collective autotune and deadlocks the boot
-# (see cluster-common.sh). Heal before either rank launches.
-ensure_autotune_cache_symmetry
+# The FlashInfer autotune cache is rank-keyed and cannot be shared across
+# ranks; leaving one behind deadlocks the boot (see cluster-common.sh).
+# Reset both nodes so the two ranks tune in lockstep.
+ensure_autotune_cache_reset
 
 # ------------------------------------------------------------------
 # Node1 headless worker (rank1). Node0 resolves the full rank1 argv via

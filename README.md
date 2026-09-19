@@ -51,7 +51,7 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 | 245k prefill (tok/s) | 2580.1 | 3951.9 | 1.53x |
 
 > 245k prefill 用 `bench-ctx.sh 245000 1`（max_tokens=1 純 prefill）。
-> **踩雷（已自動化）**：兩節點 FlashInfer autotune cache 若不一致，TP2 會在 `Autotuning` 階段集體死鎖（rank0 高 GPU spin-wait、rank1 閒置，`/health` 永不 ready）。`scripts/cluster-up` 現於啟動前呼叫 `ensure_autotune_cache_symmetry`（`cluster-common.sh`）：兩節點指紋不一致就自動清掉並重 tune；可用 `AUTOTUNE_CACHE_POLICY=verify|always-clear|off`（預設 `verify`）調整。單節點 runtime 另用獨立 cache root（`~/.cache/vllm*`），不污染 TP2 路徑（`gb10-single-boot` 會檢查）。
+> **踩雷（已自動化）**：FlashInfer autotune cache **無法跨 rank 共用**——持久化的 `file_key` 內含 `tp_rank/ep_rank/cluster_rank`，而 vLLM 只在 leader（world rank 0）存檔、再把該 leader 檔 broadcast 給所有 rank；follower 用 rank-local key 永遠 miss → 兩 rank 要 benchmark 的 tactic 數不同 → 每 tactic 的 `dist.all_reduce` 死鎖（rank0 高 GPU spin-wait、rank1 閒置、`/health` 永不 ready）。故 `scripts/cluster-up` 於每次 boot 前呼叫 `ensure_autotune_cache_reset`（`cluster-common.sh`）**無條件清掉兩節點快取**，讓兩 rank 冷啟 lockstep；`AUTOTUNE_CACHE_POLICY=off` 可跳過（僅診斷）。單節點 runtime 另用獨立 cache root（`~/.cache/vllm*`），不污染 TP2 路徑（`gb10-single-boot` 會檢查）。
 
 ### DeepSeek V4 Flash fp8 mainline (bench-c C1-C8; 200K probe) - 歷史結果
 
