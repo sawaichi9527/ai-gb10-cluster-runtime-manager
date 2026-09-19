@@ -145,8 +145,8 @@ verify_rank(){ # 0 | 1
   check "$( [[ "$GET_DEV" == *"/dev/infiniband /dev/infiniband rwm"* ]] && echo OK || echo BAD )" "Devices ${GET_DEV}"
   # CapAdd: docker normalizes with CAP_ prefix; strip both sides
   check "$( [[ "${GET_CAP#CAP_}" == "IPC_LOCK" ]] && echo OK || echo BAD )" "CapAdd ${GET_CAP} != IPC_LOCK"
-  # ulimits: compare as sorted set (compose emits stack then memlock; run emits memlock then stack)
-  got_ul="$(printf '%s\n' "${GET_UL//;/ }" | sort | tr '\n' ' ')"
+  # ulimits: compare as sorted set; split on ';' first so sort reorders tokens
+  got_ul="$(printf '%s' "$GET_UL" | tr ';' '\n' | sed '/^$/d' | sort | tr '\n' ' ')"
   exp_ul="$(printf '%s\n' "memlock=-1=-1" "stack=67108864=67108864" | sort | tr '\n' ' ')"
   check "$( [[ "$got_ul" == "$exp_ul" ]] && echo OK || echo BAD )" "Ulimits ${GET_UL}"
   if [[ "$GET_DR" == '[nvidia|-1|'* || "$GET_DR" == '[nvidia|0|'* ]]; then
