@@ -112,7 +112,7 @@ load_profile(){
     exit 2
   fi
   # reset state so a partial conf can't leak a previous profile
-  unset PROFILE_ID DISPLAY_NAME PLACEHOLDER IMAGE BODY_REL DRAF_REL \
+  unset PROFILE_ID DISPLAY_NAME PLACEHOLDER IMAGE IMG_SHA256 BODY_REL DRAF_REL \
         MAXLEN NUMSEQ BATCHED GMU NSPEC \
         KV_DTYPE ATTN_BACKEND LINEAR_BACKEND MOE_BACKEND \
         SPEC_METHOD SPEC_ATTN_BACKEND NSPEC GRAPH_MODE \
@@ -395,6 +395,52 @@ n1(){  # runs a script's body on Node1 via ssh; args: [bash -c '...']
        -i "${NODE1_SSH_KEY}" "${NODE1_SSH_USER}@${NODE1_IP}"
   )
   "${sshcmd[@]}" "$@"
+}
+
+# =====================================================================
+# Per-profile image digest gate (opt-in via IMG_SHA256=sha256:<digest>)
+# ---------------------------------------------------------------------
+# Profiles that pin a registry manifest (deepseek mainline, later the
+# vision lane) set IMG_SHA256; 27b/35b leave it empty and skip.
+# node0 uses the classic image store, node1 the containerd image store —
+# .Id semantics differ (config vs manifest digest), so the gate compares
+# .RepoDigests (manifest digest) identically on both nodes. Fails fast
+# before any container is launched when a node lacks the pinned manifest.
+# =====================================================================
+verify_profile_image_gate(){
+  [[ -z "${IMG_SHA256:-}" ]] && return 0
+  local expected="${IMG_SHA256#sha256:}"
+  local fmt dig_script d0 d1 ok=1
+
+  fmt='{{range .RepoDigests}}{{println .}}{{end}}'
+  dig_script="$(mktemp)"
+
+  d0="$(sdk docker image inspect "${IMG}" --format "${fmt}" 2>/dev/null || true)"
+  if [[ "${d0}" != *"sha256:${expected}"* ]]; then
+    echo "ERROR: Node0 image '${IMG}' lacks pinned manifest sha256:${expected}" >&2
+    printf '  %s\n' "${d0:-<no local image — run: docker pull ${IMG}>}" >&2
+    ok=0
+  fi
+
+  {
+    printf 'export SUDO_PASS=%q\n' "$(sudo_pass)"
+    printf 'echo "$SUDO_PASS" | sudo -S docker image inspect "%s" --format "%s" 2>/dev/null || true\n' \
+      "${IMG}" '{{range .RepoDigests}}{{println .}}{{end}}'
+  } > "${dig_script}"
+  chmod 600 "${dig_script}"
+  d1="$(n1 bash -s < "${dig_script}" 2>/dev/null || true)"
+  rm -f -- "${dig_script}"
+  if [[ "${d1}" != *"sha256:${expected}"* ]]; then
+    echo "ERROR: Node1 image '${IMG}' lacks pinned manifest sha256:${expected}" >&2
+    printf '  %s\n' "${d1:-<no local image — run on node1: docker pull ${IMG}>}" >&2
+    ok=0
+  fi
+
+  if (( ok )); then
+    echo "PASS: image gate sha256:${expected} on both nodes (${IMG})"
+    return 0
+  fi
+  return 1
 }
 
 # ---- remote checksum spot-check (pipes subset via stdin to Node1) ----

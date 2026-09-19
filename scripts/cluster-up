@@ -39,6 +39,10 @@ fi
 
 node_up
 
+# Per-profile image manifest gate (opt-in: deepseek pins IMG_SHA256; 27b/35b skip).
+# Fail-fast before any container is launched.
+verify_profile_image_gate
+
 # The FlashInfer autotune cache is rank-keyed and cannot be shared across
 # ranks; leaving one behind deadlocks the boot (see cluster-common.sh).
 # Reset both nodes so the two ranks tune in lockstep.
