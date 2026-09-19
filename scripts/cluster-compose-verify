@@ -25,6 +25,11 @@ source "${REPO_DIR}/scripts/cluster-common.sh"
 PROFILE="${1:-deepseek}"
 load_profile "${PROFILE}"
 
+if [[ "${PROFILE_PLACEHOLDER:-false}" == "true" ]]; then
+  echo "INFO: profile ${PROFILE} is not deployed yet (placeholder); nothing to verify." >&2
+  exit 0
+fi
+
 if [[ "${LAUNCH_STYLE:-docker}" != "compose" ]]; then
   echo "INFO: profile ${PROFILE} is not LAUNCH_STYLE=compose; nothing to verify." >&2
   exit 0

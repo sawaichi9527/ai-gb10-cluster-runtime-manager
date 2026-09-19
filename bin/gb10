@@ -35,7 +35,7 @@ cat <<'HELP'
 gb10 - DGX Spark GB10 2-node cluster (TP2) helper
 
   gb10 list
-  gb10 use <profile>          # 27b (default) | 35b | deepseek
+  gb10 use <profile>          # 27b (default) | 35b | deepseek | deepseek-vision
   gb10 start <profile>        # same as use (cluster profiles are exclusive)
   gb10 stop                   # stop & remove both cluster containers
   gb10 restart [profile]      # down then background up
@@ -53,12 +53,15 @@ or foreground-wait with `gb10 wait <profile>`.
 
 Auto-protection: `use/start 27b|35b|deepseek` frees node1 of any active
 single-node runtime (gb10-single free node1) before TP2 comes up.
+Placeholder profiles (e.g. deepseek-vision while PLACEHOLDER=true) short-
+circuit in gb10 itself: they print "not deployed yet" and never start a
+background boot (which would otherwise tear down the live stack first).
 
 Single-node runtimes are managed with the sibling command: gb10-single
 HELP
 }
 
-PROFILES_BY_NAME="27b:35b:deepseek"
+PROFILES_BY_NAME="27b:35b:deepseek:deepseek-vision"
 
 valid_profile(){
   case ":$PROFILES_BY_NAME:" in
@@ -120,6 +123,7 @@ case "${1:-help}" in
     echo "  27b  [default]  Qwen3.8 27B (body + DFlash2 drafter)"
     echo "  35b             Qwen3.6 35B-A3B (body + DFlash drafter)"
     echo "  deepseek        DeepSeek-V4-Flash-0731 (fp8 DSpark mainline, 256K)"
+    echo "  deepseek-vision  DeepSeek-V4-Flash-Vision-Exp (vLLM multimodal, 32K) [placeholder]"
     ;;
   use|start)
     # Preflight: refuse to deploy from a checkout drifted from upstream.
@@ -151,7 +155,12 @@ case "${1:-help}" in
         fi
         ;;
       *)
-        die "profile '$P' not deployed yet (placeholder)"
+        # Placeholder profile (e.g. deepseek-vision pre-landing): never
+        # start a background boot (gb10-boot-cluster would tear down the
+        # live stack first). Informational exit 0 — mirrors cluster-up.
+        echo "$(date '+%F %T') $P: not deployed yet (placeholder)"
+        echo "  flip PLACEHOLDER=false in cluster-profiles.d/${P}.conf + lock IMG_SHA256 first"
+        exit 0
         ;;
     esac
     ;;
@@ -216,7 +225,12 @@ case "${1:-help}" in
           echo "$(date '+%F %T') $P: restart launched (check log: ${LOG})"
         fi
         ;;
-      *) die "profile '$P' not deployed yet (placeholder)" ;;
+      *)
+        # Placeholder profile: no teardown, informational exit 0.
+        echo "$(date '+%F %T') $P: not deployed yet (placeholder)"
+        echo "  flip PLACEHOLDER=false in cluster-profiles.d/${P}.conf + lock IMG_SHA256 first"
+        exit 0
+        ;;
     esac
     ;;
   status)
@@ -244,6 +258,10 @@ case "${1:-help}" in
     # shellcheck disable=SC1091
     source "${SCRIPTS}/cluster-common.sh"
     load_profile "$P"
+    if [[ "${PROFILE_PLACEHOLDER:-false}" == "true" ]]; then
+      echo "$(date '+%F %T') $P: not deployed yet (placeholder); nothing to verify"
+      exit 0
+    fi
     echo "=== Node0: $(hostname) ==="
     verify_model_checksum "$BODY" 0 || exit 1
     if [[ -n "${DRAF:-}" ]]; then
