@@ -51,11 +51,11 @@ Boot is backgrounded by default: `use/start` returns immediately,
 boot continues in the background.  Poll status with `gb10 status`,
 or foreground-wait with `gb10 wait <profile>`.
 
-Auto-protection: `use/start 27b|35b|deepseek` frees node1 of any active
-single-node runtime (gb10-single free node1) before TP2 comes up.
-Placeholder profiles (e.g. deepseek-vision while PLACEHOLDER=true) short-
-circuit in gb10 itself: they print "not deployed yet" and never start a
-background boot (which would otherwise tear down the live stack first).
+Auto-protection: `use/start 27b|35b|deepseek|deepseek-vision` frees node1
+of any active single-node runtime (gb10-single free node1) before TP2
+comes up.  Placeholder profiles (PLACEHOLDER=true, not in the boot set)
+short-circuit in gb10 itself: they print "not deployed yet" and never
+start a background boot (which would otherwise tear down the live stack).
 
 Single-node runtimes are managed with the sibling command: gb10-single
 HELP
@@ -132,7 +132,7 @@ case "${1:-help}" in
     P="${2:-27b}"
     valid_profile "$P" || die "unknown profile: $P"
     case "$P" in
-      27b|35b|deepseek)
+      27b|35b|deepseek|deepseek-vision)
         # prevent concurrent boots (any cluster profile shares port 1234 + GPUs)
         if cluster_boot_alive; then
           pid="$(cat "$(ls -t "${STATE}"/boot-cluster.*.pid 2>/dev/null | head -n1)")"
@@ -208,7 +208,7 @@ case "${1:-help}" in
     P="${2:-$(cat "${STATE}/last-cluster-profile" 2>/dev/null || echo 27b)}"
     valid_profile "$P" || die "unknown profile: $P"
     case "$P" in
-      27b|35b|deepseek)
+      27b|35b|deepseek|deepseek-vision)
         _kill_boot
         down
         # launch background boot (same as use|start)
