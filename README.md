@@ -11,31 +11,31 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 
 ## Deployed services & benchmark results (latest image)
 
-> 2026-09-13 實測。27B/35B 使用 `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-09-11-v0.29.0-omni`；DeepSeek 為歷史主力線 `ghcr.io/anemll/dspark-vllm-gx10:0.1.1` 之既有結果。
-> **2026-09-19 更新**：35B 已升 `2026-09-18-v0.29.0-omni` 並重新實測（單節點啟用 `VLLM_USE_V2_MODEL_RUNNER=1`）；**27B 在 09-18 image 啟動失敗**（`ModuleNotFoundError: vllm.entrypoints.serve.utils.error_response`，兩節點皆掛），維持 09-18 profile 但標記 **BROKEN**，待修復。
+> 2026-09-13 實測。27B/35B 原使用 `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-09-11-v0.29.0-omni`；DeepSeek 為歷史主力線 `ghcr.io/anemll/dspark-vllm-gx10:0.1.1` 之既有結果。
+> **2026-09-19 更新**：35B 與 27B 皆已升 `2026-09-18-v0.29.0-omni` 並重新實測（單節點啟用 `VLLM_USE_V2_MODEL_RUNNER=1`）。27B 先前在 09-18 首次冷啟動觸及 `cluster-up` 硬編碼 2400s health timeout 而誤判失敗（非 image 缺陷）；已改為 profile 可覆寫（27B `HEALTH_TIMEOUT=3600`），實測 READY 並完成 cluster/single benchmark。
 
 ### 已部署服務
 
 | service | 模型 / 方法 | image | endpoint | 狀態 |
 |---|---|---|---|---|
-| 27B single (TP1) | `qwen3.8-27b-aeon-ultimate-uncensored-nvfp4-mixed` + DFlash2 n=7 | `2026-09-11-v0.29.0-omni` | `:1234/v1` | deployed |
-| 27B cluster (TP2) | 同上 | `2026-09-18-v0.29.0-omni` | `http://192.168.23.215:1234/v1` | **BROKEN**（09-18 啟動失敗） |
+| 27B single (TP1) | `qwen3.8-27b-aeon-ultimate-uncensored-nvfp4-mixed` + DFlash2 n=7 | `2026-09-18-v0.29.0-omni` | `:1234/v1` | deployed（09-19 實測） |
+| 27B cluster (TP2) | 同上 | `2026-09-18-v0.29.0-omni` | `http://192.168.23.215:1234/v1` | deployed（09-19 實測） |
 | 35B single (TP1) | `qwen3.6-35b-a3b-heretic-nvfp4` + DFlash n=6 | `2026-09-11-v0.29.0-omni` | `:1234/v1` | deployed |
 | 35B cluster (TP2) | 同上 | `2026-09-18-v0.29.0-omni` | `http://192.168.23.215:1234/v1` | deployed（09-19 實測） |
 | DeepSeek V4 Flash cluster (TP2) | `deepseek-v4-flash-0731-official` + DSpark n=7 | `anemll/dspark-vllm-gx10:0.1.1` | `http://192.168.23.215:1234/v1` | deployed (mainline) |
 
 ### 27B v0.29.0-omni (bench-c C1-C8, MAX_TOKENS=2048; 245k cold prefill)
 
-> **2026-09-19：27B cluster profile 在 09-18 image 下無法啟動**（`ModuleNotFoundError: No module named 'vllm.entrypoints.serve.utils.error_response'`，node0/node1 皆掛，engine fatal）。下表為 09-13 之 09-11 image 實測（當時正常）；待 09-18 image 修復後重測。
+> **2026-09-19 實測（09-18 image；single node0 與 TP2 cluster 皆本次重測）。** 先前的「啟動失敗」為 `cluster-up` 硬編碼 2400s health timeout 短於 27B 首次冷啟動（~40min）所致，非 image 缺陷；已改為 profile 可覆寫（27B `HEALTH_TIMEOUT=3600`，詳見 `docs/ISSUE_27B_BROKEN_2026-09-18_IMAGE_2026-09-19.md`）。與 09-11 基準相比：single 幾近持平（245k 348.7 vs 347.2）；cluster 於 C1/C2/C4 與長 prefill 略升、C3/C8 略降（run-to-run 變異，各 stream completion 長度不同）。
 
 | C | Single tok/s | Cluster tok/s | Speedup |
 |---|---|---|---|
-| 1 | 23.3 | 41.0 | 1.76x |
-| 2 | 38.3 | 69.0 | 1.80x |
-| 3 | 55.0 | 96.2 | 1.75x |
-| 4 | 73.9 | 93.8 | 1.27x |
-| 8 | 106.7 | 180.8 | 1.69x |
-| 245k prefill (tok/s) | 347.2 | 578.6 | 1.67x |
+| 1 | 23.8 | 46.1 | 1.94x |
+| 2 | 36.6 | 76.8 | 2.10x |
+| 3 | 54.4 | 87.9 | 1.62x |
+| 4 | 80.3 | 105.3 | 1.31x |
+| 8 | 117.2 | 172.7 | 1.47x |
+| 245k prefill (tok/s) | 348.7 | 611.5 | 1.75x |
 
 ### 35B v0.29.0-omni (bench-c C1-C8, MAX_TOKENS=2048; 245k cold prefill)
 
