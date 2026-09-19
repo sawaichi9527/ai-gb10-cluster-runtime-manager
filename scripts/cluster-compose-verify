@@ -114,38 +114,47 @@ get_facts(){ # <rank> -> sets GET_* and NODE_HOME ; 0 runs locally, 1 over n1 (s
 
 fail=0
 verify_rank(){ # 0 | 1
-  local rank="$1"
+  local rank="$1" rfail=0
   local label="cluster-node${rank}" kv
+  local got_ul exp_ul
   get_facts "$rank"
-  exp_env_map  "$rank"      > "/tmp/cv-exp-env.$$"
+  exp_env_map   "$rank"     > "/tmp/cv-exp-env.$$"
   exp_mnt_lines "$rank"     > "/tmp/cv-exp-mnt.$$"
   printf '%s\n' "$GET_ENV"  > "/tmp/cv-got-env.$$"
   printf '%s\n' "$GET_MNT"  > "/tmp/cv-got-mnt.$$"
+  sort -o "/tmp/cv-exp-mnt.$$"  "/tmp/cv-exp-mnt.$$"
+  sort -o "/tmp/cv-got-mnt.$$"  "/tmp/cv-got-mnt.$$"
   sed -i "s|^~|${NODE_HOME}|" "/tmp/cv-exp-mnt.$$"
 
-  [[ "$GET_ENTRY" == "[\"$(exp_entry)\"]" ]] \
-    || { echo "FAIL ${label}: entrypoint ${GET_ENTRY} != [\"$(exp_entry)\"]"; fail=1; }
-  [[ "$GET_CMD" == "[$(exp_cmd_json "$rank")]" ]] \
-    || { echo "FAIL ${label}: command mismatch"; echo "  got: ${GET_CMD}"; echo "  exp: [$(exp_cmd_json "$rank")]"; fail=1; }
+  check(){ local cond="$1" msg="$2"; if [[ "$cond" != "OK" ]]; then echo "FAIL ${label}: ${msg}"; fail=1; rfail=1; fi; }
+
+  check "$( [[ "$GET_ENTRY" == "[\"$(exp_entry)\"]" ]] && echo OK || echo BAD )" "entrypoint ${GET_ENTRY} != [\"$(exp_entry)\"]"
+  check "$( [[ "$GET_CMD" == "[$(exp_cmd_json "$rank")]" ]] && echo OK || echo BAD )" "command mismatch (got ${GET_CMD})"
   while IFS= read -r kv; do
     [[ -n "$kv" ]] || continue
     grep -qFx "$kv" "/tmp/cv-got-env.$$" \
-      || { echo "FAIL ${label}: env missing ${kv}"; fail=1; }
+      || { echo "FAIL ${label}: env missing ${kv}"; fail=1; rfail=1; }
   done < "/tmp/cv-exp-env.$$"
-  if ! diff -u "/tmp/cv-exp-mnt.$$" "/tmp/cv-got-mnt.$$" >/dev/null; then
-    echo "FAIL ${label}: mounts differ"; diff -u "/tmp/cv-exp-mnt.$$" "/tmp/cv-got-mnt.$$" || true; fail=1
+  if ! diff -q "/tmp/cv-exp-mnt.$$" "/tmp/cv-got-mnt.$$" >/dev/null; then
+    echo "FAIL ${label}: mounts differ"; diff -u "/tmp/cv-exp-mnt.$$" "/tmp/cv-got-mnt.$$" || true; fail=1; rfail=1
   fi
-  [[ "$GET_NET" == "host" ]] || { echo "FAIL ${label}: NetworkMode ${GET_NET} != host"; fail=1; }
-  [[ "$GET_IPC" == "host" ]] || { echo "FAIL ${label}: IpcMode ${GET_IPC} != host"; fail=1; }
-  [[ "$GET_SHM" == "$(shm_bytes)" ]] || { echo "FAIL ${label}: ShmSize ${GET_SHM} != $(shm_bytes)"; fail=1; }
-  [[ "$GET_DEV" == "/dev/infiniband:/dev/infiniband:rwm" ]] || { echo "FAIL ${label}: Devices ${GET_DEV}"; fail=1; }
-  [[ "$GET_CAP" == "IPC_LOCK" ]] || { echo "FAIL ${label}: CapAdd ${GET_CAP} != IPC_LOCK"; fail=1; }
-  [[ "$GET_UL" == "memlock=-1=-1;stack=67108864=67108864;" ]] || { echo "FAIL ${label}: Ulimits ${GET_UL}"; fail=1; }
-  case "$GET_DR" in
-    "[nvidia|-1|gpu];"|"[nvidia|0|gpu];") : ;;
-    *) echo "FAIL ${label}: DeviceRequests ${GET_DR}"; fail=1 ;;
-  esac
-  echo "PASS ${label} (compose spec == profile spec)"
+  check "$( [[ "$GET_NET" == "host" ]] && echo OK || echo BAD )" "NetworkMode ${GET_NET} != host"
+  check "$( [[ "$GET_IPC" == "host" ]] && echo OK || echo BAD )" "IpcMode ${GET_IPC} != host"
+  check "$( [[ "$GET_SHM" == "$(shm_bytes)" ]] && echo OK || echo BAD )" "ShmSize ${GET_SHM} != $(shm_bytes)"
+  # Devices: current docker renders DeviceMapping as "{PathOnHost PathInContainer CgroupPermissions}"
+  check "$( [[ "$GET_DEV" == *"/dev/infiniband /dev/infiniband rwm"* ]] && echo OK || echo BAD )" "Devices ${GET_DEV}"
+  # CapAdd: docker normalizes with CAP_ prefix; strip both sides
+  check "$( [[ "${GET_CAP#CAP_}" == "IPC_LOCK" ]] && echo OK || echo BAD )" "CapAdd ${GET_CAP} != IPC_LOCK"
+  # ulimits: compare as sorted set (compose emits stack then memlock; run emits memlock then stack)
+  got_ul="$(printf '%s\n' "${GET_UL//;/ }" | sort | tr '\n' ' ')"
+  exp_ul="$(printf '%s\n' "memlock=-1=-1" "stack=67108864=67108864" | sort | tr '\n' ' ')"
+  check "$( [[ "$got_ul" == "$exp_ul" ]] && echo OK || echo BAD )" "Ulimits ${GET_UL}"
+  if [[ "$GET_DR" == '[nvidia|-1|'* || "$GET_DR" == '[nvidia|0|'* ]]; then
+    [[ "$GET_DR" == *gpu* ]] || check BAD "DeviceRequests ${GET_DR}"
+  else
+    check BAD "DeviceRequests ${GET_DR}"
+  fi
+  if (( rfail == 0 )); then echo "PASS ${label} (compose spec == profile spec)"; fi
 }
 
 verify_rank 0
