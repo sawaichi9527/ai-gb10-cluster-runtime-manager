@@ -20,7 +20,7 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 |---|---|---|---|---|
 | 27B single (TP1) | `qwen3.8-27b-aeon-ultimate-uncensored-nvfp4-mixed` + DFlash2 n=7 | `2026-09-18-v0.29.0-omni` | `:1234/v1` | deployed（09-19 實測） |
 | 27B cluster (TP2) | 同上 | `2026-09-18-v0.29.0-omni` | `http://192.168.23.215:1234/v1` | deployed（09-19 實測） |
-| 35B single (TP1) | `qwen3.6-35b-a3b-heretic-nvfp4` + DFlash n=6 | `2026-09-11-v0.29.0-omni` | `:1234/v1` | deployed |
+| 35B single (TP1) | `qwen3.6-35b-a3b-heretic-nvfp4` + DFlash n=6 | `2026-09-18-v0.29.0-omni` | `:1234/v1` | deployed（09-19 實測） |
 | 35B cluster (TP2) | 同上 | `2026-09-18-v0.29.0-omni` | `http://192.168.23.215:1234/v1` | deployed（09-19 實測） |
 | DeepSeek V4 Flash cluster (TP2) | `deepseek-v4-flash-0731-official` + DSpark n=7 | `anemll/dspark-vllm-gx10:0.1.1` | `http://192.168.23.215:1234/v1` | deployed (mainline) |
 
@@ -39,18 +39,19 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 
 ### 35B v0.29.0-omni (bench-c C1-C8, MAX_TOKENS=2048; 245k cold prefill)
 
-> **2026-09-19 實測（09-18 image，TP2 cluster）。** Single 欄為 09-13 之 09-11 image 舊值；Cluster 欄為本次 `scripts/bench-c.sh` / `bench-ctx.sh` 實測。清空 vllm-cache 後 boot READY ~7min，autotune 重跑 130 configs。
+> **2026-09-19 實測（09-18 image；single node0 與 TP2 cluster 皆本次重測）。** `scripts/bench-c.sh` / `bench-ctx.sh` 實測。與 09-11 基準大致持平（single 245k 2580.1 vs 2601.0）。註：先前記錄的 245k prefill `180398.5` tok/s 為量測瑕疵（245k 僅 ~1.4s，不可能）；本次 cluster 62.0s / 3951.9、single 95.0s / 2580.1 為可信值。
 
 | C | Single tok/s | Cluster tok/s | Speedup |
 |---|---|---|---|
-| 1 | 76.4 | 109.4 | 1.43x |
-| 2 | 121.6 | 192.6 | 1.58x |
-| 3 | 134.7 | 231.3 | 1.72x |
-| 4 | 171.8 | 230.6 | 1.34x |
-| 8 | 269.5 | 418.4 | 1.55x |
-| 245k prefill (tok/s) | 2601.0 | 180398.5 | - |
+| 1 | 76.2 | 120.6 | 1.58x |
+| 2 | 115.5 | 177.4 | 1.54x |
+| 3 | 148.2 | 218.5 | 1.47x |
+| 4 | 198.6 | 291.6 | 1.47x |
+| 8 | 262.7 | 416.4 | 1.59x |
+| 245k prefill (tok/s) | 2580.1 | 3951.9 | 1.53x |
 
-> 245k prefill 用 `bench-ctx.sh 245000 1`（max_tokens=1 純 prefill，`token` ×245k 字元）。180k tok/s 為純 chunked-prefill 速度，與 09-13 舊表 3940.7（含 decode 混測）不可直接比較。
+> 245k prefill 用 `bench-ctx.sh 245000 1`（max_tokens=1 純 prefill）。
+> **踩雷**：兩節點 FlashInfer autotune cache 若不一致，換 image/profile 後 TP2 會在 `Autotuning` 階段集體死鎖（rank0 高 GPU spin-wait、rank1 閒置，`/health` 永不 ready）。解法：拆掉後清兩節點 `~/.cache/huggingface/vllm-cache/flashinfer_autotune_cache` 再 boot（本次即以此解）。
 
 ### DeepSeek V4 Flash fp8 mainline (bench-c C1-C8; 200K probe) - 歷史結果
 
