@@ -644,11 +644,17 @@ _autotune_cache_rel(){ echo "${AUTOTUNE_CACHE_REL:-${_AUTOTUNE_CACHE_REL}}"; }
 
 _autotune_clear_local(){
   local dir="${HOME}/$(_autotune_cache_rel)"
+  # Create the parent as US before any container runs. Otherwise Docker
+  # auto-creates the bind-mount source as root, the container writes the cache
+  # dir as root inside it, and we can no longer rename the child out of a
+  # root-owned parent (the standard lanes' parent is pre-existing/eye-owned).
+  mkdir -p "${dir%/*}" 2>/dev/null || true
   [[ -e "$dir" ]] && mv "$dir" "${dir}.cleared-$(date +%Y%m%d-%H%M%S)" 2>/dev/null || true
 }
 
 _autotune_clear_remote(){
-  n1 "d=\"\$HOME/$(_autotune_cache_rel)\"; if [ -e \"\$d\" ]; then mv \"\$d\" \"\${d}.cleared-\$(date +%Y%m%d-%H%M%S)\" 2>/dev/null || true; fi; exit 0"
+  local rel; rel="$(_autotune_cache_rel)"
+  n1 "d=\"\$HOME/${rel}\"; mkdir -p \"\${d%/*}\" 2>/dev/null || true; if [ -e \"\$d\" ]; then mv \"\$d\" \"\${d}.cleared-\$(date +%Y%m%d-%H%M%S)\" 2>/dev/null || true; fi; exit 0"
 }
 
 ensure_autotune_cache_reset(){
