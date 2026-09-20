@@ -48,10 +48,12 @@ Deleted the regenerable pristine extracts `flash_attn_029_orig.py` /
 `triton_attn_029_orig.py`. Kept: the live `flash_attn_029_patched.py`
 (referenced by `35b.conf`), `models/`.
 
-> The composes in that dir were renamed `docker-compose-27b-single.yml` /
-> `docker-compose-35b-single.yml` in the later 2026-09-20 layout pass; the
-> cluster lanes now materialize `docker-compose-<profile>-cluster.yml` there.
-> See "Node-local layout" in `AGENTS.md`.
+> `~/_archieve/` was itself deleted later the same day (user request); the
+> archive contents above are gone. The composes in that dir were renamed
+> `docker-compose-27b-single.yml` / `docker-compose-35b-single.yml` in the
+> layout pass; the cluster lanes now materialize
+> `docker-compose-<profile>-cluster.yml` there. See "Node-local layout" in
+> `AGENTS.md`.
 
 ## Validation
 
