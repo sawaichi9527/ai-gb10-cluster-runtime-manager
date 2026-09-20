@@ -1,5 +1,15 @@
 # Qwen38Flash TP2 Profile — Bring-up Implementation & Validation (2026-09-07)
 
+> **SUPERSEDED 2026-09-20.** This document describes the pre-restructure
+> `scripts/tp2-common.sh` / `scripts/tp2-up` / `bin/gb10` layout and the
+> docker-run launch lane. The loader has since been restructured to
+> `scripts/cluster-common.sh`, the docker-run lane was removed (compose is now
+> the only lane), and the qwen38flash profile is being rewritten against the
+> MiaAI-Lab recipe. The loader field names below (`QUANT`, `COMPILATION_JSON`,
+> `LOAD_FORMAT`, `SAFETENSORS_LOAD_STRATEGY`, `ENABLE_FLASHINFER_AUTOTUNE`,
+> `DISTRIBUTED_EXECUTOR_BACKEND`, `EXTRA_DOCKER_ENV`, `DOCKER_RUN_EXTRA`) no
+> longer exist — see `docs/QWEN38_FLASH_NEXT_TP2_COMPOSE_2026-09-20.md`.
+
 Scope: adding the **qwen38flash** TP2 cluster profile (`cluster-profiles.d/qwen38flash.conf`)
 for Qwen3.8 Flash-Next 125B NVFP4 on the 2-node cluster, using the official
 `vllm/vllm-openai:qwen38-flash-next` image. This records the registry/loader/heredoc

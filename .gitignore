@@ -16,3 +16,8 @@ state/boot-single.*.pid
 # Profile/config backups (pre-upgrade snapshots) - never commit
 cluster-profiles.d/*.bak-*
 runtimes.d/*.bak-*
+
+# qwen38flash generated artifacts (produced by patches/qwen38flash/prepare.sh
+# from the local checkpoint; regenerate, do not commit)
+patches/qwen38flash/config_patched.json
+patches/qwen38flash/hf_quant_config_patched.json
