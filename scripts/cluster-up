@@ -8,13 +8,11 @@
 #
 # Flow (Node0 single-side orchestration):
 #   1. resolve cluster profile from cluster-profiles.d/<id>.conf
-#   2. Node0 (sole argv builder) resolves BOTH ranks' model-specific
-#      argv from the SAME profile data, then shell-escapes (%q) each
-#      rank1 argv element and ships it to Node1 for direct execution.
-#      Node1 never re-derives model args (no duplicated copy, no eval
-#      of a serialized-array env string).
-#   3. Node1 launches headless rank1 worker; Node0 launches API rank0.
-#   4. wait for Node0 /health 200.
+#   2. Node0 (sole argv builder) renders a docker-compose.yml for BOTH
+#      ranks from the SAME profile data (build_vllm_args/build_docker_env).
+#      Node1 receives the rendered file and runs `compose up -d worker`;
+#      Node0 runs `compose up -d head`.
+#   3. wait for Node0 /health 200.
 # =====================================================================
 set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -49,143 +47,60 @@ verify_profile_image_gate
 ensure_autotune_cache_reset
 
 # ------------------------------------------------------------------
-# Launch mechanism branch: LAUNCH_STYLE=compose (deepseek lanes) vs
-# docker run (27b/35b, unchanged). The compose file is rendered per
-# launch from the same profile data as this docker-run code path.
+# Launch mechanism: compose (the unified lane). The compose file is
+# rendered per launch from the same profile data as build_vllm_args /
+# build_docker_env, so the container spec stays data-driven (zero drift).
 # ------------------------------------------------------------------
 ENTRY="vllm"; [[ "${ENGINE}" == "sglang" ]] && ENTRY="sglang"
 RENDER_YML="$(mktemp)"
 trap 'rm -f -- "${RENDER_YML}"' EXIT
 
-if [[ "${LAUNCH_STYLE:-docker}" == "compose" ]]; then
-  render_tp2_compose "${RENDER_YML}"
+render_tp2_compose "${RENDER_YML}"
 
-  # ---- optional per-profile dir sync (default-off) ----
-  # SYNC_DIRS entries are "SRC:DEST" pairs. SRC lives on Node0 (usually the
-  # repo, the source of truth); DEST is staged at the same ABSOLUTE path on
-  # BOTH nodes before the worker starts. Needed because Node1 does not host
-  # the repo and this path only ships the rendered compose, so any bind-mount
-  # source (e.g. the vision lane's hotfix dir) must be provisioned on Node1
-  # too. Unset => strict no-op (27b/35b/deepseek unchanged).
-  if [[ -n "${SYNC_DIRS+x}" ]]; then
-    for _pair in "${SYNC_DIRS[@]}"; do
-      _src="${_pair%%:*}"; _dst="${_pair#*:}"
-      echo "== syncing dir ${_src} -> ${_dst} (node0) =="
-      mkdir -p "${_dst}"
-      rm -rf "${_dst:?}"/*
-      cp -a "${_src}"/. "${_dst}"/
-      echo "== syncing dir ${_src} -> ${_dst} (node1) =="
-      tar -C "$(dirname "${_src}")" -cf - "$(basename "${_src}")" \
-        | n1 "mkdir -p '${_dst}' && rm -rf '${_dst:?}'/* && tar -C '${_dst}' -xf - --strip-components=1"
-    done
-    unset _pair _src _dst
-  fi
-
-  # ---- Node1 headless worker (rank1): ship compose, then up -d worker ----
-  echo "== launching Node1 headless worker (rank1, compose, profile=${PROFILE}) =="
-  cat "${RENDER_YML}" | n1 "cat > /tmp/tp2-compose-${PROFILE}.yml"
-  RANK1_STDIN="$(mktemp)"; chmod 600 "${RANK1_STDIN}"
-  trap 'rm -f -- "${RANK1_STDIN}" "${RENDER_YML}"' EXIT
-  {
-    printf 'export SUDO_PASS=%q\n' "$(sudo_pass)"
-    printf 'echo "$SUDO_PASS" | sudo -S docker rm -f cluster-node1 >/dev/null 2>&1 || true\n'
-    printf 'rc=0\n'
-    printf 'echo "$SUDO_PASS" | sudo -S docker compose --env-file /dev/null -f /tmp/tp2-compose-%s.yml up -d worker > /tmp/tp2-compose-worker.log 2>&1 || rc=$?\n' "${PROFILE}"
-    printf 'echo "DEBUG node1 compose rc=$rc"\n'
-    printf 'echo "$SUDO_PASS" | sudo -S docker ps --filter name=cluster-node1 --format "{{.Names}} {{.Status}}" 2>/dev/null || true\n'
-    printf 'rm -f /tmp/tp2-compose-%s.yml; exit 0\n' "${PROFILE}"
-  } > "${RANK1_STDIN}"
-  n1 bash -s < "${RANK1_STDIN}"
-  rm -f -- "${RANK1_STDIN}"
-
-  # ---- Node0 API server (rank0): up -d head ----
-  echo "== launching Node0 API server (rank0, compose, profile=${PROFILE}) =="
-  sdk docker rm -f cluster-node0 >/dev/null 2>&1 || true
-  rc=0
-  sdk docker compose --env-file /dev/null -f "${RENDER_YML}" up -d head > /tmp/tp2-compose-head.log 2>&1 || rc=$?
-  echo "node0 compose rc=$rc"
-else
-
-# ------------------------------------------------------------------
-# Node1 headless worker (rank1). Node0 resolves the full rank1 argv via
-# build_vllm_args 1 (identical profile data as rank0), then %q-escapes
-# each element and emits them as bash array literals in the remote
-# script. Node1 executes the passed argv verbatim.
-# ------------------------------------------------------------------
-if [[ "${ENGINE}" == "sglang" ]]; then
-  build_sglang_args 1
-  ENGINE_ARGS=( "${SGLANG_ARGS[@]}" )
-else
-  build_vllm_args 1
-  ENGINE_ARGS=( "${VLLM_ARGS[@]}" )
+# ---- optional per-profile dir sync (default-off) ----
+# SYNC_DIRS entries are "SRC:DEST" pairs. SRC lives on Node0 (usually the
+# repo, the source of truth); DEST is staged at the same ABSOLUTE path on
+# BOTH nodes before the worker starts. Needed because Node1 does not host
+# the repo and this path only ships the rendered compose, so any bind-mount
+# source (e.g. the vision lane's hotfix dir) must be provisioned on Node1
+# too. Unset => strict no-op (27b/35b/deepseek unchanged).
+if [[ -n "${SYNC_DIRS+x}" ]]; then
+  for _pair in "${SYNC_DIRS[@]}"; do
+    _src="${_pair%%:*}"; _dst="${_pair#*:}"
+    echo "== syncing dir ${_src} -> ${_dst} (node0) =="
+    mkdir -p "${_dst}"
+    rm -rf "${_dst:?}"/*
+    cp -a "${_src}"/. "${_dst}"/
+    echo "== syncing dir ${_src} -> ${_dst} (node1) =="
+    tar -C "$(dirname "${_src}")" -cf - "$(basename "${_src}")" \
+      | n1 "mkdir -p '${_dst}' && rm -rf '${_dst:?}'/* && tar -C '${_dst}' -xf - --strip-components=1"
+  done
+  unset _pair _src _dst
 fi
-_escaped=()
-for a in "${ENGINE_ARGS[@]}"; do _escaped+=( "$(printf '%q' "$a")" ); done
-_RANK1_ARGV_LITERAL="${_escaped[*]}"
-build_docker_env 1
-_RANK1_ENV_LITERAL="${DOCKER_ENV_EXTRA[*]}"
-_RANK1_MOUNT_LITERAL="${DOCKER_MOUNTS[*]}"
 
-REMOTE=$(cat <<RSCRIPT
-set -Eeo pipefail
-echo "\$SUDO_PASS" | sudo -S docker rm -f cluster-node1 >/dev/null 2>&1 || true
-RANK1_ENV=( ${_RANK1_ENV_LITERAL} )
-RANK1_MOUNTS=( ${_RANK1_MOUNT_LITERAL} )
-RANK1_ARGS=( ${_RANK1_ARGV_LITERAL} )
-rc=0
-echo "\$SUDO_PASS" | sudo -S docker run -d --name cluster-node1 \
-    --gpus all --ipc=host --shm-size="${SHM_SIZE:-16g}" --net=host \
-    "\${RANK1_ENV[@]}" \
-    --device /dev/infiniband --cap-add IPC_LOCK --ulimit memlock=-1:-1 --ulimit stack=67108864 \
-    "\${RANK1_MOUNTS[@]}" \
-    --entrypoint "\${R_ENTRY}" "\${R_IMG}" serve /model \
-    "\${RANK1_ARGS[@]}" \
-    > /tmp/cluster-node1.log 2>&1 || rc=\$?
-echo "DEBUG node1 docker run rc=\$rc"
-echo "\$SUDO_PASS" | sudo -S docker ps --filter name=cluster-node1 --format '{{.Names}} {{.Status}}' 2>/dev/null || true
-exit 0
-RSCRIPT
-)
-
-echo "== launching Node1 headless worker (rank1, profile=${PROFILE}) =="
-RANK1_STDIN="$(mktemp)"
-chmod 600 "${RANK1_STDIN}"
-trap 'rm -f -- "${RANK1_STDIN}"' EXIT
-cat > "${RANK1_STDIN}" <<EOF
-$(printf 'export SUDO_PASS=%q\n' "$(sudo_pass)")
-export R_IMG='${IMG}'
-export R_ENTRY='${ENTRY}'
-${REMOTE}
-EOF
-sha256sum "${RANK1_STDIN}"
+# ---- Node1 headless worker (rank1): ship compose, then up -d worker ----
+echo "== launching Node1 headless worker (rank1, compose, profile=${PROFILE}) =="
+cat "${RENDER_YML}" | n1 "cat > /tmp/tp2-compose-${PROFILE}.yml"
+RANK1_STDIN="$(mktemp)"; chmod 600 "${RANK1_STDIN}"
+trap 'rm -f -- "${RANK1_STDIN}" "${RENDER_YML}"' EXIT
+{
+  printf 'export SUDO_PASS=%q\n' "$(sudo_pass)"
+  printf 'echo "$SUDO_PASS" | sudo -S docker rm -f cluster-node1 >/dev/null 2>&1 || true\n'
+  printf 'rc=0\n'
+  printf 'echo "$SUDO_PASS" | sudo -S docker compose --env-file /dev/null -f /tmp/tp2-compose-%s.yml up -d worker > /tmp/tp2-compose-worker.log 2>&1 || rc=$?\n' "${PROFILE}"
+  printf 'echo "DEBUG node1 compose rc=$rc"\n'
+  printf 'echo "$SUDO_PASS" | sudo -S docker ps --filter name=cluster-node1 --format "{{.Names}} {{.Status}}" 2>/dev/null || true\n'
+  printf 'rm -f /tmp/tp2-compose-%s.yml; exit 0\n' "${PROFILE}"
+} > "${RANK1_STDIN}"
 n1 bash -s < "${RANK1_STDIN}"
 rm -f -- "${RANK1_STDIN}"
 
-# ------------------------------------------------------------------
-# Node0 API server (rank0)
-# ------------------------------------------------------------------
-build_docker_env 0
-if [[ "${ENGINE}" == "sglang" ]]; then
-  build_sglang_args 0
-  ENGINE_ARGS=( "${SGLANG_ARGS[@]}" )
-else
-  build_vllm_args 0
-  ENGINE_ARGS=( "${VLLM_ARGS[@]}" )
-  fi
-echo "== launching Node0 API server (rank0, profile=${PROFILE}) =="
+# ---- Node0 API server (rank0): up -d head ----
+echo "== launching Node0 API server (rank0, compose, profile=${PROFILE}) =="
 sdk docker rm -f cluster-node0 >/dev/null 2>&1 || true
-# shellcheck disable=SC2145
 rc=0
-sdk docker run -d --name cluster-node0 \
-    --gpus all --ipc=host --shm-size="${SHM_SIZE:-16g}" --net=host \
-    "${DOCKER_ENV_EXTRA[@]}" \
-    --device /dev/infiniband --cap-add IPC_LOCK --ulimit memlock=-1:-1 --ulimit stack=67108864 \
-    "${DOCKER_MOUNTS[@]}" \
-    --entrypoint "${ENTRY}" "${IMG}" serve /model \
-    "${ENGINE_ARGS[@]}" \
-    > /tmp/cluster-node0.log 2>&1 || rc=$?
-echo "node0 docker run rc=$rc"
-fi
+sdk docker compose --env-file /dev/null -f "${RENDER_YML}" up -d head > /tmp/tp2-compose-head.log 2>&1 || rc=$?
+echo "node0 compose rc=$rc"
 
 # ------------------------------------------------------------------
 # wait for health

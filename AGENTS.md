@@ -30,6 +30,14 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   `qwen3.6-35b-a3b-heretic-nvfp4` + drafter `qwen3.6-35b-a3b-dflash` (n=6, maxlen
   262144, GMU 0.80, num_seqs 8). Both on `:1234` through Node0. Do NOT re-hard-code
   profile data in `cluster-*` scripts — the registry is the only authoritative set.
+- **Single launch lane = compose (since 2026-09-20).** `scripts/cluster-up` renders
+  `docker-compose.yml` per launch from the same profile data
+  (`build_vllm_args`/`build_docker_env`); the old docker-run branch was removed. Every
+  profile declares `LAUNCH_STYLE="compose"`. Three generic, model-agnostic profile
+  fields exist for things the shared builders do not cover: `COMPILATION_JSON` (raw
+  `--compilation-config` override), `CAP_ADD=(...)` and `ULIMITS=(NAME=VALUE ...)`
+  (compose `cap_add` / `ulimits` extras). All three are no-ops when unset — keep it
+  that way so 27b/35b/deepseek stay byte-identical.
 - **Unified LLM endpoint**: all LLM runtimes (TP2 + single, node0 & node1) serve the
   OpenAI API on **port 1234** sharing one `VLLM_API_KEY`. Set the same key in
   `~/docker-stacks/config/cluster.env` and both nodes' `~/docker-stacks/config/standalone.env`.

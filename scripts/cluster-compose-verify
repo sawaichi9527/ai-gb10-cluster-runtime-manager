@@ -3,17 +3,17 @@
 # cluster-compose-verify [profile] - M2 composition-parity gate.
 #
 # Compares the LIVE compose-launched TP2 containers (cluster-node0 /
-# cluster-node1) field-by-field against what the docker-run path would
-# have produced for the SAME profile (the shared build_vllm_args /
-# build_docker_env builders are the single source of truth). Run after
+# cluster-node1) field-by-field against the resolved profile spec (the
+# shared build_vllm_args / build_docker_env builders plus the profile-owned
+# CAP_ADD / ULIMITS extras are the single source of truth). Run after
 # a compose cold start is READY:
 #     scripts/cluster-compose-verify deepseek
 #
 # Per rank verifies:
 #   entrypoint, command (JSON-exact), per-key env (expected keys),
 #   bind mounts (Source;Destination;RW), network/ipc mode, shm size,
-#   /dev/infiniband device, IPC_LOCK cap, memlock/stack ulimits,
-#   nvidia DeviceRequests (driver/count/capabilities).
+#   /dev/infiniband device, cap_add set (IPC_LOCK + CAP_ADD), ulimit set
+#   (memlock/stack + ULIMITS), nvidia DeviceRequests (driver/count/capabilities).
 # Exits non-zero with a concise diff line on the first mismatch.
 # =====================================================================
 set -Eeuo pipefail
@@ -30,7 +30,7 @@ if [[ "${PROFILE_PLACEHOLDER:-false}" == "true" ]]; then
   exit 0
 fi
 
-if [[ "${LAUNCH_STYLE:-docker}" != "compose" ]]; then
+if [[ "${LAUNCH_STYLE:-compose}" != "compose" ]]; then
   echo "INFO: profile ${PROFILE} is not LAUNCH_STYLE=compose; nothing to verify." >&2
   exit 0
 fi
@@ -121,7 +121,7 @@ fail=0
 verify_rank(){ # 0 | 1
   local rank="$1" rfail=0
   local label="cluster-node${rank}" kv
-  local got_ul exp_ul
+  local got_ul exp_ul got_cap exp_cap
   get_facts "$rank"
   exp_env_map   "$rank"     > "/tmp/cv-exp-env.$$"
   exp_mnt_lines "$rank"     > "/tmp/cv-exp-mnt.$$"
@@ -148,11 +148,27 @@ verify_rank(){ # 0 | 1
   check "$( [[ "$GET_SHM" == "$(shm_bytes)" ]] && echo OK || echo BAD )" "ShmSize ${GET_SHM} != $(shm_bytes)"
   # Devices: current docker renders DeviceMapping as "{PathOnHost PathInContainer CgroupPermissions}"
   check "$( [[ "$GET_DEV" == *"/dev/infiniband /dev/infiniband rwm"* ]] && echo OK || echo BAD )" "Devices ${GET_DEV}"
-  # CapAdd: docker normalizes with CAP_ prefix; strip both sides
-  check "$( [[ "${GET_CAP#CAP_}" == "IPC_LOCK" ]] && echo OK || echo BAD )" "CapAdd ${GET_CAP} != IPC_LOCK"
-  # ulimits: compare as sorted set; split on ';' first so sort reorders tokens
+  # CapAdd: docker normalizes with CAP_ prefix; compare as a sorted set so the
+  # profile-owned CAP_ADD extras (e.g. SYS_NICE) are included.
+  got_cap="$(printf '%s' "$GET_CAP" | tr '|' '\n' | sed '/^$/d' | sort | tr '\n' ' ')"
+  exp_cap="$(
+    { printf '%s\n' "CAP_IPC_LOCK"
+      if [[ -n "${CAP_ADD+x}" ]]; then
+        for _c in "${CAP_ADD[@]}"; do [[ -n "$_c" ]] && printf 'CAP_%s\n' "$_c"; done
+      fi
+    } | sort | tr '\n' ' ')"
+  check "$( [[ "$got_cap" == "$exp_cap" ]] && echo OK || echo BAD )" "CapAdd ${GET_CAP} != ${exp_cap}"
+  # ulimits: compare as sorted set; split on ';' first so sort reorders tokens.
+  # Includes the profile-owned ULIMITS extras (e.g. nofile=1048576).
   got_ul="$(printf '%s' "$GET_UL" | tr ';' '\n' | sed '/^$/d' | sort | tr '\n' ' ')"
-  exp_ul="$(printf '%s\n' "memlock=-1=-1" "stack=67108864=67108864" | sort | tr '\n' ' ')"
+  exp_ul="$(
+    { printf '%s\n' "memlock=-1=-1" "stack=67108864=67108864"
+      if [[ -n "${ULIMITS+x}" ]]; then
+        for _u in "${ULIMITS[@]}"; do
+          _un="${_u%%=*}"; _uv="${_u#*=}"; printf '%s=%s=%s\n' "$_un" "$_uv" "$_uv"
+        done
+      fi
+    } | sort | tr '\n' ' ')"
   check "$( [[ "$got_ul" == "$exp_ul" ]] && echo OK || echo BAD )" "Ulimits ${GET_UL}"
   if [[ "$GET_DR" == '[nvidia|-1|'* || "$GET_DR" == '[nvidia|0|'* ]]; then
     [[ "$GET_DR" == *gpu* ]] || check BAD "DeviceRequests ${GET_DR}"
