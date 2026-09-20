@@ -1,13 +1,13 @@
 # handoff.md — ai-gb10-cluster-runtime-manager（本機 checkout）
 
 > 本檔是本機中繼 checkout 的交接摘要。主要開發在 **node0**（`~/workspace/ai-gb10-cluster-runtime-manager`，branch `keystone`）＋ Forgejo `829522`；本機僅作中繼存取，修改前先確認是否應改在 node0。
-> 建立：2026-09-18；更新：**2026-09-20**（DeepSeek V4 Flash **Vision-Exp** lane 上線：同一顆 Anemll image + 啟動 wrapper；bench-c / bench-ctx / bench-mm 實測；`cluster-up` 新增 `SYNC_DIRS` 自動同步 patch 目錄；**vision 開 prefix caching + `dspark-swa-prefix` hotfix**、長上下文邊界 261K/262144、圖片高併發 C=8/16）
+> 建立：2026-09-18；更新：**2026-09-20**（DeepSeek V4 Flash **Vision-Exp** lane 上線：同一顆 Anemll image + 啟動 wrapper；bench-c / bench-ctx / bench-mm 實測；`cluster-up` 新增 `SYNC_DIRS` 自動同步 patch 目錄；**vision 開 prefix caching + `dspark-swa-prefix` hotfix**、長上下文邊界 261K/262144、圖片高併發 C=8/16；本檔納入版控並同步三方）
 
 ## 目前狀態（本機 checkout）
 
-- 分支：`main`，HEAD = **`4fe6128`**（`docs: record Vision-Exp prefix caching + long-context boundary + image C=8/16 results`）
-- 同步狀態：**本機＝Forgejo（origin，`829522`）＝node0 已 pull**；**GitHub remote 本次未推**（待辦）
-- `handoff.md` 本身目前是 **untracked**（未 commit）
+- 分支：`main`，HEAD = **`fd9adf2`**（`handoff: record HEAD 4fe6128`）
+- 同步狀態：**本機＝Forgejo（origin，`829522`）＝node0 已 pull＝GitHub**（`ls-remote` 驗證三方一致 `fd9adf2`）
+- `handoff.md` 已納版控（`37bee4c` 起；本次更新亦將 commit）
 - `.gitignore` 已覆蓋 `config/cluster.env`、`state/last-runtime`、logs、`*.bak-*`
 
 ## 兩個 CLI
@@ -161,13 +161,23 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
 
 ## 下一步（建議）
 
-- **GitHub remote 未推**：本次只推 Forgejo + node0。要不要把 `main`（HEAD `c76c93e`）也推到 GitHub `sawaichi9527/ai-gb10-cluster-runtime-manager` 保持一致？
-- **`handoff.md` 未追蹤**：目前 untracked；要納入版控或維持本機檔請決定。
-- **驗證 27b/35b 未受影響**：本次改了共用 `cluster-common.sh`（`CMD_WRAPPER`/`SYNC_DIRS` 加入 unset 清單）與 `cluster-up`（新增 `SYNC_DIRS` 區塊，預設 no-op）。已驗證 deepseek 渲染 byte-identical，但**尚未再 boot 27b/35b 實測**（低風險，兩者走 docker-run 路徑）。
-- **Vision 調校（已完成 2026-09-20）**：prefix caching 已開啟並套 `dspark-swa-prefix` hotfix（`7b6be60`）；同一 32K prompt 重複請求 prefill 16.95s→2.30s（~7.4×），重複同 prompt 輸出完整（無退化）。
-- **Vision 進一步 benchmark（已完成 2026-09-20）**：長上下文邊界（261K 可用 1803.9 tok/s；262144 被拒 → 實用上限 prompt ≤ 262143）、圖片 C=8（146.1）/C=16（159.4）/4 圖 C=8（90.6）tok/s。
-- （可選，未做）長圖文混搭、`--limit-mm-per-prompt` 上限（目前 8）、多輪 agent chain 長時間穩定性。
-- **Patches 上游追蹤**：`patches/dspark-vision/` 目前 pin 在 MiaAI commit `97e87332`；上游更新時需 re-vendor（`NOTICE.md` 有來源）。
+- ~~**GitHub remote 未推**~~（已完成 2026-09-20：三方已同步 `fd9adf2`，`ls-remote` 驗證）。
+- ~~**`handoff.md` 未追蹤**~~（已完成：已納版控，見「目前狀態」）。
+- **驗證 27b/35b 未受影響**（暫緩，見「定期檢討追蹤」#3）：本次改了共用 `cluster-common.sh`（`CMD_WRAPPER`/`SYNC_DIRS` 加入 unset 清單）與 `cluster-up`（新增 `SYNC_DIRS` 區塊，預設 no-op）。已驗證 deepseek 渲染 byte-identical，但**尚未再 boot 27b/35b 實測**（低風險，兩者走 docker-run 路徑）。
+- （可選）長圖文混搭、`--limit-mm-per-prompt` 上限（目前 8）、多輪 agent chain 長時間穩定性（見「定期檢討追蹤」#2）。
 - **benchmark 工具**：`scripts/bench-c.sh <C> [MAX_TOKENS]`（C=1 時 exit 1 為邊緣狀況，數值仍有效）、`scripts/bench-ctx.sh <NUM_WORDS> [MAX_TOKENS]`（`max_tokens=1`＝純 prefill）、**`scripts/bench-mm.sh [NUM_IMAGES] [C] [MAX_TOKENS]`（圖片；預設用 deepseek-vision profile 的測試圖，可用 `MM_IMAGE=` 覆寫）**。
 - 若有跨節點／部署問題，先在 node0 確認，勿在本機直接改。
 - 修改前查 `git rev-parse --show-toplevel` 確認 repo 邊界；本機變更要推回 Forgejo 才有意義。
+
+### 已完成（2026-09-20）
+
+- **Vision 調校**：prefix caching 已開啟並套 `dspark-swa-prefix` hotfix（`7b6be60`）；同一 32K prompt 重複請求 prefill 16.95s→2.30s（~7.4×），重複同 prompt 輸出完整（無退化）。
+- **Vision 進一步 benchmark**：長上下文邊界（261K 可用 1803.9 tok/s；262144 被拒 → 實用上限 prompt ≤ 262143）、圖片 C=8（146.1）/C=16（159.4）/4 圖 C=8（90.6）tok/s。
+
+## 定期檢討追蹤
+
+> 下列事項不是「待辦」，而是**定期檢討**項目（2026-09-20 標註）。檢討時點：每當 `patches/` 上游或 image 更新，或每次進行 27b/35b 重大變更時。
+
+1. **Patches 上游追蹤**：`patches/dspark-vision/` 目前 pin 在 MiaAI commit `97e8733238f81f5fdc44b241f8996a7858825744`（`NOTICE.md` 有來源）。上游更新時需 **re-vendor**，並重新比對 byte 是否影響 existing hotfix。
+2. **Vision 進一步驗證（可選）**：長圖文混搭 prompt、`--limit-mm-per-prompt` 上限（目前 8）的邊界行為、多輪 agent chain 長時間穩定性。
+3. **27b/35b 共用層回歸（暫緩）**：`cluster-common.sh` 的 `CMD_WRAPPER`/`SYNC_DIRS` 與 `cluster-up` 的 `SYNC_DIRS` 區塊改動後，**尚未再 boot 27b/35b 實測**（渲染已驗證 byte-identical、未設時 no-op）；下次任一個 27b/35b boot 時應一併確認行為不變。
