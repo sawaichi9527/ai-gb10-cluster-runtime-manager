@@ -7,8 +7,8 @@
 
 ## 目前狀態（本機 checkout）
 
-- 分支：`main`，HEAD = **`9e28577`**（本 session 共 21 個 commit `a1cba34`…`9e28577`；live lane = `qwen38flash`）
-- 同步狀態：**本機＝Forgejo（origin，`829522`）＝GitHub**；node0 已 pull（live lane = `qwen38flash`）
+- 分支：`main`，HEAD = **`79a79cb`**（本 session 共 **22 個 commit** `a1cba34`…`79a79cb`；本檔自身的 sync commit 為其後一個；live lane = `qwen38flash`）
+- 同步狀態：**本機＝Forgejo（origin，`829522`）＝GitHub＝node0 已 pull**（四方同一 commit；node0 live lane = `qwen38flash`）
 - `handoff.md` 已納版控（`37bee4c` 起；本次更新亦將 commit）
 - `.gitignore` 已覆蓋 `config/cluster.env`、`state/last-runtime`、logs、`*.bak-*`
 
