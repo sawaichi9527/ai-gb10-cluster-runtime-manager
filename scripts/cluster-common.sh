@@ -649,9 +649,10 @@ _verify_remote_checksum(){
 #   clear (default) reset both nodes before launch
 #   off             skip (diagnostics only)
 # =====================================================================
-# Default cache path (relative to $HOME) for the standard lanes. A profile
-# that keeps its vLLM cache elsewhere (e.g. a lane-isolated cache root) sets
-# AUTOTUNE_CACHE_REL in its conf, and the reset follows it.
+# Fallback cache path (relative to $HOME) for a profile that does NOT declare
+# AUTOTUNE_CACHE_REL. Every current cluster profile declares its own per-lane
+# root (~/.cache/vllm-<profile>[-cluster]), so this legacy value is only a
+# safety net and matches no live lane.
 _AUTOTUNE_CACHE_REL=".cache/huggingface/vllm-cache/flashinfer_autotune_cache"
 
 _autotune_cache_rel(){ echo "${AUTOTUNE_CACHE_REL:-${_AUTOTUNE_CACHE_REL}}"; }

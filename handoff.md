@@ -7,7 +7,7 @@
 
 ## 目前狀態（本機 checkout）
 
-- 分支：`main`，HEAD = **`01870a8`**（qwen38flash MTP 詞表 A/B；本 session 共 11 個 commit `a1cba34`…`01870a8`）
+- 分支：`main`，HEAD = **`75a8088`**（本 session 共 15 個 commit `a1cba34`…`75a8088`；live lane = `qwen38flash`）
 - 同步狀態：**本機＝Forgejo（origin，`829522`）＝GitHub**；node0 已 pull（live lane = `qwen38flash`）
 - `handoff.md` 已納版控（`37bee4c` 起；本次更新亦將 commit）
 - `.gitignore` 已覆蓋 `config/cluster.env`、`state/last-runtime`、logs、`*.bak-*`
@@ -67,6 +67,7 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
 ### 零污染保證（deepseek 未受影響）
 - `cluster-profiles.d/deepseek.conf`、`bin/gb10` 未動；`CMD_WRAPPER`/`SYNC_DIRS` 未設時**渲染／行為完全不變**（已用 HEAD 版 `cluster-common.sh` 對現版渲染 deepseek，**逐 byte 相同**）。
 - 共用 `/cache/huggingface/vllm-cache` 的 compile cache；`cluster-up` 每次 boot 都清 FlashInfer autotune cache，且 vLLM 快取以 model/config 為 key。
+  > **2026-09-20 後續更新**：此共用路徑已退役；每個 lane 改用獨立的 `~/.cache/vllm-<profile>`（cluster-only）或 `~/.cache/vllm-<profile>-{cluster,single}`。
 
 ### Benchmark（2026-09-20，同一 session、同一台 TP2）
 `bench-c.sh`（MAX_TOKENS=400）：
@@ -194,7 +195,7 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
   `LAUNCH_STYLE="compose"`；`cluster-compose-verify` 支援 `CMD_WRAPPER`。loader 新增 3 個通用欄位
   `COMPILATION_JSON` / `CAP_ADD` / `ULIMITS`（未設＝不變）與 profile 可宣告的 `AUTOTUNE_CACHE_REL`。
 - **node0 清理**：`~/docker-stacks/aeon-vllm-omni/` 的 3 個 compose 備份 + 3 個孤兒 `*_029_patched.py`
-  移入 `~/.archieve/aeon-vllm-omni-cleanup-20260920/`；刪除可再生的 `*_029_orig.py`。
+  移入 `~/_archieve/aeon-vllm-omni-cleanup-20260920/`；刪除可再生的 `*_029_orig.py`。
 
 ### 已完成（2026-09-20 後續之二）— node-local 佈局歸位
 

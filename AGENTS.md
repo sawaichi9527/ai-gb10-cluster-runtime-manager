@@ -22,7 +22,7 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   portable and do NOT need the repo to live at a fixed path. Keep it that way.
 - **Compose = source of truth; CLI = convenience layer.** Day-to-day ops go through
   `gb10`/`gb10-single`; compose files under `~/docker-stacks/` are the deploy contract.
-- **Unified AEON stack dir (2026-09-13)**: since 27b and 35b both run the v0.29.0-omni image, their composes/models/patches live under one dir `~/docker-stacks/aeon-vllm-omni/` (`docker-compose.27b.yml` + `docker-compose.35b.yml` + `models/` + `*_029_patched.py`). `aeon-vllm-reasoning-eos/` is retired.
+- **Unified AEON stack dir (2026-09-13; filenames updated 2026-09-20)**: since 27b and 35b both run the v0.29.0-omni image, their composes/models/patches live under one dir `~/docker-stacks/aeon-vllm-omni/` (`docker-compose-27b-{cluster,single}.yml` + `docker-compose-35b-{cluster,single}.yml` + `models/` + `flash_attn_029_patched.py`). `aeon-vllm-reasoning-eos/` is retired.
 - **Node-local layout (2026-09-20).** Every runtime's node-side artifacts live under
   `~/docker-stacks/<stack>/`, the stack named after the image source: `aeon-vllm-omni`
   (27b/35b), `anemll-dspark-vllm-gx10` (deepseek), `anemll-dspark-vllm-gx10-miaFlaver`

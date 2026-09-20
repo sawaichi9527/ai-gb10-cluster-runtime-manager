@@ -40,14 +40,18 @@ These are typed (not a raw YAML blob) so they stay validated and reviewable.
 
 ### Node0 cleanup (`~/docker-stacks/aeon-vllm-omni/`)
 
-Moved to `~/.archieve/aeon-vllm-omni-cleanup-20260920/`: the three
+Moved to `~/_archieve/aeon-vllm-omni-cleanup-20260920/`: the three
 `docker-compose.27b.yml.bak-*` backups and the orphaned
 `modelopt_029_patched.py` / `qwen3_dflash2_029_patched.py` /
 `triton_attn_029_patched.py` (referenced only by the superseded `bak-0918`).
 Deleted the regenerable pristine extracts `flash_attn_029_orig.py` /
-`triton_attn_029_orig.py`. Kept: both live composes, the live
-`flash_attn_029_patched.py` (referenced by `35b.conf` and
-`docker-compose.35b.yml`), `logs/` (mount target), `models/`.
+`triton_attn_029_orig.py`. Kept: the live `flash_attn_029_patched.py`
+(referenced by `35b.conf`), `models/`.
+
+> The composes in that dir were renamed `docker-compose-27b-single.yml` /
+> `docker-compose-35b-single.yml` in the later 2026-09-20 layout pass; the
+> cluster lanes now materialize `docker-compose-<profile>-cluster.yml` there.
+> See "Node-local layout" in `AGENTS.md`.
 
 ## Validation
 
