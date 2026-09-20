@@ -8,6 +8,7 @@ source "${SCRIPT_DIR}/cluster-common.sh"
 # bench-c.sh <C> [MAX_TOKENS=400]
 # Mixed code+JSON short prompt (≈40 tok ctx), C concurrent streams.
 # Outputs per-stream lines, aggregate C_total, acceptance %, per-position.
+# Env: BENCH_IGNORE_EOS=1 -> request exactly MAX_TOKENS (fixed-length runs).
 
 C="${1:?usage: bench-c.sh <C> [MAX_TOKENS]}"
 MAX_TOKENS="${2:-400}"
@@ -31,9 +32,12 @@ export async function fetchItems(baseURL: string, opts?: { retries?: number }) {
 OUTDIR=$(mktemp -d /tmp/bench_c${C}_XXXX)
 trap 'rm -rf "$OUTDIR"' EXIT
 
-# Build payload safely with jq (no shell-escape fragility)
-jq -n --arg content "$CONTENT" --argjson mt "$MAX_TOKENS" \
-  '{model:"aeon",messages:[{role:"user",content:$content}],max_tokens:$mt}' > "$OUTDIR/payload.json"
+# Build payload safely with jq (no shell-escape fragility).
+# BENCH_IGNORE_EOS=1 forces exactly MAX_TOKENS tokens per stream, so runs are
+# fixed-length and directly comparable (the model otherwise stops early).
+IGNORE_EOS="${BENCH_IGNORE_EOS:-0}"
+jq -n --arg content "$CONTENT" --argjson mt "$MAX_TOKENS" --argjson ie "$IGNORE_EOS" \
+  '{model:"aeon",messages:[{role:"user",content:$content}],max_tokens:$mt,ignore_eos:($ie==1)}' > "$OUTDIR/payload.json"
 
 METRICS_BEFORE=$(curl -s http://127.0.0.1:${API_PORT}/metrics | grep -E '^vllm:spec_decode_(num_draft_tokens_total|num_accepted_tokens_total|num_drafts_total|num_accepted_tokens_per_pos_total)' | grep -v '_created' | sed 's/.*position="\([0-9]*\)"} \([0-9.]*\)/POS\1 \2/')
 
