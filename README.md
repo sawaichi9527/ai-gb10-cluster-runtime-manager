@@ -138,32 +138,50 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 > `vllm/vllm-openai:qwen38-flash-next` image（vLLM ≥0.28、Qwen4Exp 支援）、NVIDIA ModelOpt
 > **NVFP4 125B** checkpoint（本機為 10-shard repack，另有 `model-fp8-mtp-ple.safetensors`）、
 > **TP2 + EP**（`--enable-expert-parallel --all2all-backend allgather_reducescatter`）、內建
-> **MTP n=3**（`--speculative-config {"method":"mtp","num_speculative_tokens":3}`，**完整 248,320
-> vocab**，非配方預設的 47k 精簡版）、`fp8_e4m3` KV、`bfloat16` SSM state、`--compilation-config
-> {"mode":0,...}`（eager：不做 torch.compile，避免 Inductor 在 GB10 上複製 PLE 表）、GMU 0.835、
-> `--max-num-batched-tokens 8192`、`--mm-encoder-tp-mode data`。
+> **MTP n=3**（`--speculative-config {"method":"mtp","num_speculative_tokens":3,"use_local_argmax_reduction":true}`）
+> 在**精簡 47,149-id 詞表**上起草（A/B 見下）、`fp8_e4m3` KV、`bfloat16` SSM state、
+> `--compilation-config {"mode":0,...}`（eager：不做 torch.compile，避免 Inductor 在 GB10 上複製 PLE
+> 表）、GMU 0.835、`--max-num-batched-tokens 8192`、`--mm-encoder-tp-mode data`。
 >
-> MiaAI-Lab 配方的 4 個 runtime patcher vendored 於 `patches/qwen38flash/`（AGPL-3.0，見 NOTICE），
+> MiaAI-Lab 配方的 5 個 runtime patcher vendored 於 `patches/qwen38flash/`（AGPL-3.0，見 NOTICE），
 > 由 `CMD_WRAPPER` 在容器內**就地**套用於 image 自身的 vLLM 原始碼（PLE / ModelOpt MXFP8 +
-> FP8_BLOCK_SCALES / QSA FP8-KV），不重建 image；checkpoint 的 MTP 層索引別名由
+> FP8_BLOCK_SCALES / QSA FP8-KV / 精簡詞表 MTP drafter），不重建 image；47k 詞表唯讀掛載於
+> `/etc/vllm-draft-vocab.txt`。checkpoint 的 MTP 層索引別名由
 > `patches/qwen38flash/prepare.sh` 預先產生後唯讀掛載。
 >
-> 服務：`:1234`、model id `aeon`、262144 ctx。**KV pool 33.64 GiB / 4,183,818 tokens**
-> （262K 請求下 15.96x 併發）。`bench-c.sh`：prompt = 171 tok、`MAX_TOKENS=400`、`any_errors=0`；
-> 下表為多次重複之**中位數**（每 C 3–6 次）。
+> 服務：`:1234`、model id `aeon`、262144 ctx。**KV pool 34.01 GiB / 4,245,234 tokens**
+> （262144 請求下 16.19x）。`bench-c.sh`：prompt = 171 tok、`MAX_TOKENS=400`、`any_errors=0`；
+> 下表為多次重複之**中位數**（每 C 3 次）。
 
-| C | TP2 tok/s | accept % | mean accept len |
+#### MTP draft 詞表 A/B（同機同 session，僅換 drafter 詞表）
+
+| C | 完整 248,320 vocab | 精簡 47k | Δ |
 |---|---|---|---|
-| 1 | 35.7 | 44.5 | 1.26–1.41 |
-| 2 | 54.8 | 49.8 | 1.45–1.53 |
-| 3 | 82.3 | 45.3 | 1.26–1.45 |
-| 4 | 90.9 | 44.9 | 1.23–1.45 |
-| 8 | 146.5 | 47.4 | 1.38–1.45 |
+| 1 | 35.7 | 40.4 | +13.2% |
+| 2 | 54.8 | 58.9 | +7.5% |
+| 3 | 82.3 | 88.2 | +7.2% |
+| 4 | 90.9 | 101.0 | +11.1% |
+| 8 | 146.5 | 156.2 | +6.6% |
+
+| C | 完整 accept % | 47k accept % |
+|---|---|---|
+| 1 | 44.5 | 47.4 |
+| 2 | 49.8 | 43.0 |
+| 3 | 45.3 | 42.8 |
+| 4 | 44.9 | 46.5 |
+| 8 | 47.4 | 45.6 |
+
+> 精簡詞表把 drafter 的 lm_head 讀取縮到 rank-0 的 id 區間，並以
+> `use_local_argmax_reduction` 把 draft all-gather 由 O(vocab_size) 降為 O(2*tp_size)；五個 C 全部較快
+> （**平均 +9.1%**，與 MiaAI 量測的 +9.6% 相符），**接受率與 mean accept length 幾乎不變**
+> （輸出安全：落在子集外的 draft 在驗證階段被丟棄，不會被輸出）。精簡版另使 KV pool 由
+> 33.64 → **34.01 GiB**（drafter 權重省下的記憶體）。`bench-c` 的 `max_tokens=400` 會提前停止、
+> 各 stream 長度不同，故單次數字變異較大（C=1 尤甚），上表取中位數。
 
 > 對照同機 TP2：**27B**（v0.29.0-omni, DFlash2 n=7）46.1 / 76.8 / 87.9 / 105.3 / 172.7；
 > **35B**（DFlash n=6）120.6 / 177.4 / 218.5 / 291.6 / 416.4。
-> 125B NVFP4 MoE 每 token 僅啟用約 6B 參數，故 C=1 單流偏低（~36 tok/s），C=8 聚合達 146.5 tok/s
-> （相對 C=1 約 4.1x）。MTP 接受率 41–51%、mean accept length 1.2–1.5。
+> 125B NVFP4 MoE 每 token 僅啟用約 6B 參數，故 C=1 單流偏低（~40 tok/s），C=8 聚合達 156.2 tok/s
+> （相對 C=1 約 3.9x）。
 >
 > **上線時修掉的 5 個問題**（皆已進 main）：① Docker Compose 對整份 render 檔做變數插值，把
 > `CMD_WRAPPER` 內的 `$W`/`$P` 吃掉 → 啟動即死於 `mkdir -p ""`（改以 `$$` 逃逸；deepseek-vision
