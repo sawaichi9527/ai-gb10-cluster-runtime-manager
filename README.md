@@ -14,6 +14,7 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 > 2026-09-13 實測。27B/35B 原使用 `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-09-11-v0.29.0-omni`；DeepSeek 為歷史主力線 `ghcr.io/anemll/dspark-vllm-gx10:0.1.1` 之既有結果。
 > **2026-09-19 更新**：35B 與 27B 皆已升 `2026-09-18-v0.29.0-omni` 並重新實測（單節點啟用 `VLLM_USE_V2_MODEL_RUNNER=1`）。27B 先前在 09-18 首次冷啟動觸及 `cluster-up` 硬編碼 2400s health timeout 而誤判失敗（非 image 缺陷）；已改為 profile 可覆寫（27B `HEALTH_TIMEOUT=3600`），實測 READY 並完成 cluster/single benchmark。
 > **2026-09-20 新增**：DeepSeek V4 Flash **Vision-Exp**（多模態）以**與 mainline deepseek 同一顆** Anemll image + 啟動 wrapper 上線（`gb10 use deepseek-vision`，互斥）；bench-c / bench-ctx 實測見下方。
+> **2026-09-20 新增**：**Qwen3.8 Flash-Next 125B NVFP4**（TP2+EP、內建 MTP3）上線（`gb10 use qwen38flash`）；同日起 compose 為**唯一**啟動 lane（原 docker-run 分支移除），見下方實測。
 
 ### 已部署服務
 
@@ -25,6 +26,7 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 | 35B cluster (TP2) | 同上 | `2026-09-18-v0.29.0-omni` | `http://192.168.23.215:1234/v1` | deployed（09-19 實測） |
 | DeepSeek V4 Flash cluster (TP2) | `deepseek-v4-flash-0731-official` + DSpark n=7 | `anemll/dspark-vllm-gx10:0.1.1` | `http://192.168.23.215:1234/v1` | deployed (mainline) |
 | DeepSeek V4 Flash **Vision-Exp** cluster (TP2) | `deepseek-v4-flash-vision-exp` + DSpark n=6 (multimodal) | `anemll/dspark-vllm-gx10:0.1.1`（**與 deepseek 同 image / 同 digest**） | `http://192.168.23.215:1234/v1` | deployed（09-20 實測，文字＋圖片） |
+| Qwen3.8 Flash-Next **125B** cluster (TP2+EP) | `qwen3.8-flash-next-nvfp4`（ModelOpt NVFP4）+ 內建 MTP n=3 | `vllm/vllm-openai:qwen38-flash-next` | `http://192.168.23.215:1234/v1` | deployed（09-20 上線實測） |
 
 ### 27B v0.29.0-omni (bench-c C1-C8, MAX_TOKENS=2048; 245k cold prefill)
 
@@ -129,6 +131,47 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 | 200K | 1725.0 |
 
 > 觀察：C≥4 兩者吞吐相近；C=8 0731 較高（93.1 vs 73.4）；短/中長 prefill Vision-Exp 略快、200K 同級。
+
+### Qwen3.8 Flash-Next 125B NVFP4 (TP2+EP, MTP3) — 2026-09-20 上線實測
+
+> **新 lane（09-20 上線）。** `cluster-profiles.d/qwen38flash.conf`：官方
+> `vllm/vllm-openai:qwen38-flash-next` image（vLLM ≥0.28、Qwen4Exp 支援）、NVIDIA ModelOpt
+> **NVFP4 125B** checkpoint（本機為 10-shard repack，另有 `model-fp8-mtp-ple.safetensors`）、
+> **TP2 + EP**（`--enable-expert-parallel --all2all-backend allgather_reducescatter`）、內建
+> **MTP n=3**（`--speculative-config {"method":"mtp","num_speculative_tokens":3}`，**完整 248,320
+> vocab**，非配方預設的 47k 精簡版）、`fp8_e4m3` KV、`bfloat16` SSM state、`--compilation-config
+> {"mode":0,...}`（eager：不做 torch.compile，避免 Inductor 在 GB10 上複製 PLE 表）、GMU 0.835、
+> `--max-num-batched-tokens 8192`、`--mm-encoder-tp-mode data`。
+>
+> MiaAI-Lab 配方的 4 個 runtime patcher vendored 於 `patches/qwen38flash/`（AGPL-3.0，見 NOTICE），
+> 由 `CMD_WRAPPER` 在容器內**就地**套用於 image 自身的 vLLM 原始碼（PLE / ModelOpt MXFP8 +
+> FP8_BLOCK_SCALES / QSA FP8-KV），不重建 image；checkpoint 的 MTP 層索引別名由
+> `patches/qwen38flash/prepare.sh` 預先產生後唯讀掛載。
+>
+> 服務：`:1234`、model id `aeon`、262144 ctx。**KV pool 33.64 GiB / 4,183,818 tokens**
+> （262K 請求下 15.96x 併發）。`bench-c.sh`：prompt = 171 tok、`MAX_TOKENS=400`、`any_errors=0`；
+> 下表為多次重複之**中位數**（每 C 3–6 次）。
+
+| C | TP2 tok/s | accept % | mean accept len |
+|---|---|---|---|
+| 1 | 35.7 | 44.5 | 1.26–1.41 |
+| 2 | 54.8 | 49.8 | 1.45–1.53 |
+| 3 | 82.3 | 45.3 | 1.26–1.45 |
+| 4 | 90.9 | 44.9 | 1.23–1.45 |
+| 8 | 146.5 | 47.4 | 1.38–1.45 |
+
+> 對照同機 TP2：**27B**（v0.29.0-omni, DFlash2 n=7）46.1 / 76.8 / 87.9 / 105.3 / 172.7；
+> **35B**（DFlash n=6）120.6 / 177.4 / 218.5 / 291.6 / 416.4。
+> 125B NVFP4 MoE 每 token 僅啟用約 6B 參數，故 C=1 單流偏低（~36 tok/s），C=8 聚合達 146.5 tok/s
+> （相對 C=1 約 4.1x）。MTP 接受率 41–51%、mean accept length 1.2–1.5。
+>
+> **上線時修掉的 5 個問題**（皆已進 main）：① Docker Compose 對整份 render 檔做變數插值，把
+> `CMD_WRAPPER` 內的 `$W`/`$P` 吃掉 → 啟動即死於 `mkdir -p ""`（改以 `$$` 逃逸；deepseek-vision
+> 的 `${PATH}` 同類隱患一併修好）；② `cluster-compose-verify` 不支援 `CMD_WRAPPER` lane；
+> ③ 同工具以 `||` 當欄位分隔符，與 wrapper 內 `|| exit 1` 衝突；④ autotune 快取路徑未納入
+> `ensure_autotune_cache_reset`（本 lane 用獨立 cache root；新增 profile 可宣告的
+> `AUTOTUNE_CACHE_REL`）；⑤ 該 cache 目錄由 docker 以 root 建立，`eye` 無法搬移 → reset 先
+> `mkdir -p` parent 並於兩節點一次性 chown。
 
 ## Topology
 
