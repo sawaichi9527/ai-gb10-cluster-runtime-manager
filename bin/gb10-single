@@ -478,7 +478,8 @@ case "$cmd" in
     fi
 
     # launch background boot
-    LOG="${STATE}/boot-single.${node}.${3}.log"
+    mkdir -p "${LOG_BASE}/${3}"
+    LOG="${LOG_BASE}/${3}/boot-single-${node}.log"
     ( setsid nohup "${SCRIPTS}/gb10-single-boot" "$node" "$3" </dev/null >"${LOG}" 2>&1 &
       echo $! > "$(_pid_file "$node" "$3")" )
     sleep 0.2
