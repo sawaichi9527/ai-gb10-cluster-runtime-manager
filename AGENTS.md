@@ -85,9 +85,12 @@ The TP2 profile layer is **data-driven** (see `docs/TP2_PROFILE_REFACTOR_VALIDAT
 
 ```text
 cluster-profiles.d/
-  27b.conf          # deployed + live-validated (world_size=2, maxlen 262144)
-  35b.conf          # deployed + live-validated (world_size=2, maxlen 262144)
-  deepseek.conf     # mainline (onboarded 2026-09-07; dspark-vllm-gx10:0.1.1, pool weights)
+  27b.conf           # deployed + live-validated (world_size=2, maxlen 262144)
+  35b.conf           # deployed + live-validated (world_size=2, maxlen 262144)
+  deepseek.conf      # mainline (onboarded 2026-09-07; dspark-vllm-gx10:0.1.1, pool weights)
+  deepseek-vision.conf  # Vision-Exp (2026-09-20); SAME image as deepseek + CMD_WRAPPER hotfixes
+  qwen38flash.conf   # Qwen3.8 Flash-Next 125B NVFP4 TP2+EP (2026-09-20); official
+                     # vllm/vllm-openai:qwen38-flash-next + vendored MiaAI patchers
 ```
 
 Key rules:
@@ -102,6 +105,12 @@ Key rules:
   `--disable-custom-all-reduce` remain cluster concerns.
 - Model-specific settings (KV dtype, attention/linear/MoE backend, speculative method, parser,
   graph mode, context/concurrency/GMU) belong to the cluster profile conf.
+- **qwen38flash** (2026-09-20) is the first lane whose runtime support is *patched into the image
+  at container start*: `patches/qwen38flash/` vendors the MiaAI-Lab patchers (AGPL-3.0, see
+  `NOTICE.md`) and `CMD_WRAPPER` applies them in place — no image rebuild. It mounts the 47k
+  reduced MTP vocabulary at `/etc/vllm-draft-vocab.txt`, pins `IMG_SHA256`, and declares its own
+  `AUTOTUNE_CACHE_REL` (lane-isolated vLLM cache root, since the image enables FlashInfer
+  autotune by default). Keep `prepare.sh`/`NOTICE.md` and the image tag in sync.
 - The TP2 structural refactor (2026-09-05) originally scoped DeepSeek as a correctness/control
   bring-up; that NVFP4 AEON lane has since been **archived**
   (`~/_archieve/cluster-profiles.d/deepseek-nvfp4.conf`) in favor of the **mainline** DeepSeek

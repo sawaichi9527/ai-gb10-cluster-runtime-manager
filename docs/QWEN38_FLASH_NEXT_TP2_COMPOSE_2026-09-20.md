@@ -63,29 +63,32 @@ Deleted the regenerable pristine extracts `flash_attn_029_orig.py` /
 
 Ported from `MiaAI-Lab/Qwen3.8-Flash-Next-Dual-DGX-Sparks` @ `d2f54b7` (AGPL-3.0).
 
-`cluster-profiles.d/qwen38flash.conf` (recipe defaults, full MTP vocabulary):
+`cluster-profiles.d/qwen38flash.conf` (recipe defaults; MTP drafts over the
+reduced 47k vocabulary, see the A/B below):
 
 | field | value |
 |---|---|
 | `LAUNCH_STYLE` / `ENGINE` | `compose` / `vllm` |
-| `IMAGE` | `vllm/vllm-openai:qwen38-flash-next` |
+| `IMAGE` / `IMG_SHA256` | `vllm/vllm-openai:qwen38-flash-next` / manifest `sha256:fc120ece…05bf8` (RepoDigests, identical on both nodes) |
 | `MAXLEN`/`NUMSEQ`/`BATCHED`/`GMU`/`NSPEC` | 262144 / 8 / **8192** / **0.835** / 3 |
 | `QUANTIZATION` / `KV_DTYPE` | `modelopt` / `fp8_e4m3` |
 | `DISABLE_CUSTOM_ALL_REDUCE` | `false` (recipe keeps custom all-reduce) |
 | `GRAPH_MODE` / `COMPILATION_JSON` | `FULL_DECODE_ONLY` / `{"mode":0,"cudagraph_mode":"FULL_DECODE_ONLY"}` |
-| `SPEC_CONFIG` | `{"method":"mtp","num_speculative_tokens":3}` — internal MTP, **full 248,320 vocab** (no reduced-vocab overlay) |
+| `SPEC_CONFIG` | `{"method":"mtp","num_speculative_tokens":3,"use_local_argmax_reduction":true}` — internal MTP on the **reduced 47,149-id** vocabulary |
 | `EXTRA_ARGS` | `--mamba-ssm-cache-dtype bfloat16 --load-format safetensors --safetensors-load-strategy lazy --distributed-executor-backend mp --mm-encoder-tp-mode data --enable-expert-parallel --all2all-backend allgather_reducescatter --hf-overrides '{"text_config":{"ple_embedding_dtype":"float8_e4m3fn"}}'` |
-| `EXTRA_ENV` | `HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 TP_SOCKET_IFNAME=$NCCL_SOCKET_IFNAME NCCL_IB_DISABLE=0 NCCL_IB_AUTO_DETECT=0 NCCL_DEBUG=WARN` |
+| `EXTRA_ENV` | `HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 TP_SOCKET_IFNAME=$NCCL_SOCKET_IFNAME NCCL_IB_DISABLE=0 NCCL_IB_AUTO_DETECT=0 NCCL_DEBUG=WARN VLLM_MTP_DRAFT_VOCAB=/etc/vllm-draft-vocab.txt` |
 | `CAP_ADD` | `SYS_NICE` (no extra ulimits; PLE stays on GPU) |
+| `AUTOTUNE_CACHE_REL` | `.cache/vllm-qwen38flash/flashinfer_autotune_cache` (lane cache root; see the reset note) |
 | `SYNC_DIRS` | `patches/qwen38flash` → `$HOME/qwen38flash-patches` (both nodes) |
-| `EXTRA_MOUNTS` | the staged patch dir `:ro`, the two patched configs over `/model/{config,hf_quant_config}.json:ro`, and a lane-isolated `$HOME/.cache/vllm-qwen38flash:/root/.cache/vllm` |
+| `EXTRA_MOUNTS` | the staged patch dir `:ro`, the two patched configs over `/model/{config,hf_quant_config}.json:ro`, the 47k vocab over `/etc/vllm-draft-vocab.txt:ro`, and a lane-isolated `$HOME/.cache/vllm-qwen38flash:/root/.cache/vllm` |
 
 **Mechanism.** `CMD_WRAPPER` (single line) copies the vendored patchers and the
-image's own vLLM sources into `/tmp/q38patch`, runs the four patchers, writes
+image's own vLLM sources into `/tmp/q38patch`, runs the five patchers, writes
 the results back over the vLLM package, then `exec vllm serve`. No image
 rebuild; idempotent per container start. Verified that all patchers are
 `HERE`-relative and take no argv (only read `<HERE>/*.orig`), so the in-container
-flow is well-defined.
+flow is well-defined. (The pre-flight check ran the same extract→patch sequence
+host-side and reproduced upstream's `ple_layer_patched.py` byte-for-byte.)
 
 **Checkpoint facts (measured on Node0, 2026-09-20).** The local checkpoint is a
 10-shard repack (plus a separate `model-fp8-mtp-ple.safetensors`), not the
@@ -101,17 +104,53 @@ gitignored). Run once before the first launch and after any checkpoint change.
 
 **Vendored (byte-identical, sha256 in `patches/qwen38flash/NOTICE.md`):**
 `patch_ple_layer.py`, `patch_modelopt_mxfp8.py`, `patch_modelopt_fp8_block_moe.py`,
-`patch_qsa_fp8_kv.py`, `patch_checkpoint_config.py`, `detect_ple_dtype.py`.
+`patch_qsa_fp8_kv.py`, `patch_checkpoint_config.py`, `patch_mtp_draft_vocab.py`,
+`detect_ple_dtype.py`, `draft_vocab_en_code_47k.txt`.
 
 `bin/gb10` registers `qwen38flash` (usage, `PROFILES_BY_NAME`, `list`, and both
 `use|start` / `restart` case arms).
 
-**Remaining (live):** `bash patches/qwen38flash/prepare.sh` on Node0, then
-`gb10 use qwen38flash` → `/health` 200 → `scripts/cluster-compose-verify qwen38flash`.
+## Live status (2026-09-20)
 
-## Note on live validation
+Deployed and validated: `prepare.sh` run on Node0, `gb10 use qwen38flash` →
+`/health` 200, `scripts/cluster-compose-verify qwen38flash` **PASS on both
+ranks**, `gb10 smoke` → `HELLO-TP2-OK`. In-container markers:
+`[qwen38flash] in-container patches applied`, `Inductor compilation was
+disabled` (mode 0), attention block 1664 (bf16 SSM), PLE runtime FP8 method.
+KV pool 34.01 GiB / 4,245,234 tokens (16.19x @ 262144).
 
-Node0 mutations and validation could not be executed from this session: the
-SSH MCP client cannot answer the approval prompt for destructive/privileged
-commands or file uploads (read-only and non-recursive commands work). Live
-bring-up and `cluster-compose-verify` must be run on Node0.
+### MTP draft-vocabulary A/B (same machine/session, only the vocabulary differs)
+
+| C | full 248,320 vocab | reduced 47k | Δ |
+|---|---|---|---|
+| 1 | 35.7 | 40.4 | +13.2% |
+| 2 | 54.8 | 58.9 | +7.5% |
+| 3 | 82.3 | 88.2 | +7.2% |
+| 4 | 90.9 | 101.0 | +11.1% |
+| 8 | 146.5 | 156.2 | +6.6% |
+
+Acceptance is essentially unchanged (42.8–47.4% vs 44.5–49.8%), and the reduced
+drafter lifts the KV pool 33.64 → 34.01 GiB. The lane now defaults to the
+reduced vocabulary (MiaAI's recommendation). Medians of 3 repeats per C;
+`bench-c` stops early, so single runs vary (C=1 especially).
+
+### Bring-up fixes (all in main)
+
+1. Docker Compose interpolates the whole rendered file, so the `CMD_WRAPPER`'s
+   `$W`/`$P` were substituted to empty and the boot died at `mkdir -p ""`.
+   Emit `$$` (also fixes the same latent issue in the deepseek-vision prelude).
+2. `cluster-compose-verify` did not model the `CMD_WRAPPER` entrypoint/command.
+3. Its `||` field separator collided with the wrapper's `|| exit 1`.
+4. The lane's autotune cache root was outside `ensure_autotune_cache_reset`
+   → added the profile-declarable `AUTOTUNE_CACHE_REL`.
+5. That cache dir was created by Docker as root, so `eye` could not rename it
+   out of the way → the reset now pre-creates the parent (`mkdir -p`) and both
+   nodes were chowned once.
+
+## Note on the earlier tooling constraint
+
+The SSH MCP client used for part of this session cannot answer approval prompts
+for destructive/privileged commands or file uploads. This turned out not to
+matter: `eye` is in the `docker` group, so non-sudo docker and the live
+bring-up were executed directly on Node0. Uploads remain unavailable from that
+client; files were transferred via git.

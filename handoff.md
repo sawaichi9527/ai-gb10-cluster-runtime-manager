@@ -2,11 +2,12 @@
 
 > 本檔是本機中繼 checkout 的交接摘要。主要開發在 **node0**（`~/workspace/ai-gb10-cluster-runtime-manager`，branch `keystone`）＋ Forgejo `829522`；本機僅作中繼存取，修改前先確認是否應改在 node0。
 > 建立：2026-09-18；更新：**2026-09-20**（DeepSeek V4 Flash **Vision-Exp** lane 上線：同一顆 Anemll image + 啟動 wrapper；bench-c / bench-ctx / bench-mm 實測；`cluster-up` 新增 `SYNC_DIRS` 自動同步 patch 目錄；**vision 開 prefix caching + `dspark-swa-prefix` hotfix**、長上下文邊界 261K/262144、圖片高併發 C=8/16；本檔納入版控並同步三方）
+> **2026-09-20（後續）**：**Qwen3.8 Flash-Next 125B NVFP4（TP2+EP、MTP3）上線**；同日起 **compose 為唯一啟動 lane**（移除 docker-run 分支）；**27b/35b 改走 compose**；node0 `~/docker-stacks/aeon-vllm-omni/` 清理。詳見下方「已完成（2026-09-20 後續）」。
 
 ## 目前狀態（本機 checkout）
 
-- 分支：`main`，HEAD = **`fd9adf2`**（`handoff: record HEAD 4fe6128`）
-- 同步狀態：**本機＝Forgejo（origin，`829522`）＝node0 已 pull＝GitHub**（`ls-remote` 驗證三方一致 `fd9adf2`）
+- 分支：`main`，HEAD = **`01870a8`**（qwen38flash MTP 詞表 A/B；本 session 共 11 個 commit `a1cba34`…`01870a8`）
+- 同步狀態：**本機＝Forgejo（origin，`829522`）＝GitHub**；node0 已 pull（live lane = `qwen38flash`）
 - `handoff.md` 已納版控（`37bee4c` 起；本次更新亦將 commit）
 - `.gitignore` 已覆蓋 `config/cluster.env`、`state/last-runtime`、logs、`*.bak-*`
 
@@ -174,10 +175,30 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
 - **Vision 調校**：prefix caching 已開啟並套 `dspark-swa-prefix` hotfix（`7b6be60`）；同一 32K prompt 重複請求 prefill 16.95s→2.30s（~7.4×），重複同 prompt 輸出完整（無退化）。
 - **Vision 進一步 benchmark**：長上下文邊界（261K 可用 1803.9 tok/s；262144 被拒 → 實用上限 prompt ≤ 262143）、圖片 C=8（146.1）/C=16（159.4）/4 圖 C=8（90.6）tok/s。
 
+### 已完成（2026-09-20 後續）
+
+- **Qwen3.8 Flash-Next 125B NVFP4（TP2+EP、MTP3）上線**（`qwen38flash.conf`）：官方
+  `vllm/vllm-openai:qwen38-flash-next` image（pin `IMG_SHA256`）、ModelOpt NVFP4 125B
+  checkpoint（本機 10-shard repack + `model-fp8-mtp-ple.safetensors`）、`fp8_e4m3` KV、
+  `bfloat16` SSM、`--compilation-config {"mode":0}`（eager）、GMU 0.835、batched 8192。
+  MiaAI-Lab 的 6 個 runtime patcher vendored 於 `patches/qwen38flash/`（AGPL-3.0，NOTICE 有
+  sha256），由 `CMD_WRAPPER` 在容器內就地套用（不重建 image）；MTP 層索引別名由 `prepare.sh`
+  產生後唯讀掛載。實測：`/health` 200、`cluster-compose-verify` 兩 rank PASS、smoke OK、
+  KV pool 34.01 GiB / 4,245,234 tokens。
+- **MTP draft 詞表 A/B**：精簡 47k vs 完整 248,320，五個 C 全部較快（中位數 40.4/58.9/88.2/
+  101.0/156.2 vs 35.7/54.8/82.3/90.9/146.5，**平均 +9.1%**），接受率幾乎不變；lane 已預設 47k。
+- **單一 compose lane**：`scripts/cluster-up` 移除 docker-run 分支；27b/35b 加
+  `LAUNCH_STYLE="compose"`；`cluster-compose-verify` 支援 `CMD_WRAPPER`。loader 新增 3 個通用欄位
+  `COMPILATION_JSON` / `CAP_ADD` / `ULIMITS`（未設＝不變）與 profile 可宣告的 `AUTOTUNE_CACHE_REL`。
+- **node0 清理**：`~/docker-stacks/aeon-vllm-omni/` 的 3 個 compose 備份 + 3 個孤兒 `*_029_patched.py`
+  移入 `~/.archieve/aeon-vllm-omni-cleanup-20260920/`；刪除可再生的 `*_029_orig.py`。
+
 ## 定期檢討追蹤
 
 > 下列事項不是「待辦」，而是**定期檢討**項目（2026-09-20 標註）。檢討時點：每當 `patches/` 上游或 image 更新，或每次進行 27b/35b 重大變更時。
 
-1. **Patches 上游追蹤**：`patches/dspark-vision/` 目前 pin 在 MiaAI commit `97e8733238f81f5fdc44b241f8996a7858825744`（`NOTICE.md` 有來源）。上游更新時需 **re-vendor**，並重新比對 byte 是否影響 existing hotfix。
+1. **Patches 上游追蹤**：`patches/dspark-vision/` pin 在 MiaAI commit `97e8733…`；`patches/qwen38flash/` pin 在 `d2f54b7…`（皆見各自 `NOTICE.md`）。上游更新時需 **re-vendor** 並重新比對 byte。
 2. **Vision 進一步驗證（可選）**：長圖文混搭 prompt、`--limit-mm-per-prompt` 上限（目前 8）的邊界行為、多輪 agent chain 長時間穩定性。
-3. **27b/35b 共用層回歸（暫緩）**：`cluster-common.sh` 的 `CMD_WRAPPER`/`SYNC_DIRS` 與 `cluster-up` 的 `SYNC_DIRS` 區塊改動後，**尚未再 boot 27b/35b 實測**（渲染已驗證 byte-identical、未設時 no-op）；下次任一個 27b/35b boot 時應一併確認行為不變。
+3. **27b/35b 共用層回歸**：`cluster-common.sh`（`CMD_WRAPPER`/`SYNC_DIRS`/`_yaml_dq` 的 `$$` 逃逸/`AUTOTUNE_CACHE_REL`）與 `cluster-up`（移除 docker-run、`SYNC_DIRS` 區塊）改動後，**尚未 boot 27b/35b 實測**（渲染已驗證 byte-identical；`$$` 逃逸對 27b/35b/deepseek 無 `$` 故無影響，但 **deepseek-vision 的 CMD_WRAPPER 渲染確實改變**——其 `${PATH}` 等由 host 取代改為容器內展開，需在下次 vision boot 時確認行為）。
+4. **bench-c 方法論（可選）**：`max_tokens=400` 會提前停止，單次數字變異大。若要更嚴謹可加 `ignore_eos` 固定長度。
+5. **qwen38flash 未測項（可選）**：`bench-ctx` 長上下文 prefill 曲線、`--limit-mm-per-prompt`／圖片輸入（`mm-encoder-tp-mode data`）、多輪穩定性、`PLE_OFFLOAD=true` 變體（需 `ULIMITS=(nofile=…)`）。
