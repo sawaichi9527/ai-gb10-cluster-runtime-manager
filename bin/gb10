@@ -125,7 +125,7 @@ case "${1:-help}" in
     echo "  27b  [default]  Qwen3.8 27B (body + DFlash2 drafter)"
     echo "  35b             Qwen3.6 35B-A3B (body + DFlash drafter)"
     echo "  deepseek        DeepSeek-V4-Flash-0731 (fp8 DSpark mainline, 256K)"
-    echo "  deepseek-vision  DeepSeek-V4-Flash-Vision-Exp (vLLM multimodal, 32K)"
+    echo "  deepseek-vision  DeepSeek-V4-Flash-Vision-Exp (vLLM multimodal, 256K)"
     echo "  qwen38flash     Qwen3.8 Flash-Next 125B NVFP4 (MTP3, TP2+EP, 256K)"
     ;;
   use|start)
