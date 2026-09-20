@@ -324,10 +324,14 @@ build_docker_env(){
 # keeps cluster-down/status/smoke unchanged.
 # The image manifest gate (IMG_SHA256) still applies before launch.
 # =====================================================================
-_yaml_dq(){ # double-quoted YAML scalar (escapes backslash + double quote)
+_yaml_dq(){ # double-quoted YAML scalar (escapes backslash, double quote, $)
+  # Compose interpolates the whole file, so a literal '$' must be emitted as
+  # '$$' or it is substituted (to empty) before the container ever sees it.
+  # This matters for CMD_WRAPPER preludes that use shell variables.
   local s="$1"
   s="${s//\\/\\\\}"
   s="${s//\"/\\\"}"
+  s="${s//'$'/'$$'}"
   printf '"%s"' "$s"
 }
 
