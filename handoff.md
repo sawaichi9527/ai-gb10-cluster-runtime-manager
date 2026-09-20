@@ -5,7 +5,7 @@
 
 ## 目前狀態（本機 checkout）
 
-- 分支：`main`，HEAD = **`c76c93e`**（`docs(readme): extend Vision-Exp benchmarks`）
+- 分支：`main`，HEAD = **`4fe6128`**（`docs: record Vision-Exp prefix caching + long-context boundary + image C=8/16 results`）
 - 同步狀態：**本機＝Forgejo（origin，`829522`）＝node0 已 pull**；**GitHub remote 本次未推**（待辦）
 - `handoff.md` 本身目前是 **untracked**（未 commit）
 - `.gitignore` 已覆蓋 `config/cluster.env`、`state/last-runtime`、logs、`*.bak-*`
