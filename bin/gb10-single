@@ -349,6 +349,9 @@ stop_file(){
   if [[ "$PLACEHOLDER" == true ]]; then echo "$RUNTIME_ID: placeholder (not deployed)."; return; fi
   if active_loaded "$node"; then echo "Stopping $RUNTIME_ID on $node..."; compose_node "$node" down
   else echo "$RUNTIME_ID: not active on $node."; fi
+  # A stopped lane is not ready: drop its marker so `gb10-single wait` cannot
+  # report a stale READY left over from a previous successful boot.
+  rm -f "$(_ready_file "$node" "$RUNTIME_ID")"
 }
 
 # stop_group_except — stop every OTHER active EXCLUSIVE runtime on the node.

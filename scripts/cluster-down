@@ -19,4 +19,8 @@ echo "== stopping Node0 (API) =="
 sdk docker rm -f cluster-node0 >/dev/null 2>&1 || true
 sdk docker ps -a --filter name=cluster-node0 --format '{{.Names}} {{.Status}}' 2>/dev/null || true
 
+# A stopped lane is not ready: drop the ready markers so `gb10 wait/status`
+# cannot report a stale READY left over from a previous successful boot.
+rm -f "${REPO_DIR}/state"/boot-ready.* 2>/dev/null || true
+
 echo "TP2 down complete."

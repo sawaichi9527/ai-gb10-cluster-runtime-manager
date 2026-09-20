@@ -191,6 +191,41 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 > `AUTOTUNE_CACHE_REL`）；⑤ 該 cache 目錄由 docker 以 root 建立，`eye` 無法搬移 → reset 先
 > `mkdir -p` parent 並於兩節點一次性 chown。
 
+#### qwen38flash 進一步實測（2026-09-20）
+
+固定長度版（`bench-c.sh` 新增 `BENCH_IGNORE_EOS=1`，強制每 stream 恰好 `MAX_TOKENS=400`，
+變異遠小於會提前停止的預設模式）：
+
+| C | 固定長度 tok/s | （對照）變動長度中位數 |
+|---|---|---|
+| 1 | 41.7 | 40.4 |
+| 2 | 55.3 | 58.9 |
+| 3 | 93.7 | 88.2 |
+| 4 | 105.0 | 101.0 |
+| 8 | 161.1 | 156.2 |
+
+| prefill probe (`bench-ctx.sh`, max_tokens=1) | qwen38flash tok/s |
+|---|---|
+| 32K | 2644.2（含暖機） |
+| 131K | 2900.2 |
+| 200K | 2716.9 |
+| 245K | 2630.2 |
+
+| 圖片輸入 (`bench-mm.sh`, max_tokens=200) | prompt tok | wall (s) | agg tok/s |
+|---|---|---|---|
+| 1 img, C=1 | 768 | 3.14 | 40.5 |
+| 4 img, C=1 | 2886 | 3.40 | 32.7 |
+| 1 img, C=4 | 768 × 4 | 7.16 | 86.3 |
+| 1 img, C=8 | 768 × 8 | 7.86 | 135.7 |
+
+> 每張圖約 597 prompt tokens（1 圖總 prompt 768）。profile 未設 `--limit-mm-per-prompt`，
+> vLLM 預設即允許 ≥8 張（C=8 無錯誤）。
+> 多輪穩定（`scripts/bench-multiturn.sh 6 300`）：**6/6 clean turns**（每輪 `finish=stop`、內容非空）。
+> **`PLE_OFFLOAD=true` 不適用於 TP2**：實測啟動即被 vLLM 拒絕 ——
+> `VLLM_PLE_CPU_OFFLOAD does not support the requested configuration. Unsupported settings: nnodes=2`。
+> PLE CPU offload 是**單節點**功能；本 lane 維持 `PLE_OFFLOAD=false`（配方預設），
+> `ULIMITS` profile 欄位仍為通用能力（實測 `nofile=1048576` 確實套用）。
+
 ## Topology
 
 ```text

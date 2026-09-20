@@ -215,13 +215,25 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
 - **node0/node1 歸位**：`~/qwen38flash-patches/` → `.../mia-vllm-openai-qwen38flashNext/patches/`；
   `~/dspark-vision-patches/` → `.../anemll-dspark-vllm-gx10-miaFlaver/patches/`；
   `~/dspark-vision-poc/`、`~/logs/`、`~/.archieve/` 併入 `~/_archieve/`。
+- **全 lane 實測**：qwen38flash / deepseek / 27b / 35b / deepseek-vision（TP2）與 27b single(node0)、
+  35b single(**node1**) 皆 `READY`；`cluster-compose-verify` 兩 rank PASS、`gb10 smoke` OK。
+- **`~/_archieve` 已整批刪除**（兩節點），首頁根僅剩標準目錄。
+
+### 已完成（2026-09-20 後續之三）— qwen38flash 加測
+
+- **固定長度 benchmark**：`bench-c.sh` 新增 `BENCH_IGNORE_EOS=1`（每 stream 恰好 MAX_TOKENS）。
+  qwen38flash C1/C2/C3/C4/C8 = **41.7 / 55.3 / 93.7 / 105.0 / 161.1 tok/s**（與變動長度中位數一致 ±6%）。
+- **prefill 曲線**（`bench-ctx.sh`）：32K 2644 / 131K 2900 / 200K 2717 / 245K **2630** tok/s。
+- **圖片輸入**（`bench-mm.sh`）：1 圖 ≈597 prompt tok；1img C=1 40.5、4img C=1 32.7、1img C=4 86.3、
+  1img C=8 **135.7** tok/s，無錯誤（未設 `--limit-mm-per-prompt`，預設允許 ≥8 張）。
+- **多輪穩定**：新增 `scripts/bench-multiturn.sh`；6 輪 **6/6 clean**。
+- **`PLE_OFFLOAD=true` 對 TP2 不可行**：vLLM 直接拒絕（`Unsupported settings: nnodes=2`）——
+  它是單節點功能。lane 維持 `PLE_OFFLOAD=false`；`ULIMITS` 欄位仍通用（`nofile` 實測生效）。
 
 ## 定期檢討追蹤
 
 > 下列事項不是「待辦」，而是**定期檢討**項目（2026-09-20 標註）。檢討時點：每當 `patches/` 上游或 image 更新，或每次進行 27b/35b 重大變更時。
 
 1. **Patches 上游追蹤**：`patches/dspark-vision/` pin 在 MiaAI commit `97e8733…`；`patches/qwen38flash/` pin 在 `d2f54b7…`（皆見各自 `NOTICE.md`）。上游更新時需 **re-vendor** 並重新比對 byte。
-2. **Vision 進一步驗證（可選）**：長圖文混搭 prompt、`--limit-mm-per-prompt` 上限（目前 8）的邊界行為、多輪 agent chain 長時間穩定性。
-3. **27b/35b 共用層回歸**：`cluster-common.sh`（`CMD_WRAPPER`/`SYNC_DIRS`/`_yaml_dq` 的 `$$` 逃逸/`AUTOTUNE_CACHE_REL`）與 `cluster-up`（移除 docker-run、`SYNC_DIRS` 區塊）改動後，**尚未 boot 27b/35b 實測**（渲染已驗證 byte-identical；`$$` 逃逸對 27b/35b/deepseek 無 `$` 故無影響，但 **deepseek-vision 的 CMD_WRAPPER 渲染確實改變**——其 `${PATH}` 等由 host 取代改為容器內展開，需在下次 vision boot 時確認行為）。
-4. **bench-c 方法論（可選）**：`max_tokens=400` 會提前停止，單次數字變異大。若要更嚴謹可加 `ignore_eos` 固定長度。
-5. **qwen38flash 未測項（可選）**：`bench-ctx` 長上下文 prefill 曲線、`--limit-mm-per-prompt`／圖片輸入（`mm-encoder-tp-mode data`）、多輪穩定性、`PLE_OFFLOAD=true` 變體（需 `ULIMITS=(nofile=…)`）。
+2. **Vision 進一步驗證（可選）**：長圖文混搭 prompt、多輪 agent chain 長時間穩定性。
+3. **已收斂（2026-09-20，原 3/4/5 項）**：27b/35b/deepseek/deepseek-vision/qwen38flash 全部在新 node-local 佈局下 boot 驗證（`health` 200 + `cluster-compose-verify` 兩 rank PASS + `gb10 smoke` OK），`$$` 逃逸、per-lane cache、STACK_DIR materialize、統一 log 皆實證；單機 27b(node0) 與 **35b(node1)** 亦 READY。`bench-c.sh` 已加 `BENCH_IGNORE_EOS`（固定長度）；qwen38flash 的 prefill 曲線／圖片輸入／多輪穩定已測；**`PLE_OFFLOAD=true` 確認對 TP2（nnodes=2）不可行**，維持 false。
