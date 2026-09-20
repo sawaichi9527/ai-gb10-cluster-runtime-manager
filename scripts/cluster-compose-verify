@@ -47,12 +47,25 @@ shm_bytes(){ # "64g"/"16g"/N -> bytes
   esac
 }
 
-exp_entry(){ [[ "${ENGINE}" == "sglang" ]] && echo "sglang" || echo "vllm"; }
+# Expected entrypoint. The CMD_WRAPPER path emits `entrypoint: []` and runs
+# `bash -lc "<wrapper>; exec vllm serve ..."` instead (see _compose_service).
+exp_entry_json(){
+  if [[ -n "${CMD_WRAPPER:-}" ]]; then printf '[]'; return; fi
+  [[ "${ENGINE}" == "sglang" ]] && printf '["sglang"]' || printf '["vllm"]'
+}
 
-exp_cmd_json(){ # rank -> ["serve","/model",...] JSON array, element-escaped
+exp_cmd_json(){ # rank -> JSON array matching _compose_service's `command:`
   local r="$1" a first=1
-  if [[ "${ENGINE}" == "sglang" ]]; then build_sglang_args "$r"; set -- "serve" "/model" "${SGLANG_ARGS[@]}"
-  else build_vllm_args "$r"; set -- "serve" "/model" "${VLLM_ARGS[@]}"; fi
+  local -a A
+  if [[ "${ENGINE}" == "sglang" ]]; then build_sglang_args "$r"; A=( "${SGLANG_ARGS[@]}" )
+  else build_vllm_args "$r"; A=( "${VLLM_ARGS[@]}" ); fi
+  if [[ -n "${CMD_WRAPPER:-}" ]]; then
+    local s="${CMD_WRAPPER}; exec /usr/local/bin/vllm serve /model"
+    for a in "${A[@]}"; do s+=" $(printf '%q' "$a")"; done
+    printf '["bash","-lc","%s"]' "$(json_esc "$s")"
+    return
+  fi
+  set -- "serve" "/model" "${A[@]}"
   for a in "$@"; do
     (( first )) || printf ','
     first=0
@@ -90,8 +103,11 @@ exp_mnt_lines(){ # rank -> "SRC;DEST;true|false" lines (Source;Destination;RW)
   done
 }
 
-# scalar fact template (double-pipe separated, then parsed on '||')
-TM_SCALARS='{{json .Config.Entrypoint}}||{{json .Config.Cmd}}||{{.HostConfig.NetworkMode}}||{{.HostConfig.IpcMode}}||{{.HostConfig.ShmSize}}||{{join .HostConfig.Devices "|"}}||{{join .HostConfig.CapAdd "|"}}||{{range .HostConfig.Ulimits}}{{.Name}}={{.Soft}}={{.Hard}};{{end}}||{{range .HostConfig.DeviceRequests}}[{{.Driver}}|{{.Count}}|{{join .Capabilities ","}}];{{end}}'
+# scalar fact template (separator-delimited, then parsed on the separator).
+# The separator MUST NOT appear in any field: a CMD_WRAPPER command contains
+# `||` (from `|| exit 1`), so `||` cannot be used here.
+CVSEP='@@CVSEP@@'
+TM_SCALARS="{{json .Config.Entrypoint}}${CVSEP}{{json .Config.Cmd}}${CVSEP}{{.HostConfig.NetworkMode}}${CVSEP}{{.HostConfig.IpcMode}}${CVSEP}{{.HostConfig.ShmSize}}${CVSEP}{{join .HostConfig.Devices \"|\"}}${CVSEP}{{join .HostConfig.CapAdd \"|\"}}${CVSEP}{{range .HostConfig.Ulimits}}{{.Name}}={{.Soft}}={{.Hard}};{{end}}${CVSEP}{{range .HostConfig.DeviceRequests}}[{{.Driver}}|{{.Count}}|{{join .Capabilities \",\"}}];{{end}}"
 
 get_facts(){ # <rank> -> sets GET_* and NODE_HOME ; 0 runs locally, 1 over n1 (sudo)
   local rank="$1"
@@ -108,12 +124,12 @@ get_facts(){ # <rank> -> sets GET_* and NODE_HOME ; 0 runs locally, 1 over n1 (s
     GET_MNT="$(n1 "export SUDO_PASS=${SP}; echo \"\$SUDO_PASS\" | sudo -S docker inspect $cid --format '{{range .Mounts}}{{.Source}};{{.Destination}};{{.RW}}{{println}}{{end}}'")"
     out="$(n1 "export SUDO_PASS=${SP}; echo \"\$SUDO_PASS\" | sudo -S docker inspect $cid --format '$TM_SCALARS'")"
   fi
-  # scalars split: entry||cmd||net||ipc||shm||dev||cap||ul||dr
-  GET_ENTRY="${out%%||*}"
-  rest="${out#*||}"; GET_CMD="${rest%%||*}"; rest="${rest#*||}"
-  GET_NET="${rest%%||*}"; rest="${rest#*||}"; GET_IPC="${rest%%||*}"; rest="${rest#*||}"
-  GET_SHM="${rest%%||*}"; rest="${rest#*||}"; GET_DEV="${rest%%||*}"; rest="${rest#*||}"
-  GET_CAP="${rest%%||*}"; rest="${rest#*||}"; GET_UL="${rest%%||*}"; rest="${rest#*||}"
+  # scalars split on CVSEP: entry cmd net ipc shm dev cap ul dr
+  GET_ENTRY="${out%%${CVSEP}*}"
+  rest="${out#*${CVSEP}}"; GET_CMD="${rest%%${CVSEP}*}"; rest="${rest#*${CVSEP}}"
+  GET_NET="${rest%%${CVSEP}*}"; rest="${rest#*${CVSEP}}"; GET_IPC="${rest%%${CVSEP}*}"; rest="${rest#*${CVSEP}}"
+  GET_SHM="${rest%%${CVSEP}*}"; rest="${rest#*${CVSEP}}"; GET_DEV="${rest%%${CVSEP}*}"; rest="${rest#*${CVSEP}}"
+  GET_CAP="${rest%%${CVSEP}*}"; rest="${rest#*${CVSEP}}"; GET_UL="${rest%%${CVSEP}*}"; rest="${rest#*${CVSEP}}"
   GET_DR="$rest"
 }
 
@@ -133,7 +149,7 @@ verify_rank(){ # 0 | 1
 
   check(){ local cond="$1" msg="$2"; if [[ "$cond" != "OK" ]]; then echo "FAIL ${label}: ${msg}"; fail=1; rfail=1; fi; }
 
-  check "$( [[ "$GET_ENTRY" == "[\"$(exp_entry)\"]" ]] && echo OK || echo BAD )" "entrypoint ${GET_ENTRY} != [\"$(exp_entry)\"]"
+  check "$( [[ "$GET_ENTRY" == "$(exp_entry_json)" ]] && echo OK || echo BAD )" "entrypoint ${GET_ENTRY} != $(exp_entry_json)"
   check "$( [[ "$GET_CMD" == "[$(exp_cmd_json "$rank")]" ]] && echo OK || echo BAD )" "command mismatch (got ${GET_CMD})"
   while IFS= read -r kv; do
     [[ -n "$kv" ]] || continue
