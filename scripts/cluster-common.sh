@@ -126,11 +126,11 @@ load_profile(){
         QUANTIZATION SPEC_CONFIG PASS_CONFIG COMPILATION_JSON CUDAGRAPH_CAPTURE \
         EXTRA_ARGS EXTRA_ENV EXTRA_MOUNTS CMD_WRAPPER SYNC_DIRS CAP_ADD ULIMITS \
         AUTOTUNE_CACHE_REL STACK_DIR COMPOSE_FILE \
-        DISABLE_CUSTOM_ALL_REDUCE SHM_SIZE ENGINE MODEL_ID TP_SIZE NNODES MEM_FRACTION_STATIC CHUNKED_PREFILL_SIZE CUDA_GRAPH_MAX_BS_DECODE MAX_RUNNING_REQUESTS MOE_RUNNER_BACKEND SPEC_MOE_RUNNER_BACKEND SPEC_ALGORITHM DISABLE_SHARED_EXPERTS_FUSION API_HOST MODELS_BASE 2>/dev/null || true
+        DISABLE_CUSTOM_ALL_REDUCE SHM_SIZE ENGINE MODELS_BASE 2>/dev/null || true
   # shellcheck disable=SC1090
   source "$conf"
   MODELS_BASE="${MODELS_BASE:-${_DEFAULT_MODELS_BASE}}"
-  ENGINE="${ENGINE:-vllm}"
+  ENGINE="${ENGINE:-vllm}"   # vllm is the only engine (the SGLang launcher was removed 2026-09-20)
   PROFILE="${PROFILE_ID:?cluster profile missing PROFILE_ID}"
   if [[ "${PLACEHOLDER:-false}" == "true" ]]; then
     PROFILE_PLACEHOLDER="true"
@@ -251,48 +251,6 @@ build_vllm_args(){
 }
 
 # =====================================================================
-# build_sglang_args <rank> -> sets SGLANG_ARGS (bash array)
-# ENGINE=sglang profile launch (DeepSeek V4 Flash Vision Exp verified
-# cell, guideline 9/11/12). Rank0 serves the OpenAI API on :1234;
-# rank1 is a headless TP worker. Same profile data as vllm; only the
-# argv shape differs.
-# =====================================================================
-build_sglang_args(){
-  local rank="$1"
-
-  # Entrypoint is `sglang serve` (engine-specific, see cluster-up); args here
-  # are the serve subcommand args.
-  SGLANG_ARGS=()
-  [[ "$rank" == "0" ]] && SGLANG_ARGS+=(--host "${API_HOST:-0.0.0.0}" --port "${API_PORT}")
-  SGLANG_ARGS+=(
-    --tp "${TP_SIZE:-2}"
-    --nnodes "${NNODES:-2}"
-    --node-rank "${rank}"
-    --dist-init-addr "${MASTER_ADDR}:${MASTER_PORT}"
-    --moe-runner-backend "${MOE_RUNNER_BACKEND:-b12x}"
-    --speculative-moe-runner-backend "${SPEC_MOE_RUNNER_BACKEND:-b12x}"
-    --disable-shared-experts-fusion
-    --speculative-algorithm "${SPEC_ALGORITHM:-DSPARK}"
-    --chunked-prefill-size "${CHUNKED_PREFILL_SIZE:-8192}"
-    --context-length "${MAXLEN}"
-    --mem-fraction-static "${MEM_FRACTION_STATIC:-0.80}"
-    --cuda-graph-max-bs-decode "${CUDA_GRAPH_MAX_BS_DECODE:-32}"
-    --max-running-requests "${MAX_RUNNING_REQUESTS:-${NUMSEQ:-32}}"
-  )
-  # API-serving rank only: parsers.
-  if [[ "$rank" == "0" ]]; then
-    [[ -n "${REASONING_PARSER:-}" ]] && SGLANG_ARGS+=(--reasoning-parser "${REASONING_PARSER}")
-    [[ -n "${TOOL_CALL_PARSER:-}" ]] && SGLANG_ARGS+=(--tool-call-parser "${TOOL_CALL_PARSER}")
-  fi
-  SGLANG_ARGS+=(--trust-remote-code)
-  # Verbatim profile-owned extras (bash array EXTRA_ARGS in the conf).
-  [[ -n "${EXTRA_ARGS+x}" ]] && SGLANG_ARGS+=("${EXTRA_ARGS[@]}")
-  if [[ "$rank" == "0" && "${VLLM_API_KEY:-EMPTY}" != "EMPTY" && -n "${VLLM_API_KEY:-}" ]]; then
-    SGLANG_ARGS+=(--api-key "${VLLM_API_KEY}")
-  fi
-  export SGLANG_ARGS
-}
-# =====================================================================
 # build_docker_env <rank> -> sets DOCKER_ENV_EXTRA (array), DOCKER_MOUNTS
 # =====================================================================
 build_docker_env(){
@@ -352,12 +310,8 @@ _compose_service(){ # <service> <rank> -> emits one service block to stdout
   local svc="$1" rank="$2"
   local -a ARGS ENV MNT
   local i tok v entry="${ENTRY:-}"
-  [[ -z "$entry" ]] && { entry="vllm"; [[ "${ENGINE}" == "sglang" ]] && entry="sglang"; }
-  if [[ "${ENGINE}" == "sglang" ]]; then
-    build_sglang_args "$rank"; ARGS=( "${SGLANG_ARGS[@]}" )
-  else
-    build_vllm_args "$rank"; ARGS=( "${VLLM_ARGS[@]}" )
-  fi
+  [[ -z "$entry" ]] && entry="vllm"
+  build_vllm_args "$rank"; ARGS=( "${VLLM_ARGS[@]}" )
   # DOCKER_ENV_EXTRA mixes "pair" form (-e then K=V) with "token" form
   # (-e K=V in one element from EXTRA_ENV/EXTRA_MOUNTS); accept both.
   build_docker_env "$rank"
@@ -479,22 +433,15 @@ inspect_profile(){
   fi
   echo "body:     ${BODY}"
   echo "drafter:  ${DRAF:-<none>}"
-  if [[ "${ENGINE}" == "sglang" ]]; then
-    echo "args:     tp=${TP_SIZE:-2} nnodes=${NNODES:-2} maxlen=${MAXLEN:-?} numseq=${MAX_RUNNING_REQUESTS:-${NUMSEQ:-?}} mem=${MEM_FRACTION_STATIC:-0.80}"
-    echo "moe:      ${MOE_RUNNER_BACKEND:-b12x}  spec_moe: ${SPEC_MOE_RUNNER_BACKEND:-b12x}  spec: ${SPEC_ALGORITHM:-DSPARK}"
-    echo "chunked:  ${CHUNKED_PREFILL_SIZE:-8192}  cudagraph_bs: ${CUDA_GRAPH_MAX_BS_DECODE:-32}"
-    echo "shm:      ${SHM_SIZE:-16g}"
-  else
-    echo "args:     maxlen=${MAXLEN:-?} numseq=${NUMSEQ:-?} batched=${BATCHED:-?} gmu=${GMU:-?}"
-    echo "kv:       ${KV_DTYPE:-fp8_e4m3}  attn: ${ATTN_BACKEND:-auto}  linear: ${LINEAR_BACKEND:-auto}  moe: ${MOE_BACKEND:-auto}"
-    echo "quant:    ${QUANTIZATION:-<default: compressed-tensors>}$( [[ "${QUANTIZATION:-}" == "none" ]] && echo " (flag omitted)" || true )"
-    echo "capture:  ${CUDAGRAPH_CAPTURE:-<engine default>}"
-    echo "spec:     ${SPEC_METHOD:-none}$([[ -n "${DRAF:-}" && -n "${SPEC_METHOD:-}" && "${SPEC_METHOD}" != "none" ]] && echo " n=${NSPEC:-?} (model=/drafter)")$([[ -n "${SPEC_CONFIG:-}" ]] && echo " (SPEC_CONFIG override)")"
-    echo "graph:    ${GRAPH_MODE:-FULL_AND_PIECEWISE}"
-    echo "compile:  ${COMPILATION_JSON:-<template>}"
-    echo "caps:     cap_add=[${CAP_ADD[*]:-}] ulimits=[${ULIMITS[*]:-}]"
-    echo "prefill:  chunked=${ENABLE_CHUNKED_PREFILL:-true} prefix_cache=${ENABLE_PREFIX_CACHING:-false}"
-  fi
+  echo "args:     maxlen=${MAXLEN:-?} numseq=${NUMSEQ:-?} batched=${BATCHED:-?} gmu=${GMU:-?}"
+  echo "kv:       ${KV_DTYPE:-fp8_e4m3}  attn: ${ATTN_BACKEND:-auto}  linear: ${LINEAR_BACKEND:-auto}  moe: ${MOE_BACKEND:-auto}"
+  echo "quant:    ${QUANTIZATION:-<default: compressed-tensors>}$( [[ "${QUANTIZATION:-}" == "none" ]] && echo " (flag omitted)" || true )"
+  echo "capture:  ${CUDAGRAPH_CAPTURE:-<engine default>}"
+  echo "spec:     ${SPEC_METHOD:-none}$([[ -n "${DRAF:-}" && -n "${SPEC_METHOD:-}" && "${SPEC_METHOD}" != "none" ]] && echo " n=${NSPEC:-?} (model=/drafter)")$([[ -n "${SPEC_CONFIG:-}" ]] && echo " (SPEC_CONFIG override)")"
+  echo "graph:    ${GRAPH_MODE:-FULL_AND_PIECEWISE}"
+  echo "compile:  ${COMPILATION_JSON:-<template>}"
+  echo "caps:     cap_add=[${CAP_ADD[*]:-}] ulimits=[${ULIMITS[*]:-}]"
+  echo "prefill:  chunked=${ENABLE_CHUNKED_PREFILL:-true} prefix_cache=${ENABLE_PREFIX_CACHING:-false}"
   echo "revision: $(cat "${BODY}/.hf_revision" 2>/dev/null || echo '<none>')"
   echo "parsers:  reasoning=${REASONING_PARSER:-none} tool=${TOOL_CALL_PARSER:-none} autotool=${ENABLE_AUTO_TOOL_CHOICE:-false}"
   echo "extras:   args=$([[ -n "${EXTRA_ARGS+x}" ]] && echo "${#EXTRA_ARGS[@]}" || echo 0) env=$([[ -n "${EXTRA_ENV+x}" ]] && echo "${#EXTRA_ENV[@]}" || echo 0) mounts=$([[ -n "${EXTRA_MOUNTS+x}" ]] && echo "${#EXTRA_MOUNTS[@]}" || echo 0)"

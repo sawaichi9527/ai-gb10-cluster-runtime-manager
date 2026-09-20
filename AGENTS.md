@@ -49,6 +49,11 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   `--compilation-config` override), `CAP_ADD=(...)` and `ULIMITS=(NAME=VALUE ...)`
   (compose `cap_add` / `ulimits` extras). All three are no-ops when unset — keep it
   that way so 27b/35b/deepseek stay byte-identical.
+- **SGLang launcher removed (2026-09-20).** `build_sglang_args` and every `ENGINE=sglang`
+  branch were deleted from `cluster-common.sh`, `cluster-up` and `cluster-compose-verify` —
+  the SGLang route was abandoned (it was only ever an early DeepSeek-Vision experiment) and
+  no profile ever set `ENGINE=sglang`. `ENGINE` remains as a defaulted field (`vllm`) but is
+  effectively fixed. Verified byte-identical renders for all five lanes after the removal.
 - **Unified LLM endpoint**: all LLM runtimes (TP2 + single, node0 & node1) serve the
   OpenAI API on **port 1234** sharing one `VLLM_API_KEY`. Set the same key in
   `~/docker-stacks/config/cluster.env` and both nodes' `~/docker-stacks/config/standalone.env`.

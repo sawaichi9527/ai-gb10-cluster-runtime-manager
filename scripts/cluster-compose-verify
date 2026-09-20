@@ -51,14 +51,13 @@ shm_bytes(){ # "64g"/"16g"/N -> bytes
 # `bash -lc "<wrapper>; exec vllm serve ..."` instead (see _compose_service).
 exp_entry_json(){
   if [[ -n "${CMD_WRAPPER:-}" ]]; then printf '[]'; return; fi
-  [[ "${ENGINE}" == "sglang" ]] && printf '["sglang"]' || printf '["vllm"]'
+  printf '["vllm"]'
 }
 
 exp_cmd_json(){ # rank -> JSON array matching _compose_service's `command:`
   local r="$1" a first=1
   local -a A
-  if [[ "${ENGINE}" == "sglang" ]]; then build_sglang_args "$r"; A=( "${SGLANG_ARGS[@]}" )
-  else build_vllm_args "$r"; A=( "${VLLM_ARGS[@]}" ); fi
+  build_vllm_args "$r"; A=( "${VLLM_ARGS[@]}" )
   if [[ -n "${CMD_WRAPPER:-}" ]]; then
     local s="${CMD_WRAPPER}; exec /usr/local/bin/vllm serve /model"
     for a in "${A[@]}"; do s+=" $(printf '%q' "$a")"; done

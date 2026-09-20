@@ -51,7 +51,7 @@ ensure_autotune_cache_reset
 # rendered per launch from the same profile data as build_vllm_args /
 # build_docker_env, so the container spec stays data-driven (zero drift).
 # ------------------------------------------------------------------
-ENTRY="vllm"; [[ "${ENGINE}" == "sglang" ]] && ENTRY="sglang"
+ENTRY="vllm"
 
 # Materialize the render into the profile's node-local stack dir when it
 # declares one (mirrors runtimes.d STACK_DIR + COMPOSE_FILE); otherwise keep

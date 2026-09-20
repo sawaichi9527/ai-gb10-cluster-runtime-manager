@@ -11,10 +11,11 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 
 ## Deployed services & benchmark results (latest image)
 
-> 2026-09-13 實測。27B/35B 原使用 `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-09-11-v0.29.0-omni`；DeepSeek 為歷史主力線 `ghcr.io/anemll/dspark-vllm-gx10:0.1.1` 之既有結果。
-> **2026-09-19 更新**：35B 與 27B 皆已升 `2026-09-18-v0.29.0-omni` 並重新實測（單節點啟用 `VLLM_USE_V2_MODEL_RUNNER=1`）。27B 先前在 09-18 首次冷啟動觸及 `cluster-up` 硬編碼 2400s health timeout 而誤判失敗（非 image 缺陷）；已改為 profile 可覆寫（27B `HEALTH_TIMEOUT=3600`），實測 READY 並完成 cluster/single benchmark。
-> **2026-09-20 新增**：DeepSeek V4 Flash **Vision-Exp**（多模態）以**與 mainline deepseek 同一顆** Anemll image + 啟動 wrapper 上線（`gb10 use deepseek-vision`，互斥）；bench-c / bench-ctx 實測見下方。
-> **2026-09-20 新增**：**Qwen3.8 Flash-Next 125B NVFP4**（TP2+EP、內建 MTP3）上線（`gb10 use qwen38flash`）；同日起 compose 為**唯一**啟動 lane（原 docker-run 分支移除），見下方實測。
+> **2026-09-20 現況。** 27B/35B 走 `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-09-18-v0.29.0-omni`
+> （單節點啟用 `VLLM_USE_V2_MODEL_RUNNER=1`）；DeepSeek 0731 與 Vision-Exp 共用
+> `ghcr.io/anemll/dspark-vllm-gx10:0.1.1`；qwen38flash 用 `vllm/vllm-openai:qwen38-flash-next`。
+> **每個模型只保留最新一次實測**；舊結果不累計（歷史完整報告見 maintenance repo 的
+> `docs/BENCHMARK_*.md` 與 handoff）。
 
 ### 已部署服務
 
@@ -28,9 +29,11 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 | DeepSeek V4 Flash **Vision-Exp** cluster (TP2) | `deepseek-v4-flash-vision-exp` + DSpark n=6 (multimodal) | `anemll/dspark-vllm-gx10:0.1.1`（**與 deepseek 同 image / 同 digest**） | `http://192.168.23.215:1234/v1` | deployed（09-20 實測，文字＋圖片） |
 | Qwen3.8 Flash-Next **125B** cluster (TP2+EP) | `qwen3.8-flash-next-nvfp4`（ModelOpt NVFP4）+ 內建 MTP n=3 | `vllm/vllm-openai:qwen38-flash-next` | `http://192.168.23.215:1234/v1` | deployed（09-20 上線實測） |
 
-### 27B v0.29.0-omni (bench-c C1-C8, MAX_TOKENS=2048; 245k cold prefill)
+### 27B v0.29.0-omni (bench-c C1-C8, MAX_TOKENS=2048; 245k cold prefill) — 2026-09-19
 
-> **2026-09-19 實測（09-18 image；single node0 與 TP2 cluster 皆本次重測）。** 先前的「啟動失敗」為 `cluster-up` 硬編碼 2400s health timeout 短於 27B 首次冷啟動（~40min）所致，非 image 缺陷；已改為 profile 可覆寫（27B `HEALTH_TIMEOUT=3600`，詳見 `docs/ISSUE_27B_BROKEN_2026-09-18_IMAGE_2026-09-19.md`）。與 09-11 基準相比：single 幾近持平（245k 348.7 vs 347.2）；cluster 於 C1/C2/C4 與長 prefill 略升、C3/C8 略降（run-to-run 變異，各 stream completion 長度不同）。
+> **2026-09-19 實測**（`2026-09-18-v0.29.0-omni`；single node0 與 TP2 cluster）。
+> 註：27B 冷啟動可達 ~40 min；`cluster-up` 的 health timeout 由 profile 覆寫
+> （27B `HEALTH_TIMEOUT=3600`，詳見 `docs/ISSUE_27B_BROKEN_2026-09-18_IMAGE_2026-09-19.md`）。
 
 | C | Single tok/s | Cluster tok/s | Speedup |
 |---|---|---|---|
@@ -41,9 +44,9 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 | 8 | 117.2 | 172.7 | 1.47x |
 | 245k prefill (tok/s) | 348.7 | 611.5 | 1.75x |
 
-### 35B v0.29.0-omni (bench-c C1-C8, MAX_TOKENS=2048; 245k cold prefill)
+### 35B v0.29.0-omni (bench-c C1-C8, MAX_TOKENS=2048; 245k cold prefill) — 2026-09-19
 
-> **2026-09-19 實測（09-18 image；single node0 與 TP2 cluster 皆本次重測）。** `scripts/bench-c.sh` / `bench-ctx.sh` 實測。與 09-11 基準大致持平（single 245k 2580.1 vs 2601.0）。註：先前記錄的 245k prefill `180398.5` tok/s 為量測瑕疵（245k 僅 ~1.4s，不可能）；本次 cluster 62.0s / 3951.9、single 95.0s / 2580.1 為可信值。
+> **2026-09-19 實測**（`2026-09-18-v0.29.0-omni`；single node0 與 TP2 cluster）。
 
 | C | Single tok/s | Cluster tok/s | Speedup |
 |---|---|---|---|
@@ -55,19 +58,7 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 | 245k prefill (tok/s) | 2580.1 | 3951.9 | 1.53x |
 
 > 245k prefill 用 `bench-ctx.sh 245000 1`（max_tokens=1 純 prefill）。
-> **踩雷（已自動化）**：FlashInfer autotune cache **無法跨 rank 共用**——持久化的 `file_key` 內含 `tp_rank/ep_rank/cluster_rank`，而 vLLM 只在 leader（world rank 0）存檔、再把該 leader 檔 broadcast 給所有 rank；follower 用 rank-local key 永遠 miss → 兩 rank 要 benchmark 的 tactic 數不同 → 每 tactic 的 `dist.all_reduce` 死鎖（rank0 高 GPU spin-wait、rank1 閒置、`/health` 永不 ready）。故 `scripts/cluster-up` 於每次 boot 前呼叫 `ensure_autotune_cache_reset`（`cluster-common.sh`）**無條件清掉兩節點快取**，讓兩 rank 冷啟 lockstep；`AUTOTUNE_CACHE_POLICY=off` 可跳過（僅診斷）。單節點 runtime 另用獨立 cache root（`~/.cache/vllm*`），不污染 TP2 路徑（`gb10-single-boot` 會檢查）。
-
-### DeepSeek V4 Flash fp8 mainline (bench-c C1-C8; 200K probe) - 歷史結果
-
-| C | Cluster tok/s | Acceptance |
-|---|---|---|
-| 1 | 35.3 | 23.8% |
-| 2 | 45.9 | 25.1% |
-| 4 | 56.6 | 31.0% |
-| 8 | 85.9 | 26.8% |
-| 200K prefill (tok/s) | 1600.3 | - |
-
-> 完整報告：maintenance repo `docs/BENCHMARK_27B_MIXED_V3_V029_SINGLE_CLUSTER_2026-09-13.md`、`docs/BENCHMARK_35B_V029_SINGLE_CLUSTER_2026-09-13.md`；DeepSeek 見 handoff §23.3。
+> **踩雷（已自動化）**：FlashInfer autotune cache **無法跨 rank 共用**——持久化的 `file_key` 內含 `tp_rank/ep_rank/cluster_rank`，而 vLLM 只在 leader（world rank 0）存檔、再把該 leader 檔 broadcast 給所有 rank；follower 用 rank-local key 永遠 miss → 兩 rank 要 benchmark 的 tactic 數不同 → 每 tactic 的 `dist.all_reduce` 死鎖（rank0 高 GPU spin-wait、rank1 閒置、`/health` 永不 ready）。故 `scripts/cluster-up` 於每次 boot 前呼叫 `ensure_autotune_cache_reset`（`cluster-common.sh`）**無條件清掉兩節點快取**，讓兩 rank 冷啟 lockstep；`AUTOTUNE_CACHE_POLICY=off` 可跳過（僅診斷）。單節點 runtime 另用獨立 cache root（`~/.cache/vllm-<profile>-single`，TP2 為 `~/.cache/vllm-<profile>[-cluster]`），不污染 TP2 路徑（`gb10-single-boot` 會檢查）。
 
 ### DeepSeek V4 Flash Vision-Exp (TP2, 與 deepseek 同 image) — 2026-09-20 實測
 
@@ -112,9 +103,11 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 > Prefix caching 實測：同一 32K prompt 連兩次，第 2 次命中前綴 → prefill **16.95s → 2.30s（1938 → 14314 tok/s）**；重複同 prompt 三次輸出皆完整（無 DSpark 退化，hotfix 生效）。
 > 節點部署：vision 的 hotfix 目錄由 `cluster-up` 的 `SYNC_DIRS` 於每次 boot 從 repo 自動同步到兩節點（node1 不 host repo）。
 
-### DeepSeek V4 Flash 0731 mainline — 2026-09-20 同 session 重測
+### DeepSeek V4 Flash 0731 mainline (TP2) — 2026-09-20
 
-> 與上方 Vision-Exp 同一顆 image、同一台 TP2、同一組 `bench-c.sh` / `bench-ctx.sh`（`MAX_TOKENS=400`），作為對照。`bench-c` 之 prompt：0731 約 118 tok、Vision-Exp 約 197 tok（同文字，tokenizer/chat template 差異）。
+> `cluster-profiles.d/deepseek.conf`：官方 `deepseek-v4-flash-0731-official` fp8 checkpoint +
+> `anemll/dspark-vllm-gx10:0.1.1`（同 Vision-Exp 的 image），DSpark n=7 greedy、256K / 8-way。
+> `bench-c` 之 prompt 約 118 tok（Vision-Exp 約 197 tok——同文字，tokenizer/chat template 差異）。
 
 | C | 0731 tok/s | accept % |
 |---|---|---|
