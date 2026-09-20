@@ -1,7 +1,7 @@
 # handoff.md — ai-gb10-cluster-runtime-manager（本機 checkout）
 
 > 本檔是本機中繼 checkout 的交接摘要。主要開發在 **node0**（`~/workspace/ai-gb10-cluster-runtime-manager`，branch `keystone`）＋ Forgejo `829522`；本機僅作中繼存取，修改前先確認是否應改在 node0。
-> 建立：2026-09-18；更新：**2026-09-20**（DeepSeek V4 Flash **Vision-Exp** lane 上線：同一顆 Anemll image + 啟動 wrapper；bench-c / bench-ctx / bench-mm 實測；`cluster-up` 新增 `SYNC_DIRS` 自動同步 patch 目錄）
+> 建立：2026-09-18；更新：**2026-09-20**（DeepSeek V4 Flash **Vision-Exp** lane 上線：同一顆 Anemll image + 啟動 wrapper；bench-c / bench-ctx / bench-mm 實測；`cluster-up` 新增 `SYNC_DIRS` 自動同步 patch 目錄；**vision 開 prefix caching + `dspark-swa-prefix` hotfix**、長上下文邊界 261K/262144、圖片高併發 C=8/16）
 
 ## 目前狀態（本機 checkout）
 
@@ -54,7 +54,7 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
   - `CMD_WRAPPER`：先 `cp /model/encoding/encoding_dsv4.py → vllm/tokenizers/deepseek_v4_encoding.py`，再套 17 個 hotfix（含 `hotfix-dsv4-vision-exp.py`＝ViT/Aligner + `image_url`），最後 `exec /usr/local/bin/vllm serve …`（args 由共用 `build_vllm_args` 產生）。
   - `SYNC_DIRS=("${REPO_DIR}/patches/dspark-vision:${HOME}/dspark-vision-patches")` → 每次 boot 自動佈署到兩節點。
 - **Patches vendored**：`patches/dspark-vision/`（17 patch + `vision_exp/` + `NOTICE.md`），來自 MiaAI-Lab `DeepSeek-v4-Flash-DSpark-2x-DGX-Spark` @ `97e8733238f81f5fdc44b241f8996a7858825744`，MIT，**LF**（Windows clone 會轉 CRLF，需 `-c core.autocrlf=false`）。
-- 啟動參數：`nvfp4_ds_mla` KV、`flashinfer_b12x` MoE、DSpark `k=6 probabilistic`、`MAXLEN=262144`、`NUMSEQ=8`、`BATCHED=16384`、`GMU=0.80`、`CUDAGRAPH_CAPTURE=56`、prefix caching OFF、`VLLM_USE_BREAKABLE_CUDAGRAPH=0`、`--limit-mm-per-prompt {"image":8}`、`--long-prefill-token-threshold 1024`、`--generation-config vllm`、reasoning/tool parser `deepseek_v4`。
+- 啟動參數：`nvfp4_ds_mla` KV、`flashinfer_b12x` MoE、DSpark `k=6 probabilistic`、`MAXLEN=262144`、`NUMSEQ=8`、`BATCHED=16384`、`GMU=0.80`、`CUDAGRAPH_CAPTURE=56`、**prefix caching ON（搭 `dspark-swa-prefix` hotfix + `VLLM_PREFIX_CACHE_RETENTION_INTERVAL=4096`）**、`VLLM_USE_BREAKABLE_CUDAGRAPH=0`、`--limit-mm-per-prompt {"image":8}`、`--long-prefill-token-threshold 1024`、`--generation-config vllm`、reasoning/tool parser `deepseek_v4`。
 
 ### 權重版本釐清（重要）
 - MiaAI 釘 `86f746b36186f0e567729a5c06a8c918caba82a9`；本機/節點是 `6821d6ad3681a4b137b066b76094fa82ebd0a380`（= HF main HEAD）。
@@ -84,6 +84,8 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
 | 200K | 1710.2 | 1725.0 |
 | 245K | 1671.3 | — |
 | 260K | 1638.0 | — |
+| 261K | 1803.9 | — |
+| 262144 | **400 錯誤**（超上限） | — |
 
 `bench-mm.sh`（新增，圖片；max_tokens=200）：
 
@@ -93,12 +95,17 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
 | 4 img, C=1 | 1346 | 5.51 | 36.3 |
 | 8 img, C=1 | 2598 | 12.37 | 16.2 |
 | 1 img, C=4 | 407 ×4 | 7.21 | 111.0 |
+| 1 img, C=8 | 407 ×8 | 10.95 | 146.1 |
+| 1 img, C=16 | 407 ×16 | 20.08 | 159.4 |
+| 4 img, C=8 | 1346 ×8 | 16.31 | 90.6 |
 
 - 全部 `any_errors=0`。每張圖約 320–390 prompt tokens（`vision_max_n_token=384`）。
 - KV pool：vision **381,364** tokens @ 262144（1.45x）；0731 **405,179**（1.55x）——差異來自 ViT encoder 佔權重記憶體。
+- **Prefix caching 實測**：同一 32K prompt 連兩次 → prefill **16.95s → 2.30s（1938 → 14314 tok/s，~7.4×）**；重複同 prompt 三次輸出皆完整（無 DSpark 退化 → `dspark-swa-prefix` hotfix 生效）。
+- **長上下文邊界**：261K 可用（1803.9 tok/s）；**262144-word（= 上限）被拒**（`maximum context length is 262144`，prompt 262144 + 1 output > 262144）→ 實用上限 prompt ≤ **262143** tokens。
 
 ### 本次 commits（Forgejo `origin/main`）
-`c87f907` vision lane（placeholder 骨架）→ `ced0e47` unlock → `f72786f` list 標記 → `0ecfa23` 關 adaptive verification → **`9305034` 改用同一 Anemll image + `CMD_WRAPPER`** → `e2d162f` vendor patches → `63c3ca6` mount 改節點本地路徑 → `44ef532` README（vision 結果）→ **`5e36955` `SYNC_DIRS`** → `f4c4a15` `bench-mm.sh` → `3f73933` bench-mm fix → **`c76c93e` README 補 245K/260K + 圖片**
+`c87f907` vision lane（placeholder 骨架）→ `ced0e47` unlock → `f72786f` list 標記 → `0ecfa23` 關 adaptive verification → **`9305034` 改用同一 Anemll image + `CMD_WRAPPER`** → `e2d162f` vendor patches → `63c3ca6` mount 改節點本地路徑 → `44ef532` README（vision 結果）→ **`5e36955` `SYNC_DIRS`** → `f4c4a15` `bench-mm.sh` → `3f73933` bench-mm fix → **`c76c93e` README 補 245K/260K + 圖片** → `37bee4c` handoff.md 納版控（並同步 GitHub）→ **`7b6be60` vision 開 prefix caching + vendor `dspark-swa-prefix` hotfix**
 
 ## 近期主線（較早）
 
@@ -157,8 +164,9 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
 - **GitHub remote 未推**：本次只推 Forgejo + node0。要不要把 `main`（HEAD `c76c93e`）也推到 GitHub `sawaichi9527/ai-gb10-cluster-runtime-manager` 保持一致？
 - **`handoff.md` 未追蹤**：目前 untracked；要納入版控或維持本機檔請決定。
 - **驗證 27b/35b 未受影響**：本次改了共用 `cluster-common.sh`（`CMD_WRAPPER`/`SYNC_DIRS` 加入 unset 清單）與 `cluster-up`（新增 `SYNC_DIRS` 區塊，預設 no-op）。已驗證 deepseek 渲染 byte-identical，但**尚未再 boot 27b/35b 實測**（低風險，兩者走 docker-run 路徑）。
-- **Vision 調校（可選）**：目前 prefix caching OFF；MiaAI 的 `dspark-swa-prefix` 修補可讓 vision 安全開 prefix caching 並加 `VLLM_PREFIX_CACHE_RETENTION_INTERVAL=4096`，可評估。
-- **Vision 進一步 benchmark（可選）**：>260K（max 262144）邊界、圖片 C≥8、長圖文混搭、`--limit-mm-per-prompt` 上限。
+- **Vision 調校（已完成 2026-09-20）**：prefix caching 已開啟並套 `dspark-swa-prefix` hotfix（`7b6be60`）；同一 32K prompt 重複請求 prefill 16.95s→2.30s（~7.4×），重複同 prompt 輸出完整（無退化）。
+- **Vision 進一步 benchmark（已完成 2026-09-20）**：長上下文邊界（261K 可用 1803.9 tok/s；262144 被拒 → 實用上限 prompt ≤ 262143）、圖片 C=8（146.1）/C=16（159.4）/4 圖 C=8（90.6）tok/s。
+- （可選，未做）長圖文混搭、`--limit-mm-per-prompt` 上限（目前 8）、多輪 agent chain 長時間穩定性。
 - **Patches 上游追蹤**：`patches/dspark-vision/` 目前 pin 在 MiaAI commit `97e87332`；上游更新時需 re-vendor（`NOTICE.md` 有來源）。
 - **benchmark 工具**：`scripts/bench-c.sh <C> [MAX_TOKENS]`（C=1 時 exit 1 為邊緣狀況，數值仍有效）、`scripts/bench-ctx.sh <NUM_WORDS> [MAX_TOKENS]`（`max_tokens=1`＝純 prefill）、**`scripts/bench-mm.sh [NUM_IMAGES] [C] [MAX_TOKENS]`（圖片；預設用 deepseek-vision profile 的測試圖，可用 `MM_IMAGE=` 覆寫）**。
 - 若有跨節點／部署問題，先在 node0 確認，勿在本機直接改。
