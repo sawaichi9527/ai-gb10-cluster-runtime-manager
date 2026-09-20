@@ -120,6 +120,7 @@ load_profile(){
         ENABLE_CHUNKED_PREFILL ENABLE_PREFIX_CACHING \
         QUANTIZATION SPEC_CONFIG PASS_CONFIG COMPILATION_JSON CUDAGRAPH_CAPTURE \
         EXTRA_ARGS EXTRA_ENV EXTRA_MOUNTS CMD_WRAPPER SYNC_DIRS CAP_ADD ULIMITS \
+        AUTOTUNE_CACHE_REL \
         DISABLE_CUSTOM_ALL_REDUCE SHM_SIZE ENGINE MODEL_ID TP_SIZE NNODES MEM_FRACTION_STATIC CHUNKED_PREFILL_SIZE CUDA_GRAPH_MAX_BS_DECODE MAX_RUNNING_REQUESTS MOE_RUNNER_BACKEND SPEC_MOE_RUNNER_BACKEND SPEC_ALGORITHM DISABLE_SHARED_EXPERTS_FUSION API_HOST MODELS_BASE 2>/dev/null || true
   # shellcheck disable=SC1090
   source "$conf"
@@ -634,15 +635,20 @@ _verify_remote_checksum(){
 #   clear (default) reset both nodes before launch
 #   off             skip (diagnostics only)
 # =====================================================================
+# Default cache path (relative to $HOME) for the standard lanes. A profile
+# that keeps its vLLM cache elsewhere (e.g. a lane-isolated cache root) sets
+# AUTOTUNE_CACHE_REL in its conf, and the reset follows it.
 _AUTOTUNE_CACHE_REL=".cache/huggingface/vllm-cache/flashinfer_autotune_cache"
 
+_autotune_cache_rel(){ echo "${AUTOTUNE_CACHE_REL:-${_AUTOTUNE_CACHE_REL}}"; }
+
 _autotune_clear_local(){
-  local dir="${HOME}/${_AUTOTUNE_CACHE_REL}"
+  local dir="${HOME}/$(_autotune_cache_rel)"
   [[ -e "$dir" ]] && mv "$dir" "${dir}.cleared-$(date +%Y%m%d-%H%M%S)" 2>/dev/null || true
 }
 
 _autotune_clear_remote(){
-  n1 "d=\"\$HOME/${_AUTOTUNE_CACHE_REL}\"; if [ -e \"\$d\" ]; then mv \"\$d\" \"\${d}.cleared-\$(date +%Y%m%d-%H%M%S)\" 2>/dev/null || true; fi; exit 0"
+  n1 "d=\"\$HOME/$(_autotune_cache_rel)\"; if [ -e \"\$d\" ]; then mv \"\$d\" \"\${d}.cleared-\$(date +%Y%m%d-%H%M%S)\" 2>/dev/null || true; fi; exit 0"
 }
 
 ensure_autotune_cache_reset(){
