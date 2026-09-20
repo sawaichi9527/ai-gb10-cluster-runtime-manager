@@ -100,6 +100,10 @@ to before.
 
 ## Handoff state
 
-Code + static regression complete on `feature/tp2-qwen38-flashnext`. Not yet merged, not
-deployed. Live deployment is gated on items 1–2 above and on Node0 pulling the branch.
+Code + static regression complete on `feature/tp2-qwen38-flashnext`.
+
+> **Update 2026-09-20:** the lane was re-implemented on the restructured loader /
+> compose lane and is **merged and live** (`gb10 use qwen38flash`). See
+> `docs/QWEN38_FLASH_NEXT_TP2_COMPOSE_2026-09-20.md`. The `feature/tp2-qwen38-flashnext`
+> branch below is historical and was not merged.
 ```
