@@ -62,7 +62,8 @@ exp_cmd_json(){ # rank -> JSON array matching _compose_service's `command:`
   if [[ -n "${CMD_WRAPPER:-}" ]]; then
     local s="${CMD_WRAPPER}; exec /usr/local/bin/vllm serve /model"
     for a in "${A[@]}"; do s+=" $(printf '%q' "$a")"; done
-    printf '["bash","-lc","%s"]' "$(json_esc "$s")"
+    # elements only; the caller wraps them in [...]
+    printf '"bash","-lc","%s"' "$(json_esc "$s")"
     return
   fi
   set -- "serve" "/model" "${A[@]}"
