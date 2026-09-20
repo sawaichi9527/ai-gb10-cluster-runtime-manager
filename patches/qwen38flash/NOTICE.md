@@ -23,6 +23,8 @@ inputs to the lane.
 | `patch_qsa_fp8_kv.py` | `61b7fc7cb64b9ef0d6dc702966385331a27464616cdc3ade22c5d85057a30956` | **SPDX: AGPL-3.0-or-later, (C) 2026 MiaAI Lab**; FP8-e4m3 KV cache for QSA |
 | `patch_checkpoint_config.py` | `d727134c3af8db66ee2979fc64049da7895aa0e97408895903d54c52bbdc479b` | MTP layer-index alias → `config_patched.json` / `hf_quant_config_patched.json` |
 | `detect_ple_dtype.py` | `03bccc515c7b65ac7570c378347e9cd9db242ebb8d600b2dd90d2e37a646be83` | recovers `text_config.ple_embedding_dtype` from a checkpoint |
+| `patch_mtp_draft_vocab.py` | `d5a85baaab238917d70448feb57761e61826f4e515bbc098167515d601bb6ea5` | reduced-vocabulary MTP drafter; `mtp_patched.py.orig` → `mtp_patched.py` |
+| `draft_vocab_en_code_47k.txt` | `20e36b6e8eae2598019298959a578ef8adc2948bbed7189e43a8da9b9d84a0b1` | 47,149 token ids (one per line); mounted at `/etc/vllm-draft-vocab.txt` |
 
 ## Provenance / credit
 
