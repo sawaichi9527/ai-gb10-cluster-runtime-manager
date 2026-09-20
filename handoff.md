@@ -7,7 +7,7 @@
 
 ## 目前狀態（本機 checkout）
 
-- 分支：`main`，HEAD = **`75a8088`**（本 session 共 15 個 commit `a1cba34`…`75a8088`；live lane = `qwen38flash`）
+- 分支：`main`，HEAD = **`9e28577`**（本 session 共 21 個 commit `a1cba34`…`9e28577`；live lane = `qwen38flash`）
 - 同步狀態：**本機＝Forgejo（origin，`829522`）＝GitHub**；node0 已 pull（live lane = `qwen38flash`）
 - `handoff.md` 已納版控（`37bee4c` 起；本次更新亦將 commit）
 - `.gitignore` 已覆蓋 `config/cluster.env`、`state/last-runtime`、logs、`*.bak-*`
@@ -229,6 +229,25 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
 - **多輪穩定**：新增 `scripts/bench-multiturn.sh`；6 輪 **6/6 clean**。
 - **`PLE_OFFLOAD=true` 對 TP2 不可行**：vLLM 直接拒絕（`Unsupported settings: nnodes=2`）——
   它是單節點功能。lane 維持 `PLE_OFFLOAD=false`；`ULIMITS` 欄位仍通用（`nofile` 實測生效）。
+
+### 已完成（2026-09-20 後續之四）— SGLang 路線廢棄 + README 整併
+
+- **移除 SGLang launcher**（原始需求「廢棄 SGLang 路線提案與記錄」）：刪除 `build_sglang_args()`
+  與**所有** `ENGINE == "sglang"` 分支——`cluster-common.sh`（`build_sglang_args` /
+  `_compose_service` / `inspect_profile`）、`cluster-up`（`ENTRY`）、`cluster-compose-verify`
+  （`exp_entry_json` / `exp_cmd_json`）。`unset` 清單並移除 12 個 sglang 專屬欄位
+  （`TP_SIZE` `NNODES` `MEM_FRACTION_STATIC` `CHUNKED_PREFILL_SIZE` `CUDA_GRAPH_MAX_BS_DECODE`
+  `MAX_RUNNING_REQUESTS` `MOE_RUNNER_BACKEND` `SPEC_MOE_RUNNER_BACKEND` `SPEC_ALGORITHM`
+  `DISABLE_SHARED_EXPERTS_FUSION` `API_HOST` `MODEL_ID`）。`ENGINE` 保留（預設 `vllm`）但已固定。
+  **驗證**：5 個 lane 的 `args(rank0/rank1)`／`env`／`mounts`／`compose` 移除前後**逐位元不變**；
+  `bash -n` 全過；repo 內 `sglang` 參照 = 0。已於 `AGENTS.md` 記錄。
+- **README benchmark 章節整併**：不再累計歷史——4 條 dated 更新註記合併為單一「2026-09-20 現況」；
+  **每個模型只保留最新一次實測**；刪除已被取代的 `DeepSeek … 歷史結果` 表與舊 maintenance-repo 報告連結；
+  27B/35B 去掉 09-11 基準比較等歷史敘述（保留 health-timeout 教訓與 FlashInfer 踩雷說明）；
+  cache root 說明改為 `~/.cache/vllm-<profile>[-cluster|-single]`。
+- **`~/_archieve` 整批刪除**（兩節點；原本集中於此的備份/poc/log 一併消失）。
+- **修掉 stale ready marker 問題**：`cluster-down` 與 `gb10-single stop_file` 過去不清
+  `state/boot-ready.*`，停掉 lane 後 `gb10 wait/status` 會誤報 READY。
 
 ## 定期檢討追蹤
 
