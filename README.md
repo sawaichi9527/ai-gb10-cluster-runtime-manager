@@ -340,6 +340,19 @@ cluster-profiles.d/  data-driven TP2 profile registry (active ownership by clust
 state/          last-runtime marker files (gitignored, empty = normal)
 docs/           deployment notes, ADRs, restructure + active handoffs
 cluster.env.example cluster/site config template (NEVER commit real values)
+
+~/docker-stacks/    node-local deploy artifacts (NOT in this repo):
+  <stack>/          one dir per lane, named after the image source —
+                    aeon-vllm-omni (27b/35b) · anemll-dspark-vllm-gx10 (deepseek)
+                    anemll-dspark-vllm-gx10-miaFlaver (deepseek-vision)
+                    mia-vllm-openai-qwen38flashNext (qwen38flash)
+    docker-compose.<profile>.yml            (cluster-only lanes, materialized)
+    docker-compose-<profile>-cluster.yml    (lanes that also run single: 27b/35b)
+    docker-compose-<profile>-single.yml
+    patches/                                SYNC_DIRS staging (lanes that need it)
+  logs/<profile>/   unified boot + compose/container logs (not per-stack)
+  config/           cluster.env / standalone.env (secrets, gitignored)
+~/.cache/vllm-<profile>[-cluster|-single]   per-lane compile/autotune cache
 ```
 
 ### state/ — 執行期「最後狀態」標記（非架構內容，空目錄屬正常）

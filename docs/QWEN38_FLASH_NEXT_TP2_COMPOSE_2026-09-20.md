@@ -76,11 +76,12 @@ reduced 47k vocabulary, see the A/B below):
 | `GRAPH_MODE` / `COMPILATION_JSON` | `FULL_DECODE_ONLY` / `{"mode":0,"cudagraph_mode":"FULL_DECODE_ONLY"}` |
 | `SPEC_CONFIG` | `{"method":"mtp","num_speculative_tokens":3,"use_local_argmax_reduction":true}` — internal MTP on the **reduced 47,149-id** vocabulary |
 | `EXTRA_ARGS` | `--mamba-ssm-cache-dtype bfloat16 --load-format safetensors --safetensors-load-strategy lazy --distributed-executor-backend mp --mm-encoder-tp-mode data --enable-expert-parallel --all2all-backend allgather_reducescatter --hf-overrides '{"text_config":{"ple_embedding_dtype":"float8_e4m3fn"}}'` |
-| `EXTRA_ENV` | `HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 TP_SOCKET_IFNAME=$NCCL_SOCKET_IFNAME NCCL_IB_DISABLE=0 NCCL_IB_AUTO_DETECT=0 NCCL_DEBUG=WARN VLLM_MTP_DRAFT_VOCAB=/etc/vllm-draft-vocab.txt` |
+| `EXTRA_ENV` | `HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 TP_SOCKET_IFNAME=$NCCL_SOCKET_IFNAME NCCL_IB_DISABLE=0 NCCL_IB_AUTO_DETECT=0 NCCL_DEBUG=WARN VLLM_MTP_DRAFT_VOCAB=/etc/vllm-draft-vocab.txt VLLM_CACHE_ROOT=/cache/vllm` |
 | `CAP_ADD` | `SYS_NICE` (no extra ulimits; PLE stays on GPU) |
 | `AUTOTUNE_CACHE_REL` | `.cache/vllm-qwen38flash/flashinfer_autotune_cache` (lane cache root; see the reset note) |
-| `SYNC_DIRS` | `patches/qwen38flash` → `$HOME/qwen38flash-patches` (both nodes) |
-| `EXTRA_MOUNTS` | the staged patch dir `:ro`, the two patched configs over `/model/{config,hf_quant_config}.json:ro`, the 47k vocab over `/etc/vllm-draft-vocab.txt:ro`, and a lane-isolated `$HOME/.cache/vllm-qwen38flash:/root/.cache/vllm` |
+| `STACK_DIR` / `COMPOSE_FILE` | `~/docker-stacks/mia-vllm-openai-qwen38flashNext/` / `docker-compose.qwen38flash.yml` |
+| `SYNC_DIRS` | `patches/qwen38flash` → `<STACK_DIR>/patches` (both nodes) |
+| `EXTRA_MOUNTS` | the staged `<STACK_DIR>/patches` `:ro`, the two patched configs over `/model/{config,hf_quant_config}.json:ro`, the 47k vocab over `/etc/vllm-draft-vocab.txt:ro`, and the lane cache `~/.cache/vllm-qwen38flash:/cache/vllm` |
 
 **Mechanism.** `CMD_WRAPPER` (single line) copies the vendored patchers and the
 image's own vLLM sources into `/tmp/q38patch`, runs the five patchers, writes

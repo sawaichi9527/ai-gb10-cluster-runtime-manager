@@ -52,8 +52,19 @@ ensure_autotune_cache_reset
 # build_docker_env, so the container spec stays data-driven (zero drift).
 # ------------------------------------------------------------------
 ENTRY="vllm"; [[ "${ENGINE}" == "sglang" ]] && ENTRY="sglang"
-RENDER_YML="$(mktemp)"
-trap 'rm -f -- "${RENDER_YML}"' EXIT
+
+# Materialize the render into the profile's node-local stack dir when it
+# declares one (mirrors runtimes.d STACK_DIR + COMPOSE_FILE); otherwise keep
+# the previous temporary-file behaviour. The materialized file is a generated
+# artifact (re-rendered every launch => no drift) and is left on disk so it
+# can be inspected.
+if [[ -n "${STACK_DIR:-}" ]]; then
+  mkdir -p "${STACK_DIR}"
+  RENDER_YML="${COMPOSE_FILE}"
+else
+  RENDER_YML="$(mktemp)"
+  trap 'rm -f -- "${RENDER_YML}"' EXIT
+fi
 
 render_tp2_compose "${RENDER_YML}"
 
@@ -80,26 +91,37 @@ fi
 
 # ---- Node1 headless worker (rank1): ship compose, then up -d worker ----
 echo "== launching Node1 headless worker (rank1, compose, profile=${PROFILE}) =="
-cat "${RENDER_YML}" | n1 "cat > /tmp/tp2-compose-${PROFILE}.yml"
+# Node1 keeps the rendered compose at the SAME absolute path as Node0 when the
+# profile declares a stack dir; otherwise fall back to a throwaway /tmp copy.
+if [[ -n "${STACK_DIR:-}" ]]; then
+  R1_COMPOSE="${COMPOSE_FILE}"
+  n1 "mkdir -p '${STACK_DIR}'"
+else
+  R1_COMPOSE="/tmp/tp2-compose-${PROFILE}.yml"
+fi
+cat "${RENDER_YML}" | n1 "cat > '${R1_COMPOSE}'"
 RANK1_STDIN="$(mktemp)"; chmod 600 "${RANK1_STDIN}"
-trap 'rm -f -- "${RANK1_STDIN}" "${RENDER_YML}"' EXIT
+trap 'rm -f -- "${RANK1_STDIN}"' EXIT
 {
   printf 'export SUDO_PASS=%q\n' "$(sudo_pass)"
+  printf 'mkdir -p %q\n' "${LOG_BASE}/${PROFILE}"
   printf 'echo "$SUDO_PASS" | sudo -S docker rm -f cluster-node1 >/dev/null 2>&1 || true\n'
   printf 'rc=0\n'
-  printf 'echo "$SUDO_PASS" | sudo -S docker compose --env-file /dev/null -f /tmp/tp2-compose-%s.yml up -d worker > /tmp/tp2-compose-worker.log 2>&1 || rc=$?\n' "${PROFILE}"
+  printf 'echo "$SUDO_PASS" | sudo -S docker compose --env-file /dev/null -f %q up -d worker > %q 2>&1 || rc=$?\n' \
+    "${R1_COMPOSE}" "${LOG_BASE}/${PROFILE}/compose-worker.log"
   printf 'echo "DEBUG node1 compose rc=$rc"\n'
   printf 'echo "$SUDO_PASS" | sudo -S docker ps --filter name=cluster-node1 --format "{{.Names}} {{.Status}}" 2>/dev/null || true\n'
-  printf 'rm -f /tmp/tp2-compose-%s.yml; exit 0\n' "${PROFILE}"
+  printf 'exit 0\n'
 } > "${RANK1_STDIN}"
 n1 bash -s < "${RANK1_STDIN}"
 rm -f -- "${RANK1_STDIN}"
 
 # ---- Node0 API server (rank0): up -d head ----
 echo "== launching Node0 API server (rank0, compose, profile=${PROFILE}) =="
+mkdir -p "${LOG_BASE}/${PROFILE}"
 sdk docker rm -f cluster-node0 >/dev/null 2>&1 || true
 rc=0
-sdk docker compose --env-file /dev/null -f "${RENDER_YML}" up -d head > /tmp/tp2-compose-head.log 2>&1 || rc=$?
+sdk docker compose --env-file /dev/null -f "${RENDER_YML}" up -d head > "${LOG_BASE}/${PROFILE}/compose-head.log" 2>&1 || rc=$?
 echo "node0 compose rc=$rc"
 
 # ------------------------------------------------------------------

@@ -71,6 +71,11 @@ api_curl(){
 
 _DEFAULT_MODELS_BASE="${NODE0_MODELS_BASE:-$HOME/docker-stacks/models}"
 
+# Unified node-local log root for ALL runtimes (cluster + single). Boot logs
+# and container-log captures land under ${LOG_BASE}/<profile>/. Kept out of
+# the per-stack dirs so a single tree can be read/tailed at once.
+LOG_BASE="${NODE0_LOG_BASE:-$HOME/docker-stacks/logs}"
+
 # =====================================================================
 # Cluster profile registry (data-driven) — replaces the old hard-coded
 # set_profile() case table.
@@ -120,7 +125,7 @@ load_profile(){
         ENABLE_CHUNKED_PREFILL ENABLE_PREFIX_CACHING \
         QUANTIZATION SPEC_CONFIG PASS_CONFIG COMPILATION_JSON CUDAGRAPH_CAPTURE \
         EXTRA_ARGS EXTRA_ENV EXTRA_MOUNTS CMD_WRAPPER SYNC_DIRS CAP_ADD ULIMITS \
-        AUTOTUNE_CACHE_REL \
+        AUTOTUNE_CACHE_REL STACK_DIR COMPOSE_FILE \
         DISABLE_CUSTOM_ALL_REDUCE SHM_SIZE ENGINE MODEL_ID TP_SIZE NNODES MEM_FRACTION_STATIC CHUNKED_PREFILL_SIZE CUDA_GRAPH_MAX_BS_DECODE MAX_RUNNING_REQUESTS MOE_RUNNER_BACKEND SPEC_MOE_RUNNER_BACKEND SPEC_ALGORITHM DISABLE_SHARED_EXPERTS_FUSION API_HOST MODELS_BASE 2>/dev/null || true
   # shellcheck disable=SC1090
   source "$conf"
@@ -135,6 +140,13 @@ load_profile(){
   # Per-profile image override; fall back to cluster-global cluster.env IMG.
   if [[ -n "${IMAGE:-}" ]]; then
     IMG="$IMAGE"
+  fi
+  # Node-local stack dir (mirrors runtimes.d/STACK_DIR): holds the materialized
+  # compose file, the staged patch dir, etc. Unset => the launcher falls back to
+  # a temporary render (unchanged behaviour for profiles that do not set it).
+  if [[ -n "${STACK_DIR:-}" ]]; then
+    : "${COMPOSE_FILE:=docker-compose.${PROFILE}.yml}"
+    [[ "${COMPOSE_FILE:0:1}" == "/" ]] || COMPOSE_FILE="${STACK_DIR}/${COMPOSE_FILE}"
   fi
   # Resolve model dirs from MODELS_BASE + relative rels.
   if [[ "${PROFILE_PLACEHOLDER}" == "true" ]]; then
@@ -456,6 +468,8 @@ inspect_profile(){
   echo "display:  ${DISPLAY_NAME:-<unset>}"
   echo "image:    ${IMG:-<unresolved>}"
   echo "engine:   ${ENGINE:-vllm}"
+  echo "stack:    ${STACK_DIR:-<none: temporary render>}"
+  echo "compose:  ${COMPOSE_FILE:-<temporary>}"
   if [[ "${PROFILE_PLACEHOLDER}" == "true" ]]; then
     echo "status:   not deployed (placeholder)"
     echo "model:    <none>"

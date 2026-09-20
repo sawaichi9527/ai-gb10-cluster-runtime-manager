@@ -23,6 +23,17 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
 - **Compose = source of truth; CLI = convenience layer.** Day-to-day ops go through
   `gb10`/`gb10-single`; compose files under `~/docker-stacks/` are the deploy contract.
 - **Unified AEON stack dir (2026-09-13)**: since 27b and 35b both run the v0.29.0-omni image, their composes/models/patches live under one dir `~/docker-stacks/aeon-vllm-omni/` (`docker-compose.27b.yml` + `docker-compose.35b.yml` + `models/` + `*_029_patched.py`). `aeon-vllm-reasoning-eos/` is retired.
+- **Node-local layout (2026-09-20).** Every runtime's node-side artifacts live under
+  `~/docker-stacks/<stack>/`, the stack named after the image source: `aeon-vllm-omni`
+  (27b/35b), `anemll-dspark-vllm-gx10` (deepseek), `anemll-dspark-vllm-gx10-miaFlaver`
+  (deepseek-vision), `mia-vllm-openai-qwen38flashNext` (qwen38flash). A stack dir holds
+  the materialized compose, `patches/` (SYNC_DIRS staging), etc. **Nothing deploys at
+  the `~/` root.** Lanes that run BOTH cluster and single (27b/35b) suffix the compose
+  `-cluster`/`-single`; cluster-only lanes use `docker-compose.<profile>.yml`.
+- **Caches are per-lane and never shared**: `~/.cache/vllm-<profile>` (cluster-only) or
+  `~/.cache/vllm-<profile>-{cluster,single}`. The cluster `AUTOTUNE_CACHE_REL` in each
+  conf points the per-boot FlashInfer reset at the lane's own root. **Logs are unified**
+  under `~/docker-stacks/logs/<profile>/` (boot + compose/container), not per-stack.
 - **Cluster profiles are data-driven** (verified 2026-09-05) from `cluster-profiles.d/`
   and loaded by `scripts/cluster-common.sh` (`load_profile`/`build_vllm_args`/`build_docker_env`).
   27b = body `qwen3.8-27b-aeon-ultimate-uncensored-nvfp4` + drafter `qwen3.8-27b-dflash2`

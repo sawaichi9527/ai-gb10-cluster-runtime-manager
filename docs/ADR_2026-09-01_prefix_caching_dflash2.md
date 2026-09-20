@@ -3,7 +3,7 @@
 > 決策紀錄（Architecture Decision Record），避免日後被當作「無意遺漏」而誤開。
 > **決策**：TP2 27B 組合（DFlash2 n=7 / `fp8_e4m3` KV / `TRITON_ATTN` / `2026-08-24-v0.27.1-omni`）維持 `--no-enable-prefix-caching`（`scripts/tp2-common.sh` L125）。
 >
-> 對照：單節點 27B（`docker-compose.27b.yml`）用 **MTP k=3** + `--enable-prefix-caching` —— **兩者 drafter 不同，屬不同 decision class，非不一致**。
+> 對照：單節點 27B（`docker-compose-27b-single.yml`）用 **MTP k=3** + `--enable-prefix-caching` —— **兩者 drafter 不同，屬不同 decision class，非不一致**。
 
 ## 1. 現況（2026-09-01 實地確認）
 
@@ -12,7 +12,7 @@
 | spec decoding | **MTP** k=3 | **DFlash2** k=7 (block 8) |
 | prefix caching | `--enable-prefix-caching` | `--no-enable-prefix-caching` |
 | image | omni | `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-08-24-v0.27.1-omni` |
-| 位置 | `docker-compose.27b.yml` | `scripts/tp2-common.sh` L125 |
+| 位置 | `docker-compose-27b-single.yml` | `scripts/tp2-common.sh` L125 |
 
 - 兩者皆跑 **v0.27.1-era** build。TP2 關閉 APC 之原因過去**無文件**，本 ADR 補上。
 

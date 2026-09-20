@@ -17,8 +17,8 @@
 #   gb10-single logs {node0|node1} [runtime]
 #   gb10-single doctor
 #
-# Runtimes: 27b, 35b, comfyui, minimaxh3 (deployed) ; qwen38flash,
-# glm53flash (placeholders - not deployed yet).
+# Runtimes: 27b, 35b, comfyui, minimaxh3 (all deployed). qwen38flash /
+# glm53flash were removed 2026-09-20: neither can run single-node.
 # =====================================================================
 set -Eeuo pipefail
 
@@ -29,6 +29,8 @@ SCRIPTS="${REPO_DIR}/scripts"
 REG="${REPO_DIR}/runtimes.d"
 STATE="${REPO_DIR}/state"
 mkdir -p "${STATE}"
+# Unified node-local log root (same convention as scripts/cluster-common.sh).
+LOG_BASE="${NODE0_LOG_BASE:-${HOME}/docker-stacks/logs}"
 
 die(){ echo "ERROR: $*" >&2; exit 1; }
 
@@ -49,7 +51,6 @@ gb10-single - DGX Spark GB10 single-node runtime manager
 
 Runtimes (runtimes.d/*.conf):
   27b 35b comfyui minimaxh3   deployed
-  qwen38flash glm53flash   placeholder (not deployed)
 
 Boot is backgrounded by default: `use/start` returns immediately,
 boot continues in the background.  Poll with `gb10-single status`,
@@ -521,8 +522,8 @@ case "$cmd" in
       cat "$RF"
     else
       echo "$(date '+%F %T') ${node}/${runtime}: boot process exited (not ready)"
-      echo "  log: ${STATE}/boot-single.${node}.${runtime}.log"
-      tail -20 "${STATE}/boot-single.${node}.${runtime}.log" 2>/dev/null || true
+      echo "  log: ${LOG_BASE}/${runtime}/boot-single-${node}.log"
+      tail -20 "${LOG_BASE}/${runtime}/boot-single-${node}.log" 2>/dev/null || true
       exit 1
     fi
     ;;
@@ -563,7 +564,8 @@ case "$cmd" in
       wait_ready "$node" "$f"
     else
       # launch background boot
-      LOG="${STATE}/boot-single.${node}.${3}.log"
+      mkdir -p "${LOG_BASE}/${3}"
+      LOG="${LOG_BASE}/${3}/boot-single-${node}.log"
       ( setsid nohup "${SCRIPTS}/gb10-single-boot" "$node" "$3" </dev/null >"${LOG}" 2>&1 &
         echo $! > "$(_pid_file "$node" "$3")" )
       sleep 0.2

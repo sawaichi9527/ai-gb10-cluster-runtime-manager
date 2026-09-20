@@ -27,6 +27,8 @@ REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 SCRIPTS="${REPO_DIR}/scripts"
 STATE="${REPO_DIR}/state"
 mkdir -p "${STATE}"
+# Unified node-local log root (same convention as scripts/cluster-common.sh).
+LOG_BASE="${NODE0_LOG_BASE:-${HOME}/docker-stacks/logs}"
 
 die(){ echo "ERROR: $*" >&2; exit 1; }
 
@@ -140,7 +142,8 @@ case "${1:-help}" in
           die "background boot for another profile already running (PID ${pid})"
         fi
         # launch background boot
-        LOG="${STATE}/boot-cluster.${P}.log"
+        mkdir -p "${LOG_BASE}/${P}"
+        LOG="${LOG_BASE}/${P}/boot-cluster.log"
         ( setsid nohup "${SCRIPTS}/gb10-boot-cluster" "$P" </dev/null >"${LOG}" 2>&1 &
           echo $! > "$(_pid_file "$P")" )
         # brief pause to let setsid fork; then confirm PID
@@ -195,8 +198,8 @@ case "${1:-help}" in
       cat "$RF"
     else
       echo "$(date '+%F %T') $P: boot process exited (not ready)"
-      echo "  log: ${STATE}/boot-cluster.${P}.log"
-      tail -20 "${STATE}/boot-cluster.${P}.log" 2>/dev/null || true
+      echo "  log: ${LOG_BASE}/${P}/boot-cluster.log"
+      tail -20 "${LOG_BASE}/${P}/boot-cluster.log" 2>/dev/null || true
       exit 1
     fi
     ;;
@@ -213,7 +216,8 @@ case "${1:-help}" in
         _kill_boot
         down
         # launch background boot (same as use|start)
-        LOG="${STATE}/boot-cluster.${P}.log"
+        mkdir -p "${LOG_BASE}/${P}"
+        LOG="${LOG_BASE}/${P}/boot-cluster.log"
         ( setsid nohup "${SCRIPTS}/gb10-boot-cluster" "$P" </dev/null >"${LOG}" 2>&1 &
           echo $! > "$(_pid_file "$P")" )
         sleep 0.2

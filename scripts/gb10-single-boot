@@ -75,14 +75,15 @@ if [[ "$PLACEHOLDER" == "true" ]]; then
 fi
 
 # --- cache isolation guard (C) ---------------------------------------
-# TP2's FlashInfer autotune cache lives at ~/.cache/huggingface/vllm-cache.
-# A single-node LLM runtime MUST NOT map its cache into that path, or it
-# can desync the TP2 autotune cache and deadlock a later cluster boot
-# (see cluster-common.sh:ensure_autotune_cache_symmetry). Single LLM
-# caches belong in their own root (e.g. ~/.cache/vllm, ~/.cache/vllm-<id>).
+# TP2 cluster lanes keep their vLLM/FlashInfer caches in per-lane roots
+# (~/.cache/vllm-<profile>-cluster, set in cluster-profiles.d/*.conf). A
+# single-node LLM runtime MUST NOT map its cache into one of those, or it can
+# desync the TP2 autotune cache and deadlock a later cluster boot
+# (see cluster-common.sh:ensure_autotune_cache_reset). Single LLM caches
+# belong in their own root (e.g. ~/.cache/vllm-<id>-single).
 if [[ "${GROUP:-llm}" == "llm" && -f "$COMPOSE_FILE" ]] \
-   && grep -q 'huggingface/vllm-cache' "$COMPOSE_FILE"; then
-  echo "WARN: ${RUNTIME_ID} compose maps into TP2's vllm-cache path." >&2
+   && grep -qE '\.cache/vllm-[a-z0-9]+-cluster' "$COMPOSE_FILE"; then
+  echo "WARN: ${RUNTIME_ID} compose maps into a TP2 cluster cache root." >&2
   echo "WARN: give single-node runtimes their own VLLM_CACHE_ROOT/volume —" >&2
   echo "WARN: sharing it can desync the TP2 FlashInfer autotune cache." >&2
 fi

@@ -3,6 +3,7 @@
 > 本檔是本機中繼 checkout 的交接摘要。主要開發在 **node0**（`~/workspace/ai-gb10-cluster-runtime-manager`，branch `keystone`）＋ Forgejo `829522`；本機僅作中繼存取，修改前先確認是否應改在 node0。
 > 建立：2026-09-18；更新：**2026-09-20**（DeepSeek V4 Flash **Vision-Exp** lane 上線：同一顆 Anemll image + 啟動 wrapper；bench-c / bench-ctx / bench-mm 實測；`cluster-up` 新增 `SYNC_DIRS` 自動同步 patch 目錄；**vision 開 prefix caching + `dspark-swa-prefix` hotfix**、長上下文邊界 261K/262144、圖片高併發 C=8/16；本檔納入版控並同步三方）
 > **2026-09-20（後續）**：**Qwen3.8 Flash-Next 125B NVFP4（TP2+EP、MTP3）上線**；同日起 **compose 為唯一啟動 lane**（移除 docker-run 分支）；**27b/35b 改走 compose**；node0 `~/docker-stacks/aeon-vllm-omni/` 清理。詳見下方「已完成（2026-09-20 後續）」。
+> **2026-09-20（後續之二）**：**node-local 佈局歸位**——每個 lane 一個以 image 命名的 `~/docker-stacks/<stack>/`（`STACK_DIR`+`COMPOSE_FILE` materialize）、**cache 每 lane 獨立**（`~/.cache/vllm-<lane>[-cluster|-single]`，移除共用的 `~/.cache/huggingface` 容器掛載）、**log 統一** `~/docker-stacks/logs/<profile>/`；刪除單機 `runtimes.d/{qwen38flash,glm53flash}.conf`。詳見「已完成（2026-09-20 後續之二）」。
 
 ## 目前狀態（本機 checkout）
 
@@ -22,8 +23,10 @@
 
 - **`cluster-common.sh` 自動解析 `REPO_DIR`**，腳本可攜；保持此方式。
 - **Compose＝合約，CLI＝便利層**；發展合約在 `~/docker-stacks/`。
-- **統一 AEON stack**：`~/docker-stacks/aeon-vllm-omni/`（`docker-compose.27b.yml` + `docker-compose.35b.yml` + `models/` + `*_029_patched.py`）；27b/35b 皆 v0.29.0-omni image。`aeon-vllm-reasoning-eos` 已退休。
-- **Profiles 資料驅動**：`cluster-profiles.d/`（27b / 35b / deepseek / **deepseek-vision**），由 `cluster-common.sh` 載入；勿在 `cluster-*` 重寫死 profile 資料。
+- **Node-local 佈局**：每個 runtime 的節點側產物在 `~/docker-stacks/<stack>/`（stack 名＝image 來源）：`aeon-vllm-omni`(27b/35b)、`anemll-dspark-vllm-gx10`(deepseek)、`anemll-dspark-vllm-gx10-miaFlaver`(deepseek-vision)、`mia-vllm-openai-qwen38flashNext`(qwen38flash)。stack 內含 materialize 的 compose 與 `patches/`。**`~/` 根不得有佈署產物**。同時跑 cluster+single 的 lane（27b/35b）compose 加 `-cluster`/`-single`；cluster-only 用 `docker-compose.<profile>.yml`。
+- **Cache 每 lane 獨立**：`~/.cache/vllm-<profile>`（cluster-only）或 `~/.cache/vllm-<profile>-{cluster,single}`；各 conf 的 `AUTOTUNE_CACHE_REL` 指向自己的根。**Log 統一** `~/docker-stacks/logs/<profile>/`（boot + compose/container）。
+- **統一 AEON stack**：`~/docker-stacks/aeon-vllm-omni/`（`docker-compose-27b-single.yml` + `docker-compose-35b-single.yml` + `docker-compose-{27b,35b}-cluster.yml` + `models/` + `*_029_patched.py`）；27b/35b 皆 v0.29.0-omni image。`aeon-vllm-reasoning-eos` 已退休。
+- **Profiles 資料驅動**：`cluster-profiles.d/`（27b / 35b / deepseek / **deepseek-vision** / **qwen38flash**），由 `cluster-common.sh` 載入；勿在 `cluster-*` 重寫死 profile 資料。
 - **統一 LLM endpoint**：所有 runtime 走 OpenAI API **port 1234**，共用一組 `VLLM_API_KEY`。TP2 與 node0 single 共用 port → **互斥**（`gb10 use` 釋放 singles；`gb10-single use/start` 先拆 TP2）。
 - **Lazy sudo**：`sudo_pass()` 重用 `SUDO_PASS`，無 prompt；unset 時互動或報錯，不 hang。
 - **Placeholder**：`PLACEHOLDER=true` 的 conf 只印 "not deployed yet"。
@@ -53,7 +56,7 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
   - `IMAGE="ghcr.io/anemll/dspark-vllm-gx10:0.1.1"`、`IMG_SHA256` 同 deepseek。
   - `BODY_REL="deepseek-v4-flash-vision-exp"`（`.hf_revision=6821d6ad3681a4b137b066b76094fa82ebd0a380`）。
   - `CMD_WRAPPER`：先 `cp /model/encoding/encoding_dsv4.py → vllm/tokenizers/deepseek_v4_encoding.py`，再套 17 個 hotfix（含 `hotfix-dsv4-vision-exp.py`＝ViT/Aligner + `image_url`），最後 `exec /usr/local/bin/vllm serve …`（args 由共用 `build_vllm_args` 產生）。
-  - `SYNC_DIRS=("${REPO_DIR}/patches/dspark-vision:${HOME}/dspark-vision-patches")` → 每次 boot 自動佈署到兩節點。
+  - `SYNC_DIRS=("${REPO_DIR}/patches/dspark-vision:${STACK_DIR}/patches")` → 每次 boot 自動佈署到兩節點（`STACK_DIR=~/docker-stacks/anemll-dspark-vllm-gx10-miaFlaver`）。
 - **Patches vendored**：`patches/dspark-vision/`（17 patch + `vision_exp/` + `NOTICE.md`），來自 MiaAI-Lab `DeepSeek-v4-Flash-DSpark-2x-DGX-Spark` @ `97e8733238f81f5fdc44b241f8996a7858825744`，MIT，**LF**（Windows clone 會轉 CRLF，需 `-c core.autocrlf=false`）。
 - 啟動參數：`nvfp4_ds_mla` KV、`flashinfer_b12x` MoE、DSpark `k=6 probabilistic`、`MAXLEN=262144`、`NUMSEQ=8`、`BATCHED=16384`、`GMU=0.80`、`CUDAGRAPH_CAPTURE=56`、**prefix caching ON（搭 `dspark-swa-prefix` hotfix + `VLLM_PREFIX_CACHE_RETENTION_INTERVAL=4096`）**、`VLLM_USE_BREAKABLE_CUDAGRAPH=0`、`--limit-mm-per-prompt {"image":8}`、`--long-prefill-token-threshold 1024`、`--generation-config vllm`、reasoning/tool parser `deepseek_v4`。
 
@@ -192,6 +195,25 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
   `COMPILATION_JSON` / `CAP_ADD` / `ULIMITS`（未設＝不變）與 profile 可宣告的 `AUTOTUNE_CACHE_REL`。
 - **node0 清理**：`~/docker-stacks/aeon-vllm-omni/` 的 3 個 compose 備份 + 3 個孤兒 `*_029_patched.py`
   移入 `~/.archieve/aeon-vllm-omni-cleanup-20260920/`；刪除可再生的 `*_029_orig.py`。
+
+### 已完成（2026-09-20 後續之二）— node-local 佈局歸位
+
+- **Stack dir（image 命名）**：`cluster-profiles.d/*.conf` 新增 `STACK_DIR` + `COMPOSE_FILE`（loader
+  解析；未設＝沿用 `mktemp`）。`cluster-up` 把 render 產物 materialize 到 `<STACK_DIR>/<COMPOSE_FILE>`
+  （兩節點同路徑，仍每次 render＝零漂移）。單機 `runtimes.d` 的 `COMPOSE_FILE` 同步改為
+  `docker-compose-{27b,35b}-single.yml`。
+- **Cache 每 lane 獨立**：移除共用的 `~/.cache/huggingface` 容器掛載；改用
+  `~/.cache/vllm-<lane>`（cluster-only）或 `-{cluster,single}`（27b/35b），並在容器內掛到
+  `/cache/vllm` + `VLLM_CACHE_ROOT=/cache/vllm`（deepseek/vision 的 `FLASHINFER_WORKSPACE_BASE`、
+  vision 的 `TILELANG/TRITON/B12X` 一併改）。各 conf 的 `AUTOTUNE_CACHE_REL` 指向自己的根。
+- **Log 統一**：`bin/gb10`、`bin/gb10-single`、`cluster-up` 的 boot/compose log 由 repo `state/`
+  與 `/tmp` 改到 `~/docker-stacks/logs/<profile>/`。
+- **刪除**：`runtimes.d/qwen38flash.conf`、`runtimes.d/glm53flash.conf`（不可能跑單機）；
+  `gb10-single` usage 同步更新。另修正 `gb10-single-boot` 的 cache 隔離 guard（改比對
+  `.cache/vllm-<lane>-cluster`）與兩處引用不存在函式 `ensure_autotune_cache_symmetry` 的註解。
+- **node0/node1 歸位**：`~/qwen38flash-patches/` → `.../mia-vllm-openai-qwen38flashNext/patches/`；
+  `~/dspark-vision-patches/` → `.../anemll-dspark-vllm-gx10-miaFlaver/patches/`；
+  `~/dspark-vision-poc/`、`~/logs/`、`~/.archieve/` 併入 `~/_archieve/`。
 
 ## 定期檢討追蹤
 
