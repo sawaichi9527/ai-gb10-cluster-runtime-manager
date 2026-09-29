@@ -12,12 +12,19 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 ## Deployed services & benchmark results (latest image)
 
 > **2026-09-29 現況。** qwen38flash 於當日對齊上游並重新驗證（GMU 0.835→0.80、prefix caching
-> ON + vllm#53388 block-drop、deterministic greedy 預設 ON；見其章節）；其餘 lane 仍為
+> ON + vllm#53388 block-drop、deterministic greedy 預設 ON；見其章節）；**當日稍晚以
+> `gb10 use deepseek` 切回 DeepSeek 0731 mainline**（見下方「現役」）；其餘 lane 仍為
 > 09-19／09-20 實測。27B/35B 走 `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-09-18-v0.29.0-omni`
 > （單節點啟用 `VLLM_USE_V2_MODEL_RUNNER=1`）；DeepSeek 0731 與 Vision-Exp 共用
 > `ghcr.io/anemll/dspark-vllm-gx10:0.1.1`；qwen38flash 用 `vllm/vllm-openai:qwen38-flash-next`。
 > **每個模型只保留最新一次實測**；舊結果不累計（歷史完整報告見 maintenance repo 的
 > `docs/BENCHMARK_*.md` 與 handoff）。
+>
+> **已評估、未新增 lane**：DeepSeek-V4.1-Flash **EXL3**（2× GB10）同日完成選型查核 ——
+> 兩顆可下載 arm64 image 的 digest、TP=2 硬限制、各線 benchmark 與 NVIDIA 論壇口碑均已記錄；
+> 因「不自行 build image」的前提與 sfxnz 2.0bpw 的 42–50 tok/s 無法同時成立，**本輪不採用**，
+> 2-Spark 多模態維持 `deepseek-vision`。完整證據見
+> [`docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md`](docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md)。
 
 ### 已部署服務
 
@@ -27,12 +34,14 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 | 27B cluster (TP2) | 同上 | `2026-09-18-v0.29.0-omni` | `http://192.168.23.215:1234/v1` | deployed（09-19 實測） |
 | 35B single (TP1) | `qwen3.6-35b-a3b-heretic-nvfp4` + DFlash n=6 | `2026-09-18-v0.29.0-omni` | `:1234/v1` | deployed（09-19 實測） |
 | 35B cluster (TP2) | 同上 | `2026-09-18-v0.29.0-omni` | `http://192.168.23.215:1234/v1` | deployed（09-19 實測） |
-| DeepSeek V4 Flash cluster (TP2) | `deepseek-v4-flash-0731-official` + DSpark n=7 | `anemll/dspark-vllm-gx10:0.1.1` | `http://192.168.23.215:1234/v1` | deployed (mainline) |
+| DeepSeek V4 Flash cluster (TP2) | `deepseek-v4-flash-0731-official` + DSpark n=7 | `anemll/dspark-vllm-gx10:0.1.1` | `http://192.168.23.215:1234/v1` | **← 現役（09-29 切換）**：KV 12.15 GiB、smoke `HELLO-TP2-OK` |
 | DeepSeek V4 Flash **Vision-Exp** cluster (TP2) | `deepseek-v4-flash-vision-exp` + DSpark n=6 (multimodal) | `anemll/dspark-vllm-gx10:0.1.1`（**與 deepseek 同 image / 同 digest**） | `http://192.168.23.215:1234/v1` | deployed（09-20 實測，文字＋圖片） |
-| Qwen3.8 Flash-Next **125B** cluster (TP2+EP) | `qwen3.8-flash-next-nvfp4`（ModelOpt NVFP4）+ 內建 MTP n=3 | `vllm/vllm-openai:qwen38-flash-next` | `http://192.168.23.215:1234/v1` | **deployed（09-29 重新驗證）← 現役**：GMU 0.80／prefix caching ON／determinism 預設 ON |
+| Qwen3.8 Flash-Next **125B** cluster (TP2+EP) | `qwen3.8-flash-next-nvfp4`（ModelOpt NVFP4）+ 內建 MTP n=3 | `vllm/vllm-openai:qwen38-flash-next` | `http://192.168.23.215:1234/v1` | deployed（09-29 重新驗證）：GMU 0.80／prefix caching ON／determinism 預設 ON |
 
-> **現役（2026-09-29）＝ qwen38flash**（`:1234` READY、KV 29.15 GiB）。TP2 各 lane **互斥**，
-> 同一時間只有一條在線；其他列的 `deployed` 表示**已部署並實測過**，非同時運行。
+> **現役（2026-09-29）＝ deepseek**（DeepSeek V4 Flash 0731 mainline；`:1234` READY、
+> KV 12.15 GiB、`gb10 smoke` = `HELLO-TP2-OK`；`gb10 use deepseek` 由 qwen38flash 切換，
+> cold boot 約 7.5 分）。TP2 各 lane **互斥**，同一時間只有一條在線；其他列的 `deployed`
+> 表示**已部署並實測過**，非同時運行。
 
 ### 27B v0.29.0-omni (bench-c C1-C8, MAX_TOKENS=2048; 245k cold prefill) — 2026-09-19
 
@@ -311,7 +320,7 @@ gb10 use 27b                  # default; TP2 up (cold ~7-15 min), waits /health
 gb10 use 35b                  # switch exclusive cluster profile
 gb10 use qwen38flash          # cluster-only lane (determinism on by default)
 gb10 stop                     # cluster-down (both nodes)
-gb10 restart [27b|35b|deepseek|deepseek-vision|qwen38flash]
+gb10 restart [profile]        # no arg = last used profile (state/last-cluster-profile)
 gb10 status                   # both nodes, RDMA, KV, health
 gb10 inspect <profile>        # sanitized resolved-profile report (dry-run)
 gb10 logs                     # follow cluster-node0
