@@ -7,7 +7,7 @@
 
 ## 目前狀態（本機 checkout）
 
-- 分支：`main`，HEAD = 本檔所在的 commit（`git log -1`）；最新正式版本 tag = **`v1.3.2`**（`168cb99`；`v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`）。早期：2026-09-20 session 共 22 個 commit `a1cba34`…`79a79cb`，其後為本檔的 sync commit。live lane = **`deepseek`**（2026-09-29 由 `qwen38flash` 切回）
+- 分支：`main`，HEAD = 本檔所在的 commit（`git log -1`）；最新正式版本 tag = **`v1.3.3`**（`9bb2006`；`v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`）。早期：2026-09-20 session 共 22 個 commit `a1cba34`…`79a79cb`，其後為本檔的 sync commit。live lane = **`deepseek`**（2026-09-29 由 `qwen38flash` 切回）
 - 同步狀態：**本機＝Forgejo（origin，`829522`）＝GitHub（`sawaichi9527`）＝node0 已 pull**（四方同一 commit；node0 live lane = **`deepseek`**，2026-09-29 切換）
 - `handoff.md` 已納版控（`37bee4c` 起；本次更新亦將 commit）
 - `.gitignore` 已覆蓋 `config/cluster.env`、`state/last-runtime`、logs、`*.bak-*`
@@ -376,8 +376,17 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
   （qwen38flash 非單機 placeholder；`runtimes.d/{qwen38flash,glm53flash}.conf` 已於 09-20 刪除）
   與 35b maxlen `131072`→`262144`。同樣建了 GitHub Release，並在 v1.3.1 的 Release 說明末尾
   補上指標。**無 runtime 變更**。
+- **`v1.3.3`（2026-09-29，docs + 一處 CLI 修正）**：`9bb2006` —— ① 新增
+  `docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md`：DeepSeek-V4.1-Flash **EXL3**（2× GB10）
+  選型查核，含兩顆可下載 arm64 image 的 digest、TP=2 residency 硬限制、各線 benchmark 與
+  NVIDIA 論壇口碑 —— **研究用，未新增 lane、未變更 runtime**。② 修正 `state/last-cluster-profile`
+  從未被寫入的缺口（`e626298`）：`bin/gb10` 的 `use|start` 與 `restart` 於背景 boot 啟動後
+  寫入該 profile ID，README 的 `state/` 說明同步改為「寫入／讀取」。③ README 首頁（`9bb2006`）
+  把現役自 qwen38flash 改為 **deepseek**（KV 12.15 GiB、`gb10 smoke` = `HELLO-TP2-OK`、
+  cold boot 約 7.5 分），並加註「已評估、未新增 lane」與 `gb10 restart` 無參數回退的說明。
+  唯一程式碼變更即 `bin/gb10` 的標記寫入（15 行內），**無 profile/image/args 變更**。
 - **tag 現況**：`v1.0.0`→`496c9b1`、`v1.1.0`→`71ccf20`、`v1.2.0`→`ffd02ea`、
-  `v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、**`v1.3.2`→`168cb99`**。
+  `v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、**`v1.3.3`→`9bb2006`**。
 
 ### qwen38flash 對齊上游 + 冷啟驗證（2026-09-29）
 
