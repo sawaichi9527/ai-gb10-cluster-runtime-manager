@@ -36,9 +36,23 @@ trap 'rm -rf "$OUTDIR"' EXIT
 base64 -w0 "$IMG_FILE" > "$OUTDIR/img.b64"
 PROMPT="Describe the image(s) in one short sentence."
 
-jq -n --rawfile b "$OUTDIR/img.b64" --argjson n "$NIMG" --arg p "$PROMPT" --argjson mt "$MAX_TOKENS" \
-  '{model:"aeon",messages:[{role:"user",content:([range(0;$n)|{type:"image_url",image_url:{url:("data:image/jpeg;base64,"+$b)}}]+[{type:"text",text:$p}])}],max_tokens:$mt,temperature:0}' \
-  > "$OUTDIR/payload.json"
+# BENCH_COLD=1 gives every stream its own text nonce, so prefix caching cannot
+# dedupe or cache-hit the C otherwise-identical image requests (which would
+# inflate the aggregate tok/s). Off by default: the payload is byte-identical
+# for every other model. Adopt it only where prefix caching is on.
+COLD="${BENCH_COLD:-0}"
+if [[ "$COLD" == "1" ]]; then
+  for i in $(seq 1 "$C"); do
+    jq -n --rawfile b "$OUTDIR/img.b64" --argjson n "$NIMG" \
+      --arg p "${PROMPT} [stream ${i} nonce $(date +%s%N)]" --argjson mt "$MAX_TOKENS" \
+      '{model:"aeon",messages:[{role:"user",content:([range(0;$n)|{type:"image_url",image_url:{url:("data:image/jpeg;base64,"+$b)}}]+[{type:"text",text:$p}])}],max_tokens:$mt,temperature:0}' \
+      > "$OUTDIR/payload_$i.json"
+  done
+else
+  jq -n --rawfile b "$OUTDIR/img.b64" --argjson n "$NIMG" --arg p "$PROMPT" --argjson mt "$MAX_TOKENS" \
+    '{model:"aeon",messages:[{role:"user",content:([range(0;$n)|{type:"image_url",image_url:{url:("data:image/jpeg;base64,"+$b)}}]+[{type:"text",text:$p}])}],max_tokens:$mt,temperature:0}' \
+    > "$OUTDIR/payload.json"
+fi
 
 echo "================================================================"
 echo "  bench-mm  images=${NIMG}  C=${C}  max_tokens=${MAX_TOKENS}"
@@ -48,8 +62,9 @@ echo "================================================================"
 
 T0=$(date +%s.%N)
 for i in $(seq 1 "$C"); do
+  if [[ "$COLD" == "1" ]]; then PAYLOAD="$OUTDIR/payload_$i.json"; else PAYLOAD="$OUTDIR/payload.json"; fi
   api_curl "$URL" -m 600 -H 'Content-Type: application/json' \
-    -d "@$OUTDIR/payload.json" > "$OUTDIR/$i.json" 2>/dev/null &
+    -d "@$PAYLOAD" > "$OUTDIR/$i.json" 2>/dev/null &
 done
 wait
 T1=$(date +%s.%N)

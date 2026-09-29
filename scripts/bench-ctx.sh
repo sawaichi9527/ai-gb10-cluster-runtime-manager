@@ -25,7 +25,17 @@ echo "  bench-ctx  words=$NUM_WORDS  max_tokens=$MAX_TOKENS"
 echo "================================================================"
 
 # Build prompt: NUM_WORDS repeated "token" words ≈ NUM_WORDS tokens
-awk -v n="$NUM_WORDS" 'BEGIN{while(i++<n) printf "token "}' > /tmp/ctx_body.txt
+# BENCH_COLD=1 prepends a unique nonce. With prefix caching ON every probe would
+# otherwise be served from the cache of a previous run — the "token " prompt is
+# both fixed and a prefix of the longer probes, so a warm cache inflates the
+# result arbitrarily. Off by default: the probe stays byte-identical for every
+# other model (adopt it only where prefix caching is on, e.g. qwen38flash).
+NONCE=""
+if [[ "${BENCH_COLD:-0}" == "1" ]]; then
+  NONCE="cold-run nonce $(date +%s%N) $$"
+fi
+awk -v n="$NUM_WORDS" -v pre="$NONCE" \
+  'BEGIN{ if (pre != "") printf "%s\n", pre; while(i++<n) printf "token " }' > /tmp/ctx_body.txt
 BODY_SIZE=$(wc -c < /tmp/ctx_body.txt)
 echo "  payload body: ${BODY_SIZE} chars (~$((BODY_SIZE / 4)) tokens estimated)"
 
