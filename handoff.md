@@ -283,4 +283,9 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
     `hotfix-vllm-issue191-toolcall-failclosed.py`、`hotfix-dsv4-issue141/144/31-v2` 等）— 非更新，屬既有路線差異。
   - 追蹤待辦（僅記錄，未動作）：open PR #267（agent clients + prefix cache）、#256（NFS root_squash）、
     #220（disk-backed KV cache）、#253（ci gate compose/hotfix）、#152（#82 loop-breaker）、#126（crash precursor observer）。
-- **註**：本次僅本紀錄 commit；push 前本機 HEAD 領先 origin，push 後才回到與 origin 同步。
+- **註（雙 remote 同步）**：本次僅本紀錄 commit。已推送至**兩個 remote**：Forgejo `origin`（`829522`）與
+  GitHub `sawaichi9527/ai-gb10-cluster-runtime-manager`（本機為此新增 remote 名稱 `github`）；兩邊 `main`
+  皆為 `d2bd689`。推送時一併把 GitHub 缺少的 **7 支分支**（`keystone`、`feature/tp2-profile-registry`、
+  `feature/tp2-qwen38-flashnext`、`experiment/deepseek-v4-{128k,256k,393k}-r1`、`experiment/deepseek-v4-dspark-k5-r2`）
+  與 **2 個 tag**（`v1.0.0`、`v1.1.0`）補齊 → 兩邊 refs 已 **1:1 一致（17 分支 + 3 tag）**。
+  節點 node0 仍需自行 `git pull` 才會取得本 commit。
