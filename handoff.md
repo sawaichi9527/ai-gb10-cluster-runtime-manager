@@ -178,12 +178,16 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
 
 - 現役＝**deepseek（DeepSeek V4 Flash 0731 fp8 DSpark mainline）** —— 2026-09-29 以
   `gb10 use deepseek` 由 qwen38flash 切換（`cluster-down` 拆掉舊 TP2 → free node1 singles →
-  cold start）。實測：背景 boot `22:30:59` 起、**`22:38:43` READY（約 7 分 44 秒）**；
-  `gb10 status` = ready／node0+node1 up／image `ghcr.io/anemll/dspark-vllm-gx10:0.1.1`／
-  model `deepseek-v4-flash-0731-official`／TP2／**KV 12.02 GiB (node0)**（2026-09-06 baseline
-  記 12.93 GiB，差異在 GB10 boot 間離散範圍內）；`/v1/models` id `aeon`、max_model_len 262144；
-  `gb10 smoke` = HTTP 200 `HELLO-TP2-OK`（prompt 16 / completion 9 tokens）。
-  切回用 `gb10 use qwen38flash`（再往前是 deepseek-vision）。
+  cold start）。當日共 boot 兩次，皆在一次到位後量測：
+  - ①切換：`22:30:59` → READY `22:38:43`（約 **7 分 44 秒**），KV **12.02 GiB**。
+  - ②`state/last-cluster-profile` 修正後的端到端驗證：`22:47:33` → READY `22:55:07`
+    （約 **7 分 34 秒**），KV **12.15 GiB**（現役即此 boot）。
+  - `gb10 status` = ready／node0+node1 up／image `ghcr.io/anemll/dspark-vllm-gx10:0.1.1`／
+    model `deepseek-v4-flash-0731-official`／TP2；`/v1/models` id `aeon`、max_model_len 262144；
+    `gb10 smoke` = HTTP 200 `HELLO-TP2-OK`（prompt 16 / completion 9 tokens）。
+  - KV 對照：2026-09-06 baseline 記 **12.93 GiB**，兩次皆略低，差異在 GB10 boot 間離散範圍內
+    （本次未改任何 profile，渲染與既有 lane 一致）。
+  - 切回用 `gb10 use qwen38flash`（再往前是 deepseek-vision）。
 - 節點：node0＝`spark-25d5`（rank0/API），node1＝`spark-8095`（rank1/headless）。
 
 ## 下一步（建議）
@@ -294,6 +298,20 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
 - **為何不採用**：免 build 的成熟 image 只有 ~26 tok/s；要 42–50 tok/s 就得用 sfxnz stack（＝要 build）。兩者在「不自行 build」約束下無法同時成立 → 維持 2-Spark 多模態由 `deepseek-vision` 承接。
 - **重啟最短路徑**：① 直接用 Mia 那顆（`IMG_SHA256` 可沿用現有 registry gate）② 探針「Mia image + sfxnz 2.0bpw-mcg-viterbi pack」是否可載入（mul1 vs mcg、per-tensor K-map、`exllamav3 v1.4.5` 相容性**未知**）→ 成功即「免 build + 44 tok/s」。
 - **授權**：sfxnz scripts MIT／權重 MIT／`vllm-exl3` **AGPL-3.0**；tonyd2wild patch Apache-2.0 vLLM 衍生；MiaAI-Lab 系列 AGPL-3.0。未來採用須比照 `patches/qwen38flash/NOTICE.md` 慣例（pin + sha256），且不得再散布衍生 image。
+
+### gb10 `state/last-cluster-profile` 修正（2026-09-29）
+
+- **問題**：`state/last-cluster-profile` 被 `bin/gb10`（`restart` 未帶參數時的預設值）與 README
+  描述為「上次選用的 cluster profile」，但**全 repo 沒有任何地方寫入它** —— 本次切到 deepseek
+  後實測該檔不存在 → `gb10 restart`（無參數）永遠回退 `27b`，不會沿用剛用過的 profile
+  （誤操作陷阱：想 restart deepseek 卻拉起 27b）。
+- **修正**（`e626298`）：`bin/gb10` 的 `use|start` 與 `restart` 在背景 boot 啟動後寫入該
+  profile ID；placeholder 分支在該行之前就 short-circuit，仍不會寫入。檔案在 `.gitignore` 內，
+  屬執行期產物，因此不會讓 `check-git-sync.sh --block` 的乾淨樹判定失敗。README 的 `state/`
+  說明同步改為「由 `bin/gb10` 寫入／讀取」。
+- **驗證**：node0 上 `bin/gb10` **CR bytes = 0**（LF）、`bash -n bin/gb10` OK（shellcheck 未安裝，
+  略過）；修正前 marker **不存在** → `gb10 use deepseek` 後 marker = **`deepseek`**，且該次 boot
+  READY `22:55:07`、`gb10 smoke` HTTP 200。
 
 ### 上游查核紀錄（2026-09-29，本機）
 
