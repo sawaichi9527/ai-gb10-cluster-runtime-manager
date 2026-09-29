@@ -1,7 +1,7 @@
 # handoff.md — ai-gb10-cluster-runtime-manager（本機 checkout）
 
 > 本檔是本機中繼 checkout 的交接摘要。主要開發在 **node0**（`~/workspace/ai-gb10-cluster-runtime-manager`，branch **`main`**；2026-09-29 實測 node0 為 `main`／upstream `origin/main`、工作區乾淨 —— 舊文件寫的 `keystone` 已於 `496c9b1` 併入 main、**非**現役 checkout）＋ Forgejo `829522`；本機僅作中繼存取，修改前先確認是否應改在 node0。
-> 建立：2026-09-18；更新：**2026-09-20**（DeepSeek V4 Flash **Vision-Exp** lane 上線：同一顆 Anemll image + 啟動 wrapper；bench-c / bench-ctx / bench-mm 實測；`cluster-up` 新增 `SYNC_DIRS` 自動同步 patch 目錄；**vision 開 prefix caching + `dspark-swa-prefix` hotfix**、長上下文邊界 261K/262144、圖片高併發 C=8/16；本檔納入版控並同步三方）；**2026-09-29** 上游查核（Anemll 無新 image/tag、MiaAI-Lab main 未動且 23 檔 byte 全同）→ 見「定期檢討追蹤」；**2026-09-29（後續）** qwen38flash 對齊上游 `2c86a1d0`（GMU 0.80／prefix caching ON／block-drop backport／index share）並完成冷啟驗證（READY、KV 29.88 GiB、無回歸）→ 見「qwen38flash 對齊上游 + 冷啟驗證」；**2026-09-29（後續之二）** DeepSeek-V4.1-Flash **EXL3 2×GB10 選型查核**（取得兩顆可下載 arm64 image 的 digest、證實 sfxnz image 未發佈、TP=2 對 3.5bpw 不可行、各線 benchmark 與 NVIDIA 論壇口碑）→ **本輪不新增 lane**（維持 `deepseek-vision` 為 2-Spark 多模態），詳見 `docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md`
+> 建立：2026-09-18；更新：**2026-09-20**（DeepSeek V4 Flash **Vision-Exp** lane 上線：同一顆 Anemll image + 啟動 wrapper；bench-c / bench-ctx / bench-mm 實測；`cluster-up` 新增 `SYNC_DIRS` 自動同步 patch 目錄；**vision 開 prefix caching + `dspark-swa-prefix` hotfix**、長上下文邊界 261K/262144、圖片高併發 C=8/16；本檔納入版控並同步三方）；**2026-09-29** 上游查核（Anemll 無新 image/tag、MiaAI-Lab main 未動且 23 檔 byte 全同）→ 見「定期檢討追蹤」；**2026-09-29（後續）** qwen38flash 對齊上游 `2c86a1d0`（GMU 0.80／prefix caching ON／block-drop backport／index share）並完成冷啟驗證（READY、KV 29.88 GiB、無回歸）→ 見「qwen38flash 對齊上游 + 冷啟驗證」；**2026-09-29（後續之二）** DeepSeek-V4.1-Flash **EXL3 2×GB10 選型查核**（取得兩顆可下載 arm64 image 的 digest、證實 sfxnz image 未發佈、TP=2 對 3.5bpw 不可行、各線 benchmark 與 NVIDIA 論壇口碑）→ **本輪不新增 lane**（維持 `deepseek-vision` 為 2-Spark 多模態），詳見 `docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md`；**2026-09-30** 上游再查核（deepseek 與 deepseek-vision 的 **image／配方／官方權重皆無更新** → 兩 lane 現行設定即為最新、無需變更，含首度補查官方權重 commit 比較，見 `docs/DEEPSEEK_UPSTREAM_REVERIFY_2026-09-30.md`）
 > **2026-09-20（後續）**：**Qwen3.8 Flash-Next 125B NVFP4（TP2+EP、MTP3）上線**；同日起 **compose 為唯一啟動 lane**（移除 docker-run 分支）；**27b/35b 改走 compose**；node0 `~/docker-stacks/aeon-vllm-omni/` 清理。詳見下方「已完成（2026-09-20 後續）」。
 > **2026-09-20（後續之二）**：**node-local 佈局歸位**——每個 lane 一個以 image 命名的 `~/docker-stacks/<stack>/`（`STACK_DIR`+`COMPOSE_FILE` materialize）、**cache 每 lane 獨立**（`~/.cache/vllm-<lane>[-cluster|-single]`，移除共用的 `~/.cache/huggingface` 容器掛載）、**log 統一** `~/docker-stacks/logs/<profile>/`；刪除單機 `runtimes.d/{qwen38flash,glm53flash}.conf`。詳見「已完成（2026-09-20 後續之二）」。
 
@@ -352,6 +352,26 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
 - **文件勘誤（同次）**：`AGENTS.md`「Canonical repo path」與本檔開頭原寫 node0 checkout 為 branch
   `keystone`；2026-09-29 實測**實為 `main`**（`UPSTREAM=origin/main`、工作區乾淨），兩處已更正。
   `keystone`（`a5fcc54`）仍存在於兩個 remote，但已於 `496c9b1` 併入 `main`、**非**現役 checkout。
+
+### 上游再查核（2026-09-30，本機）
+
+> 觸發：使用者要求確認 `deepseek` 與 `deepseek-vision` 的來源配方與 docker image 是否有更新。
+> **結果：皆無有效更新。** 只用唯讀查核（registry tags/digest、GH repo、HF commit 比較、
+> node0 `docker ps`/`inspect`），**未變更任何 runtime/profile/檔案設定**。完整證據見
+> `docs/DEEPSEEK_UPSTREAM_REVERIFY_2026-09-30.md`。
+
+- **Image（兩 lane 共用）— 無更新**：`ghcr.io/anemll/dspark-vllm-gx10` `tags/list` 僅 `0.1.0`/`0.1.1`，
+  `0.1.1` digest 仍 `sha256:a8394849…`（＝`IMG_SHA256` 逐字相同）；node0 `cluster-node0` 現役
+  `@sha256:a8394849…` 同 pin。
+- **vision 配方（MiaAI）— 無更新**：`main` HEAD 仍 `97e8733…`（= vendored pin），README 仍用
+  `ghcr.io/anemll/dspark-vllm-gx10:0.1.1`。
+- **官方權重 — 首度補查（09-29 未查）：**
+  - 0731（deepseek body）：pin `9e165c30…` = 官方發佈 commit；其後 upstream 僅 **1 個 docs-only**
+    commit `7872f01b`「add sglang cookbook to model card (#20)」→ **權重未變**。
+  - Vision-Exp（deepseek-vision body）：pin `6821d6ad…` = HF `main` HEAD（一致）→ 無更新。
+- **同族更新模型**（`deepseek-ai/DeepSeek-V4.1-Flash`）為另一款模型、非本 lane 之更新，且已於
+  `docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md` 判為 2×GB10 不採用。
+- **淨結論**：兩 lane 現行 image／配方／權重皆為**當下最新且正確**，**無需任何變更**。
 
 ### 版本標記（2026-09-29）
 

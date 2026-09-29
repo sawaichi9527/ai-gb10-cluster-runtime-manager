@@ -25,6 +25,13 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 > 因「不自行 build image」的前提與 sfxnz 2.0bpw 的 42–50 tok/s 無法同時成立，**本輪不採用**，
 > 2-Spark 多模態維持 `deepseek-vision`。完整證據見
 > [`docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md`](docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md)。
+>
+> **2026-09-30 上游再查核：** `deepseek` 與 `deepseek-vision` 的 **image／配方／官方權重皆無更新**
+> —— Anemll image 仍為唯一 tag `0.1.1`（digest `a8394849…` 不變、node0 現役同 pin）；照 MiaAI vision
+> 配方仍 pin 在 upstream HEAD `97e8733…`；官方 0731 權重自發佈 commit `9e165c30…` 後僅加了一個
+> **model-card（docs-only）** commit，Vision-Exp 權重 pin `6821d6ad…` = HF HEAD。**兩 lane 現行
+> 設定即為最新，無需變更。** 完整證據見
+> [`docs/DEEPSEEK_UPSTREAM_REVERIFY_2026-09-30.md`](docs/DEEPSEEK_UPSTREAM_REVERIFY_2026-09-30.md)。
 
 ### 已部署服務
 
