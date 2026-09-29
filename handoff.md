@@ -1,6 +1,6 @@
 # handoff.md — ai-gb10-cluster-runtime-manager（本機 checkout）
 
-> 本檔是本機中繼 checkout 的交接摘要。主要開發在 **node0**（`~/workspace/ai-gb10-cluster-runtime-manager`，branch `keystone`）＋ Forgejo `829522`；本機僅作中繼存取，修改前先確認是否應改在 node0。
+> 本檔是本機中繼 checkout 的交接摘要。主要開發在 **node0**（`~/workspace/ai-gb10-cluster-runtime-manager`，branch **`main`**；2026-09-29 實測 node0 為 `main`／upstream `origin/main`、工作區乾淨 —— 舊文件寫的 `keystone` 已於 `496c9b1` 併入 main、**非**現役 checkout）＋ Forgejo `829522`；本機僅作中繼存取，修改前先確認是否應改在 node0。
 > 建立：2026-09-18；更新：**2026-09-20**（DeepSeek V4 Flash **Vision-Exp** lane 上線：同一顆 Anemll image + 啟動 wrapper；bench-c / bench-ctx / bench-mm 實測；`cluster-up` 新增 `SYNC_DIRS` 自動同步 patch 目錄；**vision 開 prefix caching + `dspark-swa-prefix` hotfix**、長上下文邊界 261K/262144、圖片高併發 C=8/16；本檔納入版控並同步三方）；**2026-09-29** 上游查核（Anemll 無新 image/tag、MiaAI-Lab main 未動且 23 檔 byte 全同）→ 見「定期檢討追蹤」
 > **2026-09-20（後續）**：**Qwen3.8 Flash-Next 125B NVFP4（TP2+EP、MTP3）上線**；同日起 **compose 為唯一啟動 lane**（移除 docker-run 分支）；**27b/35b 改走 compose**；node0 `~/docker-stacks/aeon-vllm-omni/` 清理。詳見下方「已完成（2026-09-20 後續）」。
 > **2026-09-20（後續之二）**：**node-local 佈局歸位**——每個 lane 一個以 image 命名的 `~/docker-stacks/<stack>/`（`STACK_DIR`+`COMPOSE_FILE` materialize）、**cache 每 lane 獨立**（`~/.cache/vllm-<lane>[-cluster|-single]`，移除共用的 `~/.cache/huggingface` 容器掛載）、**log 統一** `~/docker-stacks/logs/<profile>/`；刪除單機 `runtimes.d/{qwen38flash,glm53flash}.conf`。詳見「已完成（2026-09-20 後續之二）」。
@@ -288,4 +288,9 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
   皆為 `d2bd689`。推送時一併把 GitHub 缺少的 **7 支分支**（`keystone`、`feature/tp2-profile-registry`、
   `feature/tp2-qwen38-flashnext`、`experiment/deepseek-v4-{128k,256k,393k}-r1`、`experiment/deepseek-v4-dspark-k5-r2`）
   與 **2 個 tag**（`v1.0.0`、`v1.1.0`）補齊 → 兩邊 refs 已 **1:1 一致（17 分支 + 3 tag）**。
-  節點 node0 仍需自行 `git pull` 才會取得本 commit。
+- **node0 同步（2026-09-29）**：在 node0（`spark-25d5`／`192.168.23.215`／user `eye`）執行
+  `git pull --ff-only`，由 `48b2813` 快進、僅動 `handoff.md`、工作區乾淨。node0 checkout 追蹤
+  `origin/main`（Forgejo）；每次 push 後在 node0 再 pull 一次即可對齊。
+- **文件勘誤（同次）**：`AGENTS.md`「Canonical repo path」與本檔開頭原寫 node0 checkout 為 branch
+  `keystone`；2026-09-29 實測**實為 `main`**（`UPSTREAM=origin/main`、工作區乾淨），兩處已更正。
+  `keystone`（`a5fcc54`）仍存在於兩個 remote，但已於 `496c9b1` 併入 `main`、**非**現役 checkout。
