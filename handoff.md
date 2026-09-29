@@ -385,6 +385,9 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
   把現役自 qwen38flash 改為 **deepseek**（KV 12.15 GiB、`gb10 smoke` = `HELLO-TP2-OK`、
   cold boot 約 7.5 分），並加註「已評估、未新增 lane」與 `gb10 restart` 無參數回退的說明。
   唯一程式碼變更即 `bin/gb10` 的標記寫入（15 行內），**無 profile/image/args 變更**。
+  **GitHub Release 已建**（`id 399323160`，以 API 建立，憑證取自本機 GCM 既有的 github 憑證，
+  **未寫入任何檔案**；先前一度以為取不到憑證，實為 pwsh pipe `git credential fill` 的編碼瑕疵 ——
+  以 LF-only 檔 + `cmd /c` redirect 即可正常取得，與 v1.3.2 相同）。
 - **tag 現況**：`v1.0.0`→`496c9b1`、`v1.1.0`→`71ccf20`、`v1.2.0`→`ffd02ea`、
   `v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、**`v1.3.3`→`9bb2006`**。
 
