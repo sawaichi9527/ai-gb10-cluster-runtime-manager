@@ -327,8 +327,16 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
   動機：`v1.3.0`（`2474cf8`）早於本次 qwen38flash 對齊與 bench 協定，任何從 tag／Release
   進入的人都會看到舊 README；`v1.3.1` 才涵蓋 GMU 0.80／prefix caching ON／block-drop、
   determinism 預設 ON、bench 協定與冷探針。
+- **`v1.3.2`（同日稍晚，docs-only）**：`168cb99` —— README「已部署服務」表把 qwen38flash 由
+  `deployed（09-20 上線實測）` 改為 **`deployed（09-29 重新驗證）← 現役`**（GMU 0.80／prefix
+  caching ON／determinism 預設 ON），並更新章節標題與簡介（GMU 0.835→0.80、spec config 補
+  `disable_eagle_block_drop`／`index_share_for_mtp_iteration`、「5 個 patcher」→ 10 檔案 pin
+  `2c86a1d0`、KV 34.01→29.15 GiB）、MTP A/B 標註為 09-20 量測；另修掉兩處**錯誤**描述
+  （qwen38flash 非單機 placeholder；`runtimes.d/{qwen38flash,glm53flash}.conf` 已於 09-20 刪除）
+  與 35b maxlen `131072`→`262144`。同樣建了 GitHub Release，並在 v1.3.1 的 Release 說明末尾
+  補上指標。**無 runtime 變更**。
 - **tag 現況**：`v1.0.0`→`496c9b1`、`v1.1.0`→`71ccf20`、`v1.2.0`→`ffd02ea`、
-  `v1.3.0`→`2474cf8`、**`v1.3.1`→`276348c`**。
+  `v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、**`v1.3.2`→`168cb99`**。
 
 ### qwen38flash 對齊上游 + 冷啟驗證（2026-09-29）
 
