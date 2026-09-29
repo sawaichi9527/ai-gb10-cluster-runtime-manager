@@ -184,62 +184,79 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 > `AUTOTUNE_CACHE_REL`）；⑤ 該 cache 目錄由 docker 以 root 建立，`eye` 無法搬移 → reset 先
 > `mkdir -p` parent 並於兩節點一次性 chown。
 
-#### qwen38flash benchmark（解碼最新：2026-09-29；prefill／圖片仍為 2026-09-20 實測）
+#### qwen38flash benchmark（最新：2026-09-29）
 
-解碼（`bench-c.sh` + `BENCH_IGNORE_EOS=1`，每 stream 恰好 `max_tokens=400`）。**協定自
-2026-09-29 起對 qwen38flash 加上 `BENCH_DETERMINISTIC=1`（`temperature=0, seed=0`）**；
-不同取樣模式之間**不可直接互比**，故並列：
+一律標明取樣模式；**跨取樣模式或跨 prefix-caching 狀態的數字不可直接互比**。
 
-| C | 09-20 基準（預設取樣） | 09-29 預設取樣 | 09-29 temp=0/seed=0 | 09-29 +determinism knobs |
-|---|---|---|---|---|
-| 1 | 41.7 | 38.9 (n=8) | 45.4 (n=10) | **44.9** (n=10) |
-| 2 | 55.3 | 67.1 (n=8) | 76.8 (n=10) | **78.7** (n=10) |
-| 3 | 93.7 | 89.1 (n=8) | 101.5 (n=10) | — |
-| 4 | 105.0 | 111.2 (n=3) | 124.7 (n=5) | **124.9** (n=5) |
-| 8 | 161.1 | 162.1 (n=3) | 171.0 (n=5) | — |
+解碼（`bench-c.sh` + `BENCH_IGNORE_EOS=1`，每 stream 恰好 `max_tokens=400`）。2026-09-29 起
+qwen38flash 採 `BENCH_DETERMINISTIC=1`（`temperature=0, seed=0`），每 C 量 **10 次**：
 
-> 同條件（預設取樣）互比 → 無回歸；`temp=0` 那一欄較高是 greedy 讓 MTP 接受率上升
-> （C1 平均 41.2% → 57.7%），**不是**額外調校的功勞。
+| C | 09-29 knobs ON（最終設定） | 09-29 knobs OFF | 09-20 基準※ |
+|---|---|---|---|
+| 1 | 45.5 | 46.9 | 41.7 |
+| 2 | 78.6 | 73.8 | 55.3 |
+| 3 | 102.7 | 101.7 | 93.7 |
+| 4 | 145.9 | 117.9 | 105.0 |
+| 5 | 119.5 | 140.2 | — |
+| 6 | 158.6 | 165.4 | — |
+| 7 | 177.2 | 167.1 | — |
+| 8 | 196.8 | 180.8 | 161.1 |
+
+> ※09-20 那欄同時差在取樣模式與 prefix caching（當時 OFF），僅供趨勢參考。
+> C4/C5 在兩種設定下都呈雙峰分布，中位數代表性有限（raw 值見 handoff）。
 
 ##### 可重現性（2026-09-29）
 
 `temperature=0` + 固定 seed 只移除「取樣」變異；剩餘抖動來自 **target forward 非逐 bit
 可重現** → spec-decode 的 accept/reject near-tie 翻轉（vllm-project/vllm#53436，同為
 DeepSeek-V4-Flash / Blackwell SM120 / spec decode；該報告並指出 3 次重複常會掩蓋抖動，需 ≥10 次）。
-本 repo 的 opt-in determinism knobs 正好對症：
+本 repo 的 determinism knobs 正好對症，**自 2026-09-29 起為 profile 預設**（`Q38_DET_OFF=1` 可單次關閉）：
 
 ```bash
-Q38_DET_TOPK=1 Q38_MOE_DET_FINALIZE=1 gb10 use qwen38flash   # 未設＝boot byte-identical
+Q38_DET_OFF=1 gb10 use qwen38flash   # opt-out；預設即含 VLLM_QSA_DET_TOPK + VLLM_MOE_DET_FINALIZE
 ```
 
-| C | knobs OFF：tok/s CV / acceptance CV | knobs ON：tok/s CV / acceptance CV |
+| C | knobs OFF：tok/s CV / acc CV | knobs ON：tok/s CV / acc CV |
 |---|---|---|
-| 1 | 10.9% / ~21% | **4.5% / 0.0%**（acceptance 每次恆為 46.9%） |
-| 2 | 10.9% / ~20% | **2.8% / 6.4%** |
-| 4 | 9.4% / — | **7.1% / 5.9%** |
+| 1 | 9.2% / 19.4% | 5.2% / **0.0%**（acceptance 十次恆為 46.9%） |
+| 2 | 12.2% / 16.6% | **1.1%** / 4.9% |
+| 3 | 6.6% / 5.4% | 6.4% / 7.1% |
+| 4 | 9.8% / 8.4% | 8.4% / 10.7% |
+| 5 | 9.8% / 14.3% | 10.9% / 11.3% |
+| 6 | 9.4% / 7.5% | 5.4% / 1.7% |
+| 7 | 7.3% / 8.9% | 7.6% / 9.9% |
+| 8 | 8.7% / 11.1% | **2.2%** / 3.3% |
 
-中位數幾乎不變 → **可重現性提升不犧牲吞吐**。官方 `VLLM_BATCH_INVARIANT` 這條路在
+C1 的接受率十次完全相同 → 驗證路徑已逐 bit 可重現；中位數互有高低、**無系統性吞吐代價**，
+C2/C6/C8 明顯收斂而 C3/C5/C7 改善有限。官方 `VLLM_BATCH_INVARIANT` 這條路在
 Blackwell + MXFP4 MoE 會拋 `NotImplementedError`，故這是本地唯一手段。
-預設仍為 OFF（upstream 亦如此）；要穩定 benchmark 時才開。
 
-> 以下兩表為 **2026-09-20 實測**，尚未在 09-29 設定（GMU 0.80 / prefix caching ON）下重測。
+##### prefill（`bench-ctx.sh` + `BENCH_COLD=1`, max_tokens=1；2026-09-29 實測）
 
-| prefill probe (`bench-ctx.sh`, max_tokens=1) | qwen38flash tok/s |
-|---|---|
-| 32K | 2644.2（含暖機） |
-| 131K | 2900.2 |
-| 200K | 2716.9 |
-| 245K | 2630.2 |
+`BENCH_COLD=1` 每次前綴唯一 nonce，避免 prefix caching 直接從快取回答探針（本 lane prefix
+caching 已開，且較長探針天然是較短者的前綴，不除霧會嚴重虛胖）。
+自我檢查：32K 連兩次 **3100.5 / 3099.8 tok/s**（差 0.02%）。
 
-| 圖片輸入 (`bench-mm.sh`, max_tokens=200) | prompt tok | wall (s) | agg tok/s |
+| prompt | prompt_tokens | wall (s) | prefill tok/s |
 |---|---|---|---|
-| 1 img, C=1 | 768 | 3.14 | 40.5 |
-| 4 img, C=1 | 2886 | 3.40 | 32.7 |
-| 1 img, C=4 | 768 × 4 | 7.16 | 86.3 |
-| 1 img, C=8 | 768 × 8 | 7.86 | 135.7 |
+| 32K | 32084 | 11.52 | 2784.6 |
+| 131K | 131084 | 45.94 | 2853.6 |
+| 200K | 200084 | 74.13 | 2698.9 |
+| 245K | 245084 | 94.53 | 2592.5 |
 
-> 每張圖約 597 prompt tokens（1 圖總 prompt 768）。profile 未設 `--limit-mm-per-prompt`，
-> vLLM 預設即允許 ≥8 張（C=8 無錯誤）。
+##### 圖片（`bench-mm.sh` + `BENCH_COLD=1`, max_tokens=200；2026-09-29 實測）
+
+每 stream 一個唯一 nonce，否則 C 個相同請求會被 prefix cache 去重而虛胖。
+
+| 測試 | prompt tok | wall (s) | agg tok/s |
+|---|---|---|---|
+| 1 img, C=1 | 794 | 4.19 | 47.7 |
+| 4 img, C=1 | 2912 | 3.11 | 33.1 |
+| 1 img, C=4 | 794 × 4 | 6.33 | 126.3 |
+| 1 img, C=8 | 794 × 8 | 7.61 | 125.2 |
+
+> 每張圖約 693 prompt tokens。全部 `any_errors=0`。profile 未設 `--limit-mm-per-prompt`，
+> vLLM 預設即允許 ≥8 張。注意 09-20 的圖片表為 597/768 tokens／不同圖檔，**不可與上表直接對比**。
 > 多輪穩定（`scripts/bench-multiturn.sh 6 300`）：**6/6 clean turns**（每輪 `finish=stop`、內容非空）。
 > **`PLE_OFFLOAD=true` 不適用於 TP2**：實測啟動即被 vLLM 拒絕 ——
 > `VLLM_PLE_CPU_OFFLOAD does not support the requested configuration. Unsupported settings: nnodes=2`。

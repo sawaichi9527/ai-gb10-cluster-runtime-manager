@@ -176,7 +176,8 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
 
 ## 現役狀態（session 結束時）
 
-- 現役＝**qwen38flash（READY, :1234, KV 29.88 GiB）** —— 2026-09-29 冷啟驗證後留在場上；
+- 現役＝**qwen38flash（READY, :1234, KV 29.15 GiB）** —— 2026-09-29 冷啟驗證後留在場上，
+  且當日稍晚已把 **deterministic greedy decoding 設為 profile 預設**（`Q38_DET_OFF=1` 可關）；
   `gb10 use deepseek` 可切回 mainline（切換前它是現役；再往前是 deepseek-vision）。
 - 節點：node0＝`spark-25d5`（rank0/API），node1＝`spark-8095`（rank1/headless）。
 
@@ -361,26 +362,40 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
 - `scripts/bench-c.sh` 新增 opt-in 取樣旋鈕（`9e60eff`）：`BENCH_DETERMINISTIC=1` →
   `temperature=0, seed=0`；`BENCH_TEMPERATURE=` / `BENCH_SEED=` 可單獨覆寫。**未設＝payload
   逐 byte 不變**，只在 qwen38flash 採用（其他模型 benchmark 暫不導入）。
-- `cluster-profiles.d/qwen38flash.conf` 新增 opt-in 開關（`f6cefbf`）：`Q38_DET_TOPK=1` /
-  `Q38_MOE_DET_FINALIZE=1` → 注入 `VLLM_QSA_DET_TOPK` / `VLLM_MOE_DET_FINALIZE`，由 CMD_WRAPPER
-  套用 `patch_determinism.py`；未設＝`EXTRA_ENV` byte-identical（boot 不變）。
-  **故意不設** `VLLM_FLASHINFER_AUTOTUNE_CACHE_DIR`（upstream 指向另一個 `_unfused` 目錄），
-  讓 unfused 調校落在 lane 常規的 `flashinfer_autotune_cache`，仍由每 boot 的 rank-keyed
-  reset 覆蓋，避免殘留 leader-authored 快取。
+- `scripts/bench-ctx.sh` / `bench-mm.sh` 新增 opt-in 冷探針（`d8f530e`）：`BENCH_COLD=1` →
+  每次呼叫（ctx）／每個 stream（mm）前綴唯一 nonce。**這是必要的**：prefix caching 現為 ON，
+  兩者 prompt 皆固定（且 ctx 的長探針天然是短探針的前綴），不除霧會直接從快取回答而虛胖。
+  預設關＝其他模型 probe 逐 byte 不變。
+- `cluster-profiles.d/qwen38flash.conf`：determinism knobs 自 `5dcf1c4` 起改為**預設 ON**，
+  `Q38_DET_OFF=1` 可單次關閉（注入 `VLLM_QSA_DET_TOPK=1` / `VLLM_MOE_DET_FINALIZE=1`，由
+  CMD_WRAPPER 套用 `patch_determinism.py`）。**故意不設** `VLLM_FLASHINFER_AUTOTUNE_CACHE_DIR`
+  （upstream 指向另一個 `_unfused` 目錄），讓 unfused 調校落在 lane 常規的
+  `flashinfer_autotune_cache`，仍由每 boot 的 rank-keyed reset 覆蓋。
 - **為什麼**（vllm-project/vllm#53436，DeepSeek-V4-Flash / Blackwell SM120 / spec decode）：
   `temperature=0` + 固定 seed 下**輸出文字一致、但吞吐仍抖**；根因是 target forward 非逐 bit
   可重現 → accept/reject near-tie 翻轉 → acceptance 變化（與吞吐 r=0.98）。官方
   `VLLM_BATCH_INVARIANT` 在 Blackwell + MXFP4 MoE 直接 `NotImplementedError`（無官方路可走）。
   報告亦指出 **3 次重複常掩蓋抖動，需 ≥10 次**。
-- **實測**（`BENCH_IGNORE_EOS=1`, `max_tokens=400`, `temp=0/seed=0`；C1/C2 各 10 次、C4 5 次）：
+- **完整實測**（`BENCH_IGNORE_EOS=1`, `max_tokens=400`, `temp=0/seed=0`，每 C **10 次**）：
 
-  | C | 中位數 tok/s（knobs OFF → ON） | knobs OFF：tok/s CV / acc CV | knobs ON：tok/s CV / acc CV |
+  | C | 中位數 tok/s OFF → ON | tok/s CV OFF → ON | acc CV OFF → ON |
   |---|---|---|---|
-  | 1 | 45.4 → 44.9 | 10.9% / ~21% | **4.5% / 0.0%** |
-  | 2 | 76.8 → 78.7 | 10.9% / ~20% | **2.8% / 6.4%** |
-  | 4 | 124.7 → 124.9 | 9.4% / — | **7.1% / 5.9%** |
+  | 1 | 46.9 → 45.5 | 9.2% → 5.2% | 19.4% → **0.0%** |
+  | 2 | 73.8 → 78.6 | 12.2% → **1.1%** | 16.6% → 4.9% |
+  | 3 | 101.7 → 102.7 | 6.6% → 6.4% | 5.4% → 7.1% |
+  | 4 | 117.9 → 145.9 | 9.8% → 8.4% | 8.4% → 10.7% |
+  | 5 | 140.2 → 119.5 | 9.8% → 10.9% | 14.3% → 11.3% |
+  | 6 | 165.4 → 158.6 | 9.4% → 5.4% | 7.5% → 1.7% |
+  | 7 | 167.1 → 177.2 | 7.3% → 7.6% | 8.9% → 9.9% |
+  | 8 | 180.8 → 196.8 | 8.7% → **2.2%** | 11.1% → 3.3% |
 
-  knobs ON 時 C1 的 acceptance 十次完全相同（46.9%）→ 驗證路徑已逐 bit 可重現；中位數幾乎不變
-  → **可重現性提升不犧牲吞吐**。預設仍 OFF（upstream 亦如此），要跑穩定 benchmark 才開。
-- 完整 C1/2/3/4/8 數字見 `README.md` 的 qwen38flash benchmark 段（**比較須同取樣模式**）。
-- 實驗後已把 boot 還原為一般設定（未帶 knobs），現役仍為 qwen38flash。
+  C1 acceptance 十次恆為 46.9%；C2/C6/C8 明顯收斂、C3/C5/C7 改善有限，中位數互有高低
+  → **無系統性吞吐代價**。C4/C5 在兩種設定下皆呈雙峰，中位數代表性有限。
+- **prefill 重測**（`bench-ctx.sh` + `BENCH_COLD=1`, max_tokens=1）：32K **2784.6**、131K
+  **2853.6**、200K **2698.9**、245K **2592.5** tok/s（prompt_tokens 32084 / 131084 / 200084 /
+  245084）。冷探針自我檢查：32K 連兩次 **3100.5 / 3099.8** tok/s（差 0.02%）。
+- **圖片重測**（`bench-mm.sh` + `BENCH_COLD=1`, max_tokens=200）：1img C=1 **47.7**、4img C=1
+  **33.1**、1img C=4 **126.3**、1img C=8 **125.2** tok/s，`any_errors=0`；每張圖約 693 prompt
+  tokens（09-20 為 597，圖檔／解析度已變，**不可直接對比**）。
+- 完整表格見 `README.md` 的 qwen38flash benchmark 段（**比較須同取樣模式**）。
+- 現役仍為 qwen38flash（**新預設**：determinism ON；KV 29.15 GiB）。
