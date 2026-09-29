@@ -9,9 +9,30 @@ source "${SCRIPT_DIR}/cluster-common.sh"
 # Mixed code+JSON short prompt (≈40 tok ctx), C concurrent streams.
 # Outputs per-stream lines, aggregate C_total, acceptance %, per-position.
 # Env: BENCH_IGNORE_EOS=1 -> request exactly MAX_TOKENS (fixed-length runs).
+#
+# Sampling knobs — OFF by default so every other model's runs are unchanged
+# (the request payload is byte-identical when these are unset). Adopted for
+# qwen38flash first, per vllm-project/vllm#53436: spec-decode throughput jitters
+# run-to-run because the target forward is not bit-reproducible, so acceptance
+# (and thus tok/s) moves even at a fixed seed. temperature=0 removes the
+# *sampling* part of that variance; it does not remove the forward-pass part
+# (that needs the profile's opt-in determinism knobs, VLLM_QSA_DET_TOPK /
+# VLLM_MOE_DET_FINALIZE). Conclusion from #53436: use >=10 repeats before
+# calling a number stable.
+#   BENCH_DETERMINISTIC=1     -> temperature=0, seed=0 (greedy, fixed seed)
+#   BENCH_TEMPERATURE=<float> -> explicit temperature (overrides the above)
+#   BENCH_SEED=<int>          -> explicit seed        (overrides the above)
 
 C="${1:?usage: bench-c.sh <C> [MAX_TOKENS]}"
 MAX_TOKENS="${2:-400}"
+if [[ "${BENCH_DETERMINISTIC:-0}" == "1" ]]; then
+  : "${BENCH_TEMPERATURE:=0}"
+  : "${BENCH_SEED:=0}"
+fi
+SAMPLE_DESC="default"
+if [[ -n "${BENCH_TEMPERATURE:-}" || -n "${BENCH_SEED:-}" ]]; then
+  SAMPLE_DESC="temperature=${BENCH_TEMPERATURE:-<model default>} seed=${BENCH_SEED:-<model default>}"
+fi
 AUTH_ARGS=()
 if [[ -n "${VLLM_API_KEY:-}" && "${VLLM_API_KEY}" != "EMPTY" ]]; then
   AUTH_ARGS=(-H "Authorization: Bearer ${VLLM_API_KEY}")
@@ -35,9 +56,14 @@ trap 'rm -rf "$OUTDIR"' EXIT
 # Build payload safely with jq (no shell-escape fragility).
 # BENCH_IGNORE_EOS=1 forces exactly MAX_TOKENS tokens per stream, so runs are
 # fixed-length and directly comparable (the model otherwise stops early).
+# temperature/seed are appended ONLY when set, so the default payload is
+# unchanged for every model that does not opt in.
 IGNORE_EOS="${BENCH_IGNORE_EOS:-0}"
 jq -n --arg content "$CONTENT" --argjson mt "$MAX_TOKENS" --argjson ie "$IGNORE_EOS" \
-  '{model:"aeon",messages:[{role:"user",content:$content}],max_tokens:$mt,ignore_eos:($ie==1)}' > "$OUTDIR/payload.json"
+  --arg t "${BENCH_TEMPERATURE:-}" --arg s "${BENCH_SEED:-}" \
+  '{model:"aeon",messages:[{role:"user",content:$content}],max_tokens:$mt,ignore_eos:($ie==1)}
+   + (if $t == "" then {} else {temperature:($t|tonumber)} end)
+   + (if $s == "" then {} else {seed:($s|tonumber)} end)' > "$OUTDIR/payload.json"
 
 METRICS_BEFORE=$(curl -s http://127.0.0.1:${API_PORT}/metrics | grep -E '^vllm:spec_decode_(num_draft_tokens_total|num_accepted_tokens_total|num_drafts_total|num_accepted_tokens_per_pos_total)' | grep -v '_created' | sed 's/.*position="\([0-9]*\)"} \([0-9.]*\)/POS\1 \2/')
 
@@ -53,7 +79,7 @@ METRICS_AFTER=$(curl -s http://127.0.0.1:${API_PORT}/metrics | grep -E '^vllm:sp
 
 WALL=$(echo "$T1 - $T0" | bc -l)
 echo "================================================================"
-echo "  bench-c  C=$C  wall=$(printf '%.3f' "$WALL")s  max_tokens=$MAX_TOKENS"
+echo "  bench-c  C=$C  wall=$(printf '%.3f' "$WALL")s  max_tokens=$MAX_TOKENS  sampling=${SAMPLE_DESC}"
 echo "================================================================"
 
 TOTAL_COMP=0
