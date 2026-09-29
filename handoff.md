@@ -1,7 +1,7 @@
 # handoff.md — ai-gb10-cluster-runtime-manager（本機 checkout）
 
 > 本檔是本機中繼 checkout 的交接摘要。主要開發在 **node0**（`~/workspace/ai-gb10-cluster-runtime-manager`，branch `keystone`）＋ Forgejo `829522`；本機僅作中繼存取，修改前先確認是否應改在 node0。
-> 建立：2026-09-18；更新：**2026-09-20**（DeepSeek V4 Flash **Vision-Exp** lane 上線：同一顆 Anemll image + 啟動 wrapper；bench-c / bench-ctx / bench-mm 實測；`cluster-up` 新增 `SYNC_DIRS` 自動同步 patch 目錄；**vision 開 prefix caching + `dspark-swa-prefix` hotfix**、長上下文邊界 261K/262144、圖片高併發 C=8/16；本檔納入版控並同步三方）
+> 建立：2026-09-18；更新：**2026-09-20**（DeepSeek V4 Flash **Vision-Exp** lane 上線：同一顆 Anemll image + 啟動 wrapper；bench-c / bench-ctx / bench-mm 實測；`cluster-up` 新增 `SYNC_DIRS` 自動同步 patch 目錄；**vision 開 prefix caching + `dspark-swa-prefix` hotfix**、長上下文邊界 261K/262144、圖片高併發 C=8/16；本檔納入版控並同步三方）；**2026-09-29** 上游查核（Anemll 無新 image/tag、MiaAI-Lab main 未動且 23 檔 byte 全同）→ 見「定期檢討追蹤」
 > **2026-09-20（後續）**：**Qwen3.8 Flash-Next 125B NVFP4（TP2+EP、MTP3）上線**；同日起 **compose 為唯一啟動 lane**（移除 docker-run 分支）；**27b/35b 改走 compose**；node0 `~/docker-stacks/aeon-vllm-omni/` 清理。詳見下方「已完成（2026-09-20 後續）」。
 > **2026-09-20（後續之二）**：**node-local 佈局歸位**——每個 lane 一個以 image 命名的 `~/docker-stacks/<stack>/`（`STACK_DIR`+`COMPOSE_FILE` materialize）、**cache 每 lane 獨立**（`~/.cache/vllm-<lane>[-cluster|-single]`，移除共用的 `~/.cache/huggingface` 容器掛載）、**log 統一** `~/docker-stacks/logs/<profile>/`；刪除單機 `runtimes.d/{qwen38flash,glm53flash}.conf`。詳見「已完成（2026-09-20 後續之二）」。
 
@@ -256,3 +256,31 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
 1. **Patches 上游追蹤**：`patches/dspark-vision/` pin 在 MiaAI commit `97e8733…`；`patches/qwen38flash/` pin 在 `d2f54b7…`（皆見各自 `NOTICE.md`）。上游更新時需 **re-vendor** 並重新比對 byte。
 2. **Vision 進一步驗證（可選）**：長圖文混搭 prompt、多輪 agent chain 長時間穩定性。
 3. **已收斂（2026-09-20，原 3/4/5 項）**：27b/35b/deepseek/deepseek-vision/qwen38flash 全部在新 node-local 佈局下 boot 驗證（`health` 200 + `cluster-compose-verify` 兩 rank PASS + `gb10 smoke` OK），`$$` 逃逸、per-lane cache、STACK_DIR materialize、統一 log 皆實證；單機 27b(node0) 與 **35b(node1)** 亦 READY。`bench-c.sh` 已加 `BENCH_IGNORE_EOS`（固定長度）；qwen38flash 的 prefill 曲線／圖片輸入／多輪穩定已測；**`PLE_OFFLOAD=true` 確認對 TP2（nnodes=2）不可行**，維持 false。
+
+### 上游查核紀錄（2026-09-29，本機）
+
+> 觸發於 `patches/` 上游追蹤（上列 #1）。**未變更任何 runtime 檔**，僅記錄查核結果。
+
+- **Anemll（`Anemll/dspark-vllm-gx10`，image 來源）— 無更新：**
+  - GHCR `tags/list` 僅 `0.1.0`、`0.1.1`；tag **`0.1.1` digest 仍為 `sha256:a83948492cf13df455170fb42885f5ef4db54fefe0feff0f841ecbff464ac9d8`**
+    ＝本 repo `IMG_SHA256` → **未重新推送、無新 image**。
+  - GitHub Releases 最新仍 **`v0.1.1`**（2026-07-15，tag commit `47503f8e`，"Fix long-prefill crash caused by B12X route-pack JIT"）。
+  - `main` HEAD＝**`081fda97`**（2026-09-03），比 tag 多 3 個 commit，唯一實質變更為
+    **PR #2 `4afc5e7e`＝DSpark draft SWA prefix-cache 修正**（作者 Simon Blom，merge `f2ea1f37`）。
+    該修正**不在 image 內**（image 建於 `47503f8e`）；本 repo 已以
+    `patches/dspark-vision/hotfix-vllm-dspark-swa-prefix.py`（*opt-in port of Anemll#2*）承載 → **無缺口**。
+  - 未併入 image 的 open PR：#6（kv_offload `/dev/shm` leak）、#7（packed block stride）、#12（DSpark graph
+    replay safety）、#13（torch profiler）；open issues 待觀察：#3（MTP=5 repeats reasoning）、#8（TileLang
+    重編譯後 freeze）、#9/#10（tool-call path）、#11（TP=2 rank divergence wedges GPU）。
+- **MiaAI-Lab（`MiaAI-Lab/DeepSeek-v4-Flash-DSpark-2x-DGX-Spark`，patches vendor 來源）— 無更新、無漂移：**
+  - `main` HEAD＝**`97e8733238f81f5fdc44b241f8996a7858825744`**（2026-09-16），**與本 repo pin 相同**；
+    `compare(97e8733…HEAD)` = **`identical`（ahead 0 / behind 0）**，自 pin 後 `main` 無新 commit。
+  - **Byte 比對**（`git hash-object`，走 git filter 以免 Windows CRLF 假陽性）：`patches/dspark-vision/` 全部
+    **23 個 payload 檔 = 8 個 `hotfix-*.sh` + 10 個 `hotfix-*.py` + 5 個 `vision_exp/*.py`，23/23 blob SHA 相同**
+    → **無需 re-vendor**。（`patches/dspark-vision/NOTICE.md` 為本地自撰，不列入比對。）
+  - 上游 `patches/` 另有本 repo **刻意未納入**的 hotfix（`hotfix-vllm-dspark-block-k.py`、
+    `hotfix-vllm-c128a-prefill-cache.py`、`hotfix-vllm-issue117-shm-ring-buffer.py`、
+    `hotfix-vllm-issue191-toolcall-failclosed.py`、`hotfix-dsv4-issue141/144/31-v2` 等）— 非更新，屬既有路線差異。
+  - 追蹤待辦（僅記錄，未動作）：open PR #267（agent clients + prefix cache）、#256（NFS root_squash）、
+    #220（disk-backed KV cache）、#253（ci gate compose/hotfix）、#152（#82 loop-breaker）、#126（crash precursor observer）。
+- **註**：本次僅本紀錄 commit；push 前本機 HEAD 領先 origin，push 後才回到與 origin 同步。
