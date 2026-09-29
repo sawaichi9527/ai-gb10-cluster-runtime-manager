@@ -179,9 +179,11 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
 - 現役＝**deepseek（DeepSeek V4 Flash 0731 fp8 DSpark mainline）** —— 2026-09-29 以
   `gb10 use deepseek` 由 qwen38flash 切換（`cluster-down` 拆掉舊 TP2 → free node1 singles →
   cold start）。當日共 boot 兩次，皆在一次到位後量測：
-  - ①切換：`22:30:59` → READY `22:38:43`（約 **7 分 44 秒**），KV **12.02 GiB**。
-  - ②`state/last-cluster-profile` 修正後的端到端驗證：`22:47:33` → READY `22:55:07`
-    （約 **7 分 34 秒**），KV **12.15 GiB**（現役即此 boot）。
+  - ①切換：`22:30:59` 啟動 → `gb10 wait` 回報 READY `22:38:43`（約 **7 分 44 秒**），KV **12.02 GiB**。
+  - ②`state/last-cluster-profile` 修正後的端到端驗證：`22:47:33` 啟動 →
+    **`state/boot-ready.deepseek` = `22:55:02`**（`gb10 wait` 於下一次 5 秒輪詢回報 `22:55:07`；
+    約 **7 分 34 秒**），KV **12.15 GiB**（現役即此 boot；`gb10 wait` 的時間戳是輪詢時刻，
+    `boot-ready.*` 才是啟動端的權威時間）。
   - `gb10 status` = ready／node0+node1 up／image `ghcr.io/anemll/dspark-vllm-gx10:0.1.1`／
     model `deepseek-v4-flash-0731-official`／TP2；`/v1/models` id `aeon`、max_model_len 262144；
     `gb10 smoke` = HTTP 200 `HELLO-TP2-OK`（prompt 16 / completion 9 tokens）。
