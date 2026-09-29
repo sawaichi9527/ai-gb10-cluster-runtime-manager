@@ -19,6 +19,21 @@
 | `gb10` | 叢集（TP2），thick layer over `scripts/cluster-*`；Node0 控制面，Node1 headless |
 | `gb10-single` | 單節點 runtime manager；`node0` local compose，`node1` 經 `ssh -i ~/.ssh/id_gb10_cluster eye@10.0.101.102` |
 
+## 存取方式（開發機 → node0）
+
+> 供 agent／維護者在 Windows 開發機上操作 node0。**本節不含任何密碼**（密碼向維護者索取，勿寫入 repo）。
+
+| 項目 | 值 |
+|---|---|
+| 主機 | node0＝`spark-25d5`＝**`192.168.23.215`**（Node1＝`spark-8095`＝`192.168.23.216`） |
+| 使用者 | `eye` |
+| Repo 路徑 | `~/workspace/ai-gb10-cluster-runtime-manager`（branch `main`，upstream `origin/main`） |
+| 認證 | **登入密碼**。sshd 同時開放 `publickey,password`；但本機 `~/.ssh/id_gb10_maint`（`opencode-gb10-maint`）與 `~/.ssh/id_rsa` **皆受 passphrase 保護**，且 Windows `ssh-agent` 服務為 `Disabled`，非互動 ssh 無法解鎖私鑰 → 實務上走 password。 |
+| 工具 | `Posh-SSH`：`New-SSHSession -ComputerName '192.168.23.215' -Credential (New-Object System.Management.Automation.PSCredential('eye', (ConvertTo-SecureString '<pw>' -AsPlainText -Force))) -AcceptKey`，執行完 `Remove-SSHSession`（2026-09-29 實測可用） |
+| 常見誤判 | 公鑰**已在** node0 `~/.ssh/authorized_keys`（第 3 行，fingerprint `SHA256:jcGtEB2cn4hLffmTiWCtPxZksYqBNMh8q6zGwYLD77I`）；金鑰登入失敗**不是**授權問題，而是私鑰 passphrase／agent 未啟動。以 admin 啟用 `ssh-agent` 並 `ssh-add` 後即可免密碼。 |
+
+node0 對 node1 的連線（由 node0 發起）走 CX7 區網：`ssh -i ~/.ssh/id_gb10_cluster eye@10.0.101.102`（見上表 `gb10-single`）。
+
 ## 關鍵事實（勿當 bug「修」）
 
 - **`cluster-common.sh` 自動解析 `REPO_DIR`**，腳本可攜；保持此方式。
