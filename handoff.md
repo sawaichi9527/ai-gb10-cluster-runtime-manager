@@ -352,6 +352,35 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
   - **`bench-c`（`BENCH_IGNORE_EOS=1`, max_tokens=400）vs 2026-09-20 基準**：C1 連測
     35.6/40.2/45.4/40.1（中位 ≈40.1 vs 41.7 → 變異範圍內；acceptance 在 32.8–50.5% 間擺動）、
     C4 107.2（vs 105.0）、C8 連測 169.0/165.0/162.6（中位 ≈165 vs 161.1）→ **無回歸**
-- **未啟用（能力已備、預設關）**：determinism knobs —— 需在 profile `EXTRA_ENV` 帶入
-  `VLLM_QSA_DET_TOPK=1` 或 `VLLM_MOE_DET_FINALIZE=1` 才會套用（容器內已驗證 `_SORTED_TOPK`=0）。
+- **determinism knobs（能力已備、預設關）**：2026-09-29 起改由 profile 的 opt-in 開關控制
+  （`Q38_DET_TOPK=1` / `Q38_MOE_DET_FINALIZE=1`，見下節）；本次一般 boot 容器內已驗證 `_SORTED_TOPK`=0。
 - 驗證後 live lane 留在 qwen38flash；切回 mainline 用 `gb10 use deepseek`。
+
+### benchmark 協定 + 可重現性（2026-09-29）
+
+- `scripts/bench-c.sh` 新增 opt-in 取樣旋鈕（`9e60eff`）：`BENCH_DETERMINISTIC=1` →
+  `temperature=0, seed=0`；`BENCH_TEMPERATURE=` / `BENCH_SEED=` 可單獨覆寫。**未設＝payload
+  逐 byte 不變**，只在 qwen38flash 採用（其他模型 benchmark 暫不導入）。
+- `cluster-profiles.d/qwen38flash.conf` 新增 opt-in 開關（`f6cefbf`）：`Q38_DET_TOPK=1` /
+  `Q38_MOE_DET_FINALIZE=1` → 注入 `VLLM_QSA_DET_TOPK` / `VLLM_MOE_DET_FINALIZE`，由 CMD_WRAPPER
+  套用 `patch_determinism.py`；未設＝`EXTRA_ENV` byte-identical（boot 不變）。
+  **故意不設** `VLLM_FLASHINFER_AUTOTUNE_CACHE_DIR`（upstream 指向另一個 `_unfused` 目錄），
+  讓 unfused 調校落在 lane 常規的 `flashinfer_autotune_cache`，仍由每 boot 的 rank-keyed
+  reset 覆蓋，避免殘留 leader-authored 快取。
+- **為什麼**（vllm-project/vllm#53436，DeepSeek-V4-Flash / Blackwell SM120 / spec decode）：
+  `temperature=0` + 固定 seed 下**輸出文字一致、但吞吐仍抖**；根因是 target forward 非逐 bit
+  可重現 → accept/reject near-tie 翻轉 → acceptance 變化（與吞吐 r=0.98）。官方
+  `VLLM_BATCH_INVARIANT` 在 Blackwell + MXFP4 MoE 直接 `NotImplementedError`（無官方路可走）。
+  報告亦指出 **3 次重複常掩蓋抖動，需 ≥10 次**。
+- **實測**（`BENCH_IGNORE_EOS=1`, `max_tokens=400`, `temp=0/seed=0`；C1/C2 各 10 次、C4 5 次）：
+
+  | C | 中位數 tok/s（knobs OFF → ON） | knobs OFF：tok/s CV / acc CV | knobs ON：tok/s CV / acc CV |
+  |---|---|---|---|
+  | 1 | 45.4 → 44.9 | 10.9% / ~21% | **4.5% / 0.0%** |
+  | 2 | 76.8 → 78.7 | 10.9% / ~20% | **2.8% / 6.4%** |
+  | 4 | 124.7 → 124.9 | 9.4% / — | **7.1% / 5.9%** |
+
+  knobs ON 時 C1 的 acceptance 十次完全相同（46.9%）→ 驗證路徑已逐 bit 可重現；中位數幾乎不變
+  → **可重現性提升不犧牲吞吐**。預設仍 OFF（upstream 亦如此），要跑穩定 benchmark 才開。
+- 完整 C1/2/3/4/8 數字見 `README.md` 的 qwen38flash benchmark 段（**比較須同取樣模式**）。
+- 實驗後已把 boot 還原為一般設定（未帶 knobs），現役仍為 qwen38flash。

@@ -184,18 +184,45 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 > `AUTOTUNE_CACHE_REL`）；⑤ 該 cache 目錄由 docker 以 root 建立，`eye` 無法搬移 → reset 先
 > `mkdir -p` parent 並於兩節點一次性 chown。
 
-#### qwen38flash 進一步實測（2026-09-20）
+#### qwen38flash benchmark（解碼最新：2026-09-29；prefill／圖片仍為 2026-09-20 實測）
 
-固定長度版（`bench-c.sh` 新增 `BENCH_IGNORE_EOS=1`，強制每 stream 恰好 `MAX_TOKENS=400`，
-變異遠小於會提前停止的預設模式）：
+解碼（`bench-c.sh` + `BENCH_IGNORE_EOS=1`，每 stream 恰好 `max_tokens=400`）。**協定自
+2026-09-29 起對 qwen38flash 加上 `BENCH_DETERMINISTIC=1`（`temperature=0, seed=0`）**；
+不同取樣模式之間**不可直接互比**，故並列：
 
-| C | 固定長度 tok/s | （對照）變動長度中位數 |
+| C | 09-20 基準（預設取樣） | 09-29 預設取樣 | 09-29 temp=0/seed=0 | 09-29 +determinism knobs |
+|---|---|---|---|---|
+| 1 | 41.7 | 38.9 (n=8) | 45.4 (n=10) | **44.9** (n=10) |
+| 2 | 55.3 | 67.1 (n=8) | 76.8 (n=10) | **78.7** (n=10) |
+| 3 | 93.7 | 89.1 (n=8) | 101.5 (n=10) | — |
+| 4 | 105.0 | 111.2 (n=3) | 124.7 (n=5) | **124.9** (n=5) |
+| 8 | 161.1 | 162.1 (n=3) | 171.0 (n=5) | — |
+
+> 同條件（預設取樣）互比 → 無回歸；`temp=0` 那一欄較高是 greedy 讓 MTP 接受率上升
+> （C1 平均 41.2% → 57.7%），**不是**額外調校的功勞。
+
+##### 可重現性（2026-09-29）
+
+`temperature=0` + 固定 seed 只移除「取樣」變異；剩餘抖動來自 **target forward 非逐 bit
+可重現** → spec-decode 的 accept/reject near-tie 翻轉（vllm-project/vllm#53436，同為
+DeepSeek-V4-Flash / Blackwell SM120 / spec decode；該報告並指出 3 次重複常會掩蓋抖動，需 ≥10 次）。
+本 repo 的 opt-in determinism knobs 正好對症：
+
+```bash
+Q38_DET_TOPK=1 Q38_MOE_DET_FINALIZE=1 gb10 use qwen38flash   # 未設＝boot byte-identical
+```
+
+| C | knobs OFF：tok/s CV / acceptance CV | knobs ON：tok/s CV / acceptance CV |
 |---|---|---|
-| 1 | 41.7 | 40.4 |
-| 2 | 55.3 | 58.9 |
-| 3 | 93.7 | 88.2 |
-| 4 | 105.0 | 101.0 |
-| 8 | 161.1 | 156.2 |
+| 1 | 10.9% / ~21% | **4.5% / 0.0%**（acceptance 每次恆為 46.9%） |
+| 2 | 10.9% / ~20% | **2.8% / 6.4%** |
+| 4 | 9.4% / — | **7.1% / 5.9%** |
+
+中位數幾乎不變 → **可重現性提升不犧牲吞吐**。官方 `VLLM_BATCH_INVARIANT` 這條路在
+Blackwell + MXFP4 MoE 會拋 `NotImplementedError`，故這是本地唯一手段。
+預設仍為 OFF（upstream 亦如此）；要穩定 benchmark 時才開。
+
+> 以下兩表為 **2026-09-20 實測**，尚未在 09-29 設定（GMU 0.80 / prefix caching ON）下重測。
 
 | prefill probe (`bench-ctx.sh`, max_tokens=1) | qwen38flash tok/s |
 |---|---|
