@@ -157,6 +157,11 @@ case "${1:-help}" in
         else
           echo "$(date '+%F %T') $P: boot launched (check log: ${LOG})"
         fi
+        # Remember the selection: `gb10 restart` with no argument falls back to
+        # this file (read at the top of the restart branch below). Written only
+        # on a real launch — placeholder profiles never reach this line.
+        # Gitignored runtime product, so it cannot dirty the tracked tree.
+        printf '%s\n' "$P" > "${STATE}/last-cluster-profile"
         ;;
       *)
         # Placeholder / not-yet-bootable profile: never start a background
@@ -229,6 +234,8 @@ case "${1:-help}" in
         else
           echo "$(date '+%F %T') $P: restart launched (check log: ${LOG})"
         fi
+        # Keep the no-argument fallback in sync with the profile just restarted.
+        printf '%s\n' "$P" > "${STATE}/last-cluster-profile"
         ;;
       *)
         # Placeholder profile: no teardown, informational exit 0.

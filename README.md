@@ -457,9 +457,14 @@ cluster.env.example cluster/site config template (NEVER commit real values)
   - 注意：TP2 主動使用時，單機端**不該**有 `last-runtime`（單機與 TP2 互斥，見上方
     Unified LLM endpoint 說明）。
 
-- **`state/last-cluster-profile`** — 由 `bin/gb10` 讀取
-  （`P="${2:-$(cat "${REPO_DIR}/state/last-cluster-profile" ... || echo 27b)}"`），
-  在未指定 TP2 profile 時，回退到「上次選用的 cluster profile」，否則預設 `27b`。
+- **`state/last-cluster-profile`** — 由 `bin/gb10` 寫入／讀取。
+  - **寫入**：`use`／`start`／`restart` 啟動一個 cluster profile 的背景 boot 後，寫入該
+    profile ID（僅限 27b/35b/deepseek/deepseek-vision/qwen38flash；placeholder profile
+    不會寫入，因為它不會啟動任何 container）。檔案在 `.gitignore` 內，屬執行期產物，
+    不會讓 `check-git-sync.sh` 的乾淨樹判定失敗。
+  - **讀取**：`restart` 未指定 profile 時回退到此值
+    （`P="${2:-$(cat "${REPO_DIR}/state/last-cluster-profile" ... || echo 27b)}"`），
+    否則預設 `27b`。
 
 **所以如果你檢查時發現 `state/` 是空目錄：那不是沒用的架構，而是正常的初始／乾淨
 狀態**，只是還沒觸發過任何寫入動作（或某台 node 從未成功 `use`／`start` 過）。只要
