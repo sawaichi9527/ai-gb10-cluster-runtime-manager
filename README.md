@@ -11,7 +11,9 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 
 ## Deployed services & benchmark results (latest image)
 
-> **2026-09-20 現況。** 27B/35B 走 `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-09-18-v0.29.0-omni`
+> **2026-09-29 現況。** qwen38flash 於當日對齊上游並重新驗證（GMU 0.835→0.80、prefix caching
+> ON + vllm#53388 block-drop、deterministic greedy 預設 ON；見其章節）；其餘 lane 仍為
+> 09-19／09-20 實測。27B/35B 走 `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-09-18-v0.29.0-omni`
 > （單節點啟用 `VLLM_USE_V2_MODEL_RUNNER=1`）；DeepSeek 0731 與 Vision-Exp 共用
 > `ghcr.io/anemll/dspark-vllm-gx10:0.1.1`；qwen38flash 用 `vllm/vllm-openai:qwen38-flash-next`。
 > **每個模型只保留最新一次實測**；舊結果不累計（歷史完整報告見 maintenance repo 的
@@ -27,7 +29,10 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 | 35B cluster (TP2) | 同上 | `2026-09-18-v0.29.0-omni` | `http://192.168.23.215:1234/v1` | deployed（09-19 實測） |
 | DeepSeek V4 Flash cluster (TP2) | `deepseek-v4-flash-0731-official` + DSpark n=7 | `anemll/dspark-vllm-gx10:0.1.1` | `http://192.168.23.215:1234/v1` | deployed (mainline) |
 | DeepSeek V4 Flash **Vision-Exp** cluster (TP2) | `deepseek-v4-flash-vision-exp` + DSpark n=6 (multimodal) | `anemll/dspark-vllm-gx10:0.1.1`（**與 deepseek 同 image / 同 digest**） | `http://192.168.23.215:1234/v1` | deployed（09-20 實測，文字＋圖片） |
-| Qwen3.8 Flash-Next **125B** cluster (TP2+EP) | `qwen3.8-flash-next-nvfp4`（ModelOpt NVFP4）+ 內建 MTP n=3 | `vllm/vllm-openai:qwen38-flash-next` | `http://192.168.23.215:1234/v1` | deployed（09-20 上線實測） |
+| Qwen3.8 Flash-Next **125B** cluster (TP2+EP) | `qwen3.8-flash-next-nvfp4`（ModelOpt NVFP4）+ 內建 MTP n=3 | `vllm/vllm-openai:qwen38-flash-next` | `http://192.168.23.215:1234/v1` | **deployed（09-29 重新驗證）← 現役**：GMU 0.80／prefix caching ON／determinism 預設 ON |
+
+> **現役（2026-09-29）＝ qwen38flash**（`:1234` READY、KV 29.15 GiB）。TP2 各 lane **互斥**，
+> 同一時間只有一條在線；其他列的 `deployed` 表示**已部署並實測過**，非同時運行。
 
 ### 27B v0.29.0-omni (bench-c C1-C8, MAX_TOKENS=2048; 245k cold prefill) — 2026-09-19
 
@@ -125,28 +130,32 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 
 > 觀察：C≥4 兩者吞吐相近；C=8 0731 較高（93.1 vs 73.4）；短/中長 prefill Vision-Exp 略快、200K 同級。
 
-### Qwen3.8 Flash-Next 125B NVFP4 (TP2+EP, MTP3) — 2026-09-20 上線實測
+### Qwen3.8 Flash-Next 125B NVFP4 (TP2+EP, MTP3) — 2026-09-29（上游對齊＋重新驗證）
 
-> **新 lane（09-20 上線）。** `cluster-profiles.d/qwen38flash.conf`：官方
-> `vllm/vllm-openai:qwen38-flash-next` image（vLLM ≥0.28、Qwen4Exp 支援）、NVIDIA ModelOpt
-> **NVFP4 125B** checkpoint（本機為 10-shard repack，另有 `model-fp8-mtp-ple.safetensors`）、
+> **2026-09-29：對齊上游 MiaAI 配方 `2c86a1d0`。** `cluster-profiles.d/qwen38flash.conf`：官方
+> `vllm/vllm-openai:qwen38-flash-next` image（vLLM ≥0.28、Qwen4Exp 支援；digest 未變）、NVIDIA
+> ModelOpt **NVFP4 125B** checkpoint（本機為 10-shard repack，另有 `model-fp8-mtp-ple.safetensors`）、
 > **TP2 + EP**（`--enable-expert-parallel --all2all-backend allgather_reducescatter`）、內建
-> **MTP n=3**（`--speculative-config {"method":"mtp","num_speculative_tokens":3,"use_local_argmax_reduction":true}`）
-> 在**精簡 47,149-id 詞表**上起草（A/B 見下）、`fp8_e4m3` KV、`bfloat16` SSM state、
-> `--compilation-config {"mode":0,...}`（eager：不做 torch.compile，避免 Inductor 在 GB10 上複製 PLE
-> 表）、GMU 0.835、`--max-num-batched-tokens 8192`、`--mm-encoder-tp-mode data`。
+> **MTP n=3**（`--speculative-config {"method":"mtp","num_speculative_tokens":3,
+> "use_local_argmax_reduction":true,"disable_eagle_block_drop":true,
+> "index_share_for_mtp_iteration":true}`）在**精簡 47,149-id 詞表**上起草（A/B 見下）、
+> `fp8_e4m3` KV、`bfloat16` SSM state、`--compilation-config {"mode":0,...}`（eager：不做
+> torch.compile，避免 Inductor 在 GB10 上複製 PLE 表）、**GMU 0.80**（09-26 上游：0.835 會讓
+> 節點只剩 0.3–0.9 GiB MemAvailable，GB10 會硬重置）、`--max-num-batched-tokens 8192`、
+> `--mm-encoder-tp-mode data`、`--enable-prompt-tokens-details`、**prefix caching ON**。
 >
-> MiaAI-Lab 配方的 5 個 runtime patcher vendored 於 `patches/qwen38flash/`（AGPL-3.0，見 NOTICE），
-> 由 `CMD_WRAPPER` 在容器內**就地**套用於 image 自身的 vLLM 原始碼（PLE / ModelOpt MXFP8 +
-> FP8_BLOCK_SCALES / QSA FP8-KV / 精簡詞表 MTP drafter），不重建 image；47k 詞表唯讀掛載於
+> MiaAI-Lab 配方 vendored 於 `patches/qwen38flash/`（AGPL-3.0，見 NOTICE；**10 個檔案 pin 在
+> `2c86a1d0`**），由 `CMD_WRAPPER` 在容器內**就地**套用於 image 自身的 vLLM 原始碼（PLE /
+> ModelOpt MXFP8 + FP8_BLOCK_SCALES / QSA FP8-KV / 精簡詞表 MTP drafter / **vllm#53388
+> block-drop backport** / opt-in determinism），不重建 image；47k 詞表唯讀掛載於
 > `/etc/vllm-draft-vocab.txt`。checkpoint 的 MTP 層索引別名由
 > `patches/qwen38flash/prepare.sh` 預先產生後唯讀掛載。
 >
-> 服務：`:1234`、model id `aeon`、262144 ctx。**KV pool 34.01 GiB / 4,245,234 tokens**
-> （262144 請求下 16.19x）。`bench-c.sh`：prompt = 171 tok、`MAX_TOKENS=400`、`any_errors=0`；
-> 下表為多次重複之**中位數**（每 C 3 次）。
+> 服務：`:1234`、model id `aeon`、262144 ctx。**KV pool 29.15 GiB**（GMU 0.80；09-20 的 0.835
+> 為 34.01 GiB / 4,245,234 tokens）。**deterministic greedy decoding 為預設**（`Q38_DET_OFF=1` 可關）。
+> `bench-c.sh`：prompt = 171 tok、`MAX_TOKENS=400`、`any_errors=0`。
 
-#### MTP draft 詞表 A/B（同機同 session，僅換 drafter 詞表）
+#### MTP draft 詞表 A/B（**2026-09-20 實測**；同機同 session，僅換 drafter 詞表）
 
 | C | 完整 248,320 vocab | 精簡 47k | Δ |
 |---|---|---|---|
@@ -168,13 +177,14 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 > `use_local_argmax_reduction` 把 draft all-gather 由 O(vocab_size) 降為 O(2*tp_size)；五個 C 全部較快
 > （**平均 +9.1%**，與 MiaAI 量測的 +9.6% 相符），**接受率與 mean accept length 幾乎不變**
 > （輸出安全：落在子集外的 draft 在驗證階段被丟棄，不會被輸出）。精簡版另使 KV pool 由
-> 33.64 → **34.01 GiB**（drafter 權重省下的記憶體）。`bench-c` 的 `max_tokens=400` 會提前停止、
-> 各 stream 長度不同，故單次數字變異較大（C=1 尤甚），上表取中位數。
+> 33.64 → **34.01 GiB**（drafter 權重省下的記憶體；此為 09-20 GMU 0.835 下的數字）。
+> `bench-c` 的 `max_tokens=400` 會提前停止、各 stream 長度不同，故單次數字變異較大（C=1 尤甚），
+> 上表取中位數。**以上 A/B 於 2026-09-20 量測**（GMU 0.835、prefix caching OFF）；
+> 現行 09-29 設定的數字見下方 benchmark 段。
 
 > 對照同機 TP2：**27B**（v0.29.0-omni, DFlash2 n=7）46.1 / 76.8 / 87.9 / 105.3 / 172.7；
 > **35B**（DFlash n=6）120.6 / 177.4 / 218.5 / 291.6 / 416.4。
-> 125B NVFP4 MoE 每 token 僅啟用約 6B 參數，故 C=1 單流偏低（~40 tok/s），C=8 聚合達 156.2 tok/s
-> （相對 C=1 約 3.9x）。
+> 125B NVFP4 MoE 每 token 僅啟用約 6B 參數，故 C=1 單流偏低，C=8 聚合約 3.9x（09-20 量測）。
 >
 > **上線時修掉的 5 個問題**（皆已進 main）：① Docker Compose 對整份 render 檔做變數插值，把
 > `CMD_WRAPPER` 內的 `$W`/`$P` 吃掉 → 啟動即死於 `mkdir -p ""`（改以 `$$` 逃逸；deepseek-vision
@@ -296,11 +306,12 @@ Node0 reaches it over ssh. Node1 only needs the image + model dirs + sudo docker
 ## Cluster CLI — `gb10`
 
 ```bash
-gb10 list                     # profile list (27b/35b + placeholders)
+gb10 list                     # profile list (27b/35b/deepseek/deepseek-vision/qwen38flash)
 gb10 use 27b                  # default; TP2 up (cold ~7-15 min), waits /health
 gb10 use 35b                  # switch exclusive cluster profile
+gb10 use qwen38flash          # cluster-only lane (determinism on by default)
 gb10 stop                     # cluster-down (both nodes)
-gb10 restart [27b|35b]
+gb10 restart [27b|35b|deepseek|deepseek-vision|qwen38flash]
 gb10 status                   # both nodes, RDMA, KV, health
 gb10 inspect <profile>        # sanitized resolved-profile report (dry-run)
 gb10 logs                     # follow cluster-node0
@@ -309,9 +320,10 @@ gb10 load                     # concurrent load
 gb10 doctor
 ```
 
-Current deployed TP2 profiles are 27B, 35B, DeepSeek (mainline 0731) and
-DeepSeek Vision-Exp (data-driven from `cluster-profiles.d/`). `qwen38flash` and
-`glm53flash` are single-node placeholders until their runtimes land.
+Current deployed TP2 profiles are 27B, 35B, DeepSeek (mainline 0731), DeepSeek Vision-Exp
+and **qwen38flash** (all data-driven from `cluster-profiles.d/`). `qwen38flash` is
+**cluster-only** — it has no single-node lane (the `runtimes.d/qwen38flash.conf`
+placeholder was removed 2026-09-20, and so was `glm53flash.conf`).
 
 ### TP2 profile registry (completed 2026-09-05)
 
@@ -321,9 +333,11 @@ The TP2 profile layer is a **data-driven cluster profile registry** (see
 ```text
 cluster-profiles.d/
   27b.conf          # deployed + live-validated (world_size=2, maxlen 262144)
-  35b.conf          # deployed + live-validated (world_size=2, maxlen 131072)
+  35b.conf          # deployed + live-validated (world_size=2, maxlen 262144)
   deepseek.conf     # deployed + live-validated (fp8 DSpark mainline, 256k ctx)
   deepseek-vision.conf  # deployed + live-validated (Vision-Exp, same image as deepseek)
+  qwen38flash.conf  # deployed + live-validated (Qwen3.8 Flash-Next 125B NVFP4 TP2+EP,
+                    # cluster-only; see its section for the 2026-09-29 realignment)
 ```
 
 Each conf carries the **profile-scoped image** and per-model vLLM arguments, loaded once by
@@ -372,8 +386,6 @@ Runtimes (`runtimes.d/*`):
 |---|---|---|---|
 | `27b.conf` | 27b | llm (exclusive) | deployed (MTP) |
 | `35b.conf` | 35b | llm (exclusive) | deployed (DFlash) |
-| `qwen38flash.conf` | qwen38flash | llm | **placeholder** |
-| `glm53flash.conf` | glm53flash | llm | **placeholder** |
 | `comfyui.conf` | comfyui | image | deployed (Node1, Flux 2 Dev) |
 | `minimaxh3.conf` | minimaxh3 | video (exclusive) | deployed (FL2VA) |
 
