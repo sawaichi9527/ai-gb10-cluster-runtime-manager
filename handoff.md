@@ -1,14 +1,14 @@
 # handoff.md — ai-gb10-cluster-runtime-manager（本機 checkout）
 
 > 本檔是本機中繼 checkout 的交接摘要。主要開發在 **node0**（`~/workspace/ai-gb10-cluster-runtime-manager`，branch **`main`**；2026-09-29 實測 node0 為 `main`／upstream `origin/main`、工作區乾淨 —— 舊文件寫的 `keystone` 已於 `496c9b1` 併入 main、**非**現役 checkout）＋ Forgejo `829522`；本機僅作中繼存取，修改前先確認是否應改在 node0。
-> 建立：2026-09-18；更新：**2026-09-20**（DeepSeek V4 Flash **Vision-Exp** lane 上線：同一顆 Anemll image + 啟動 wrapper；bench-c / bench-ctx / bench-mm 實測；`cluster-up` 新增 `SYNC_DIRS` 自動同步 patch 目錄；**vision 開 prefix caching + `dspark-swa-prefix` hotfix**、長上下文邊界 261K/262144、圖片高併發 C=8/16；本檔納入版控並同步三方）；**2026-09-29** 上游查核（Anemll 無新 image/tag、MiaAI-Lab main 未動且 23 檔 byte 全同）→ 見「定期檢討追蹤」；**2026-09-29（後續）** qwen38flash 對齊上游 `2c86a1d0`（GMU 0.80／prefix caching ON／block-drop backport／index share）並完成冷啟驗證（READY、KV 29.88 GiB、無回歸）→ 見「qwen38flash 對齊上游 + 冷啟驗證」
+> 建立：2026-09-18；更新：**2026-09-20**（DeepSeek V4 Flash **Vision-Exp** lane 上線：同一顆 Anemll image + 啟動 wrapper；bench-c / bench-ctx / bench-mm 實測；`cluster-up` 新增 `SYNC_DIRS` 自動同步 patch 目錄；**vision 開 prefix caching + `dspark-swa-prefix` hotfix**、長上下文邊界 261K/262144、圖片高併發 C=8/16；本檔納入版控並同步三方）；**2026-09-29** 上游查核（Anemll 無新 image/tag、MiaAI-Lab main 未動且 23 檔 byte 全同）→ 見「定期檢討追蹤」；**2026-09-29（後續）** qwen38flash 對齊上游 `2c86a1d0`（GMU 0.80／prefix caching ON／block-drop backport／index share）並完成冷啟驗證（READY、KV 29.88 GiB、無回歸）→ 見「qwen38flash 對齊上游 + 冷啟驗證」；**2026-09-29（後續之二）** DeepSeek-V4.1-Flash **EXL3 2×GB10 選型查核**（取得兩顆可下載 arm64 image 的 digest、證實 sfxnz image 未發佈、TP=2 對 3.5bpw 不可行、各線 benchmark 與 NVIDIA 論壇口碑）→ **本輪不新增 lane**（維持 `deepseek-vision` 為 2-Spark 多模態），詳見 `docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md`
 > **2026-09-20（後續）**：**Qwen3.8 Flash-Next 125B NVFP4（TP2+EP、MTP3）上線**；同日起 **compose 為唯一啟動 lane**（移除 docker-run 分支）；**27b/35b 改走 compose**；node0 `~/docker-stacks/aeon-vllm-omni/` 清理。詳見下方「已完成（2026-09-20 後續）」。
 > **2026-09-20（後續之二）**：**node-local 佈局歸位**——每個 lane 一個以 image 命名的 `~/docker-stacks/<stack>/`（`STACK_DIR`+`COMPOSE_FILE` materialize）、**cache 每 lane 獨立**（`~/.cache/vllm-<lane>[-cluster|-single]`，移除共用的 `~/.cache/huggingface` 容器掛載）、**log 統一** `~/docker-stacks/logs/<profile>/`；刪除單機 `runtimes.d/{qwen38flash,glm53flash}.conf`。詳見「已完成（2026-09-20 後續之二）」。
 
 ## 目前狀態（本機 checkout）
 
-- 分支：`main`，HEAD = 本檔所在的 commit（`git log -1`）；最新正式版本 tag = **`v1.3.0`**（`2474cf8`）。早期：2026-09-20 session 共 22 個 commit `a1cba34`…`79a79cb`，其後為本檔的 sync commit。live lane = `qwen38flash`
-- 同步狀態：**本機＝Forgejo（origin，`829522`）＝GitHub（`sawaichi9527`）＝node0 已 pull**（四方同一 commit；node0 live lane = `qwen38flash`）
+- 分支：`main`，HEAD = 本檔所在的 commit（`git log -1`）；最新正式版本 tag = **`v1.3.2`**（`168cb99`；`v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`）。早期：2026-09-20 session 共 22 個 commit `a1cba34`…`79a79cb`，其後為本檔的 sync commit。live lane = **`deepseek`**（2026-09-29 由 `qwen38flash` 切回）
+- 同步狀態：**本機＝Forgejo（origin，`829522`）＝GitHub（`sawaichi9527`）＝node0 已 pull**（四方同一 commit；node0 live lane = **`deepseek`**，2026-09-29 切換）
 - `handoff.md` 已納版控（`37bee4c` 起；本次更新亦將 commit）
 - `.gitignore` 已覆蓋 `config/cluster.env`、`state/last-runtime`、logs、`*.bak-*`
 
@@ -176,9 +176,14 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
 
 ## 現役狀態（session 結束時）
 
-- 現役＝**qwen38flash（READY, :1234, KV 29.15 GiB）** —— 2026-09-29 冷啟驗證後留在場上，
-  且當日稍晚已把 **deterministic greedy decoding 設為 profile 預設**（`Q38_DET_OFF=1` 可關）；
-  `gb10 use deepseek` 可切回 mainline（切換前它是現役；再往前是 deepseek-vision）。
+- 現役＝**deepseek（DeepSeek V4 Flash 0731 fp8 DSpark mainline）** —— 2026-09-29 以
+  `gb10 use deepseek` 由 qwen38flash 切換（`cluster-down` 拆掉舊 TP2 → free node1 singles →
+  cold start）。實測：背景 boot `22:30:59` 起、**`22:38:43` READY（約 7 分 44 秒）**；
+  `gb10 status` = ready／node0+node1 up／image `ghcr.io/anemll/dspark-vllm-gx10:0.1.1`／
+  model `deepseek-v4-flash-0731-official`／TP2／**KV 12.02 GiB (node0)**（2026-09-06 baseline
+  記 12.93 GiB，差異在 GB10 boot 間離散範圍內）；`/v1/models` id `aeon`、max_model_len 262144；
+  `gb10 smoke` = HTTP 200 `HELLO-TP2-OK`（prompt 16 / completion 9 tokens）。
+  切回用 `gb10 use qwen38flash`（再往前是 deepseek-vision）。
 - 節點：node0＝`spark-25d5`（rank0/API），node1＝`spark-8095`（rank1/headless）。
 
 ## 下一步（建議）
@@ -273,6 +278,22 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
 1. **Patches 上游追蹤**：`patches/dspark-vision/` pin 在 MiaAI commit `97e8733…`（23 檔）；`patches/qwen38flash/` 已於 2026-09-29 由 `d2f54b7…` 改 pin 到 **`2c86a1d0…`（10 檔）** —— 原 8 檔在該 commit 經 blob 比對**逐 byte 相同**，另新增 `patch_block_drop.py` / `patch_determinism.py`（皆見各自 `NOTICE.md`）。上游更新時需 **re-vendor** 並重新比對 byte。
 2. **Vision 進一步驗證（可選）**：長圖文混搭 prompt、多輪 agent chain 長時間穩定性。
 3. **已收斂（2026-09-20，原 3/4/5 項）**：27b/35b/deepseek/deepseek-vision/qwen38flash 全部在新 node-local 佈局下 boot 驗證（`health` 200 + `cluster-compose-verify` 兩 rank PASS + `gb10 smoke` OK），`$$` 逃逸、per-lane cache、STACK_DIR materialize、統一 log 皆實證；單機 27b(node0) 與 **35b(node1)** 亦 READY。`bench-c.sh` 已加 `BENCH_IGNORE_EOS`（固定長度）；qwen38flash 的 prefill 曲線／圖片輸入／多輪穩定已測；**`PLE_OFFLOAD=true` 確認對 TP2（nnodes=2）不可行**，維持 false。
+4. **DeepSeek-V4.1-Flash EXL3（2× GB10）— 已查核、暫不採用（2026-09-29）**：完整證據（兩顆 image 的 digest、TP=2 硬限制、各線 benchmark、論壇引述）見 **`docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md`** 與下方小節。檢討時點：上游出現**已發佈**的 2-node image，或有人驗證「Mia image + sfxnz 2.0bpw pack」可載入時。
+
+### DSV4.1-Flash EXL3 2×GB10 選型查核（2026-09-29，本機）
+
+> 觸發：sfxnz/DeepSeek-V4.1-Flash-EXL3 2.0bpw Viterbi（CyberQ 2026-09-29）。**未變更任何 runtime 檔**（未新增 profile、未改 `cluster-profiles.d/`、`bin/gb10`、`scripts/`），未 pull image、未下載權重。使用者約束：**不自行 `docker build`**，目標是可下載的成熟 image（最多接受 runtime patch）。
+
+- **sfxnz 的衍生 image 沒有發佈**：`dsv41-flash-exl3-sm121:canonical-e14` 在任何 registry 都查無（`sfxnz/*` Docker Hub namespace = 0 repo），只有 `docker build` 配方。其**基底** `vllm/vllm-openai:deepseekv41-flash-0909` 反而是官方公開 tag、arm64 digest `sha256:d84a1232…77d58`（＝其 Dockerfile `FROM` 逐字相同）→ 基底可 digest 釘選。
+- **兩顆可下載的 arm64 image（digest 已取得，匿名可拉）**：
+  - `ghcr.io/miaai-lab/deepseek-v4.1-flash-exl3-2x-dgx-sparks:latest` → `sha256:2f0cf3adc0f989c1d446be274df864eb799630175f604c3b22b71b7205971dce`（**專為 2×GB10 / TP2 / CX7 / sm_121a**；EXL3 **2.9bpw/mul1**、196 GiB；DSpark 內建；**~26 tok/s**）。
+  - `littlecedar/dgx-spark-dsv41:exl3a` → `sha256:71e23ff986f4ab58353bfd0c71062d6d256c290edca55bf7773a779f5076128d`（= **tonyd2wild `vllm-dsv41:exl3a` retag**，label `kai.exl3a=cuda-exl3-6a1ffc34`；**TP3/TP4/TP6 reference lane**；**必配** `mods/mount-dsv41-exl3-patches`，否則 Engram 留 UMA、約 25 分後 OOM）。
+- **TP=2 硬限制（VERIFIED）**：littlecedar `recipes/ds4/AGENTS.md` §3 以 cluster-RAM 預算證明 3.5bpw 線 TP=2 不可行（非 Engram 權重 ~257 GB vs 可用 220 GB），故其 registry **無 TP2 recipe**。TP=2 唯一可行的是 **2.0bpw** pack（routed experts ~133.6 GiB → **~72 GiB/rank**）。
+- **benchmark 對照（單路 decode）**：Mia 2.9bpw TP2 **~26**｜sfxnz 2.0bpw TP2 **41.3–44.9**（L.A.I.L 42.6、prose c1 50.4）｜exl3a TP3/TP4/TP6 = 34.3 / 38.8 / 40.0。littlecedar 的 DSpark **k-sweep（13 boots）**顯示 **k=3 優於上游預設 k=5**（k=1 在 C8 +27%），**k=6 非法**（須為 `n_predict=5` 的因數）。GB10 boot 間離散度 7–25%，單次開機不可排名。
+- **NVIDIA 論壇口碑**（討論串 `382725`，187 篇）：`say3` 對 Mia 2× EXL3 的評語是「**26 tok/s… too slow**」；`0rand`「**2bpw … not for any production use**」；`stu.miller`（生產使用者）指 4.1 的 TP4 recipe「**hacky**」且他人 recipe **12 次開不起來**，並明確說 **DS4 Vision-Exp 在 2 sparks 上 works great**；`helge` 則說 2.9bpw 品質損失「within narrow limits」但 TP=4 速度優勢顯著。
+- **為何不採用**：免 build 的成熟 image 只有 ~26 tok/s；要 42–50 tok/s 就得用 sfxnz stack（＝要 build）。兩者在「不自行 build」約束下無法同時成立 → 維持 2-Spark 多模態由 `deepseek-vision` 承接。
+- **重啟最短路徑**：① 直接用 Mia 那顆（`IMG_SHA256` 可沿用現有 registry gate）② 探針「Mia image + sfxnz 2.0bpw-mcg-viterbi pack」是否可載入（mul1 vs mcg、per-tensor K-map、`exllamav3 v1.4.5` 相容性**未知**）→ 成功即「免 build + 44 tok/s」。
+- **授權**：sfxnz scripts MIT／權重 MIT／`vllm-exl3` **AGPL-3.0**；tonyd2wild patch Apache-2.0 vLLM 衍生；MiaAI-Lab 系列 AGPL-3.0。未來採用須比照 `patches/qwen38flash/NOTICE.md` 慣例（pin + sha256），且不得再散布衍生 image。
 
 ### 上游查核紀錄（2026-09-29，本機）
 
