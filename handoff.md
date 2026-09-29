@@ -320,6 +320,15 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
   （註：`v1.0.0` 早已於 2026-09-10 用於「keystone 併入 main」，故本次接續為 `v1.3.0` 而非重用 `v1.0.0`。）
 - 標記後同步：`main` 與 tag 推至 Forgejo `origin` 與 GitHub `sawaichi9527`，node0 再 `git pull`
   並 `git fetch --tags`。
+- **`v1.3.1`（同日稍晚）**：在 `main` = `276348c` 打 annotated tag，並在 GitHub 建立本 repo 的
+  **第一個 Release**：
+  <https://github.com/sawaichi9527/ai-gb10-cluster-runtime-manager/releases/tag/v1.3.1>
+  （以 API 建立，憑證取自本機 GCM 既有的 github 憑證，**未寫入任何檔案**。）
+  動機：`v1.3.0`（`2474cf8`）早於本次 qwen38flash 對齊與 bench 協定，任何從 tag／Release
+  進入的人都會看到舊 README；`v1.3.1` 才涵蓋 GMU 0.80／prefix caching ON／block-drop、
+  determinism 預設 ON、bench 協定與冷探針。
+- **tag 現況**：`v1.0.0`→`496c9b1`、`v1.1.0`→`71ccf20`、`v1.2.0`→`ffd02ea`、
+  `v1.3.0`→`2474cf8`、**`v1.3.1`→`276348c`**。
 
 ### qwen38flash 對齊上游 + 冷啟驗證（2026-09-29）
 
