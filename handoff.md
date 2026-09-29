@@ -1,13 +1,13 @@
 # handoff.md — ai-gb10-cluster-runtime-manager（本機 checkout）
 
 > 本檔是本機中繼 checkout 的交接摘要。主要開發在 **node0**（`~/workspace/ai-gb10-cluster-runtime-manager`，branch **`main`**；2026-09-29 實測 node0 為 `main`／upstream `origin/main`、工作區乾淨 —— 舊文件寫的 `keystone` 已於 `496c9b1` 併入 main、**非**現役 checkout）＋ Forgejo `829522`；本機僅作中繼存取，修改前先確認是否應改在 node0。
-> 建立：2026-09-18；更新：**2026-09-20**（DeepSeek V4 Flash **Vision-Exp** lane 上線：同一顆 Anemll image + 啟動 wrapper；bench-c / bench-ctx / bench-mm 實測；`cluster-up` 新增 `SYNC_DIRS` 自動同步 patch 目錄；**vision 開 prefix caching + `dspark-swa-prefix` hotfix**、長上下文邊界 261K/262144、圖片高併發 C=8/16；本檔納入版控並同步三方）；**2026-09-29** 上游查核（Anemll 無新 image/tag、MiaAI-Lab main 未動且 23 檔 byte 全同）→ 見「定期檢討追蹤」
+> 建立：2026-09-18；更新：**2026-09-20**（DeepSeek V4 Flash **Vision-Exp** lane 上線：同一顆 Anemll image + 啟動 wrapper；bench-c / bench-ctx / bench-mm 實測；`cluster-up` 新增 `SYNC_DIRS` 自動同步 patch 目錄；**vision 開 prefix caching + `dspark-swa-prefix` hotfix**、長上下文邊界 261K/262144、圖片高併發 C=8/16；本檔納入版控並同步三方）；**2026-09-29** 上游查核（Anemll 無新 image/tag、MiaAI-Lab main 未動且 23 檔 byte 全同）→ 見「定期檢討追蹤」；**2026-09-29（後續）** qwen38flash 對齊上游 `2c86a1d0`（GMU 0.80／prefix caching ON／block-drop backport／index share）並完成冷啟驗證（READY、KV 29.88 GiB、無回歸）→ 見「qwen38flash 對齊上游 + 冷啟驗證」
 > **2026-09-20（後續）**：**Qwen3.8 Flash-Next 125B NVFP4（TP2+EP、MTP3）上線**；同日起 **compose 為唯一啟動 lane**（移除 docker-run 分支）；**27b/35b 改走 compose**；node0 `~/docker-stacks/aeon-vllm-omni/` 清理。詳見下方「已完成（2026-09-20 後續）」。
 > **2026-09-20（後續之二）**：**node-local 佈局歸位**——每個 lane 一個以 image 命名的 `~/docker-stacks/<stack>/`（`STACK_DIR`+`COMPOSE_FILE` materialize）、**cache 每 lane 獨立**（`~/.cache/vllm-<lane>[-cluster|-single]`，移除共用的 `~/.cache/huggingface` 容器掛載）、**log 統一** `~/docker-stacks/logs/<profile>/`；刪除單機 `runtimes.d/{qwen38flash,glm53flash}.conf`。詳見「已完成（2026-09-20 後續之二）」。
 
 ## 目前狀態（本機 checkout）
 
-- 分支：`main`，HEAD = **`v1.3.0`** tag 所指的 commit（2026-09-29 收斂；早期：2026-09-20 session 共 22 個 commit `a1cba34`…`79a79cb`，其後為本檔的 sync commit；live lane = `qwen38flash`）
+- 分支：`main`，HEAD = 本檔所在的 commit（`git log -1`）；最新正式版本 tag = **`v1.3.0`**（`2474cf8`）。早期：2026-09-20 session 共 22 個 commit `a1cba34`…`79a79cb`，其後為本檔的 sync commit。live lane = `qwen38flash`
 - 同步狀態：**本機＝Forgejo（origin，`829522`）＝GitHub（`sawaichi9527`）＝node0 已 pull**（四方同一 commit；node0 live lane = `qwen38flash`）
 - `handoff.md` 已納版控（`37bee4c` 起；本次更新亦將 commit）
 - `.gitignore` 已覆蓋 `config/cluster.env`、`state/last-runtime`、logs、`*.bak-*`
@@ -176,7 +176,8 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
 
 ## 現役狀態（session 結束時）
 
-- 現役＝**deepseek-vision（READY, :1234）**（本次 benchmark 後未切回；`gb10 use deepseek` 可切回 mainline）。
+- 現役＝**qwen38flash（READY, :1234, KV 29.88 GiB）** —— 2026-09-29 冷啟驗證後留在場上；
+  `gb10 use deepseek` 可切回 mainline（切換前它是現役；再往前是 deepseek-vision）。
 - 節點：node0＝`spark-25d5`（rank0/API），node1＝`spark-8095`（rank1/headless）。
 
 ## 下一步（建議）
@@ -268,7 +269,7 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
 
 > 下列事項不是「待辦」，而是**定期檢討**項目（2026-09-20 標註）。檢討時點：每當 `patches/` 上游或 image 更新，或每次進行 27b/35b 重大變更時。
 
-1. **Patches 上游追蹤**：`patches/dspark-vision/` pin 在 MiaAI commit `97e8733…`；`patches/qwen38flash/` pin 在 `d2f54b7…`（皆見各自 `NOTICE.md`）。上游更新時需 **re-vendor** 並重新比對 byte。
+1. **Patches 上游追蹤**：`patches/dspark-vision/` pin 在 MiaAI commit `97e8733…`（23 檔）；`patches/qwen38flash/` 已於 2026-09-29 由 `d2f54b7…` 改 pin 到 **`2c86a1d0…`（10 檔）** —— 原 8 檔在該 commit 經 blob 比對**逐 byte 相同**，另新增 `patch_block_drop.py` / `patch_determinism.py`（皆見各自 `NOTICE.md`）。上游更新時需 **re-vendor** 並重新比對 byte。
 2. **Vision 進一步驗證（可選）**：長圖文混搭 prompt、多輪 agent chain 長時間穩定性。
 3. **已收斂（2026-09-20，原 3/4/5 項）**：27b/35b/deepseek/deepseek-vision/qwen38flash 全部在新 node-local 佈局下 boot 驗證（`health` 200 + `cluster-compose-verify` 兩 rank PASS + `gb10 smoke` OK），`$$` 逃逸、per-lane cache、STACK_DIR materialize、統一 log 皆實證；單機 27b(node0) 與 **35b(node1)** 亦 READY。`bench-c.sh` 已加 `BENCH_IGNORE_EOS`（固定長度）；qwen38flash 的 prefill 曲線／圖片輸入／多輪穩定已測；**`PLE_OFFLOAD=true` 確認對 TP2（nnodes=2）不可行**，維持 false。
 
@@ -318,3 +319,39 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
   （註：`v1.0.0` 早已於 2026-09-10 用於「keystone 併入 main」，故本次接續為 `v1.3.0` 而非重用 `v1.0.0`。）
 - 標記後同步：`main` 與 tag 推至 Forgejo `origin` 與 GitHub `sawaichi9527`，node0 再 `git pull`
   並 `git fetch --tags`。
+
+### qwen38flash 對齊上游 + 冷啟驗證（2026-09-29）
+
+觸發：上游 `MiaAI-Lab/Qwen3.8-Flash-Next-Dual-DGX-Sparks` 的 `main` 已前進到 **`2c86a1d0`**
+（相對原 pin `d2f54b7…` **ahead 11**）。
+
+- **image 未變**：`vllm/vllm-openai:qwen38-flash-next` digest 仍為 `sha256:fc120ece…be05bf8`
+  ＝本 profile `IMG_SHA256`；Docker Hub `last_updated` 仍 2026-08-26（未重推）。
+- **變更範圍**：只動 `cluster-profiles.d/qwen38flash.conf` 與 `patches/qwen38flash/`（4 個檔案），
+  共用 loader 與其他 profile **零改動**；qwen38flash 為 cluster-only，node1 單機 lane 不受影響。
+  - GMU `0.835` → **`0.80`**（上游 2026-09-26：0.835 使節點僅剩 0.3–0.9 GiB MemAvailable，GB10 會硬重置）
+  - prefix caching **OFF → ON**（對齊上游；須搭配下述 block-drop backport）
+  - `SPEC_CONFIG` += `disable_eagle_block_drop`、`index_share_for_mtp_iteration`
+  - `EXTRA_ARGS` += `--enable-prompt-tokens-details`（每請求 cached-token 統計）
+  - vendor `patch_block_drop.py`（vllm#53388 backport）、`patch_determinism.py`（**opt-in，預設關**）
+  - `CMD_WRAPPER` 新增 block-drop（fail-closed）與 determinism（未設環境變數時不套用）步驟；
+    pin 由 `d2f54b7…` 改為 **`2c86a1d0…`（10 檔）**
+- **冷啟驗證**（`gb10 use qwen38flash`；13:54:32 起、14:08:21 READY，約 14 分；**KV 29.88 GiB**）：
+  - boot log：image digest gate **PASS**（兩節點）、`SYNC_DIRS` 同步至兩節點
+  - 容器內：block-drop 的 **6 個目標檔全部 `patched`**；mark 數 `speculative.py`=2、
+    `kv_cache_utils.py`=1、`scheduler.py`=5；rank1 同為 2（與 rank0 一致）
+  - scheduler 記錄 `EAGLE trailing prefix-cache block dropping is disabled` ×1（僅 rank0 跑 scheduler，
+    rank1 = 0 屬正常）→ **backport 確實在運作**
+  - `cluster-compose-verify qwen38flash` → **兩 rank PASS**
+  - `gb10 smoke` → HTTP 200（`HELLO-TP2-OK`），usage 含 `prompt_tokens_details`（證明新參數生效）
+  - 引擎實測 argv：`--gpu-memory-utilization 0.80`、`--enable-prefix-caching`、spec config 兩新鍵
+  - **prefix cache 實測**（8,452-token 同一 prompt ×3，`max_tokens=1`）：
+    **5.53 s → 0.31 s → 0.23 s**，`cached_tokens` **0 → 8320 → 8320**；只重算 **132** tokens
+    （不是一整個 1,664-token block）→ `disable_eagle_block_drop` 亦證實有效；`/metrics`
+    `prefix_cache_hits_total`=16640 > 0
+  - **`bench-c`（`BENCH_IGNORE_EOS=1`, max_tokens=400）vs 2026-09-20 基準**：C1 連測
+    35.6/40.2/45.4/40.1（中位 ≈40.1 vs 41.7 → 變異範圍內；acceptance 在 32.8–50.5% 間擺動）、
+    C4 107.2（vs 105.0）、C8 連測 169.0/165.0/162.6（中位 ≈165 vs 161.1）→ **無回歸**
+- **未啟用（能力已備、預設關）**：determinism knobs —— 需在 profile `EXTRA_ENV` 帶入
+  `VLLM_QSA_DET_TOPK=1` 或 `VLLM_MOE_DET_FINALIZE=1` 才會套用（容器內已驗證 `_SORTED_TOPK`=0）。
+- 驗證後 live lane 留在 qwen38flash；切回 mainline 用 `gb10 use deepseek`。
