@@ -7,8 +7,8 @@
 
 ## 目前狀態（本機 checkout）
 
-- 分支：`main`，HEAD = **`79a79cb`**（本 session 共 **22 個 commit** `a1cba34`…`79a79cb`；本檔自身的 sync commit 為其後一個；live lane = `qwen38flash`）
-- 同步狀態：**本機＝Forgejo（origin，`829522`）＝GitHub＝node0 已 pull**（四方同一 commit；node0 live lane = `qwen38flash`）
+- 分支：`main`，HEAD = **`v1.3.0`** tag 所指的 commit（2026-09-29 收斂；早期：2026-09-20 session 共 22 個 commit `a1cba34`…`79a79cb`，其後為本檔的 sync commit；live lane = `qwen38flash`）
+- 同步狀態：**本機＝Forgejo（origin，`829522`）＝GitHub（`sawaichi9527`）＝node0 已 pull**（四方同一 commit；node0 live lane = `qwen38flash`）
 - `handoff.md` 已納版控（`37bee4c` 起；本次更新亦將 commit）
 - `.gitignore` 已覆蓋 `config/cluster.env`、`state/last-runtime`、logs、`*.bak-*`
 
@@ -294,3 +294,12 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
 - **文件勘誤（同次）**：`AGENTS.md`「Canonical repo path」與本檔開頭原寫 node0 checkout 為 branch
   `keystone`；2026-09-29 實測**實為 `main`**（`UPSTREAM=origin/main`、工作區乾淨），兩處已更正。
   `keystone`（`a5fcc54`）仍存在於兩個 remote，但已於 `496c9b1` 併入 `main`、**非**現役 checkout。
+
+### 版本標記（2026-09-29）
+
+- 在 `main` 打 **annotated tag `v1.3.0`**（接續既有 `v1.2.0`），正式標記本線的穩定狀態。
+- **既有 tag 全部保留、未改動**：`v1.0.0`（→ `496c9b1`，2026-09-10）、`v1.1.0`（→ `71ccf20`，2026-09-10）
+  皆為 annotated；`v1.2.0`（→ `ffd02ea`，2026-09-13）為 lightweight。
+  （註：`v1.0.0` 早已於 2026-09-10 用於「keystone 併入 main」，故本次接續為 `v1.3.0` 而非重用 `v1.0.0`。）
+- 標記後同步：`main` 與 tag 推至 Forgejo `origin` 與 GitHub `sawaichi9527`，node0 再 `git pull`
+  並 `git fetch --tags`。
