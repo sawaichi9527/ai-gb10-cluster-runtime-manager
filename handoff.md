@@ -7,7 +7,7 @@
 
 ## 目前狀態（本機 checkout）
 
-- 分支：`main`，HEAD = 本檔所在的 commit（`git log -1`）；最新正式版本 tag = **`v1.3.3`**（`9bb2006`；`v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`）。早期：2026-09-20 session 共 22 個 commit `a1cba34`…`79a79cb`，其後為本檔的 sync commit。live lane = **`deepseek`**（2026-09-29 由 `qwen38flash` 切回）
+- 分支：`main`，HEAD = 本檔所在的 commit（`git log -1`）；最新正式版本 tag = **`v1.3.4`**（`a92d2bc`；`v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、`v1.3.3`→`9bb2006`）。早期：2026-09-20 session 共 22 個 commit `a1cba34`…`79a79cb`，其後為本檔的 sync commit。live lane = **`deepseek`**（2026-09-29 由 `qwen38flash` 切回）
 - 同步狀態：**本機＝Forgejo（origin，`829522`）＝GitHub（`sawaichi9527`）＝node0 已 pull**（四方同一 commit；node0 live lane = **`deepseek`**，2026-09-29 切換）
 - `handoff.md` 已納版控（`37bee4c` 起；本次更新亦將 commit）
 - `.gitignore` 已覆蓋 `config/cluster.env`、`state/last-runtime`、logs、`*.bak-*`
@@ -429,8 +429,15 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
   **GitHub Release 已建**（`id 399323160`，以 API 建立，憑證取自本機 GCM 既有的 github 憑證，
   **未寫入任何檔案**；先前一度以為取不到憑證，實為 pwsh pipe `git credential fill` 的編碼瑕疵 ——
   以 LF-only 檔 + `cmd /c` redirect 即可正常取得，與 v1.3.2 相同）。
+- **`v1.3.4`（2026-09-30，docs-only）**：`a92d2bc` —— 兩個**上游再查核**紀錄：①
+  `docs/DEEPSEEK_UPSTREAM_REVERIFY_2026-09-30.md`（`deepseek`／`deepseek-vision` 的 image／配方／
+  官方權重皆無更新；首度補查官方權重 commit 比較）②
+  `docs/QWEN_27B_35B_UPSTREAM_REVERIFY_2026-09-30.md`（`27b`／`35b` 共用 image 最新 dated tag
+  仍 `2026-09-18-v0.29.0-omni`、四個 HF 來源自 09-19 起皆無更新）。README 首頁同步兩則 dated note。
+  **無 runtime／profile／程式碼變更**。含本日前述 `v1.3.3` tag 與其 Release 的紀錄 commit（`0869c39`／`6fa388b`）。
 - **tag 現況**：`v1.0.0`→`496c9b1`、`v1.1.0`→`71ccf20`、`v1.2.0`→`ffd02ea`、
-  `v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、**`v1.3.3`→`9bb2006`**。
+  `v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、`v1.3.3`→`9bb2006`、
+  **`v1.3.4`→`a92d2bc`**。
 
 ### qwen38flash 對齊上游 + 冷啟驗證（2026-09-29）
 
