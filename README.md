@@ -32,6 +32,14 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 > **model-card（docs-only）** commit，Vision-Exp 權重 pin `6821d6ad…` = HF HEAD。**兩 lane 現行
 > 設定即為最新，無需變更。** 完整證據見
 > [`docs/DEEPSEEK_UPSTREAM_REVERIFY_2026-09-30.md`](docs/DEEPSEEK_UPSTREAM_REVERIFY_2026-09-30.md)。
+>
+> **2026-09-30 上游再查核（27B／35B）：** `27b` 與 `35b`（TP2 + 單機）共用的
+> `ghcr.io/aeon-7/aeon-vllm-ultimate` 最新 dated tag 仍為 **`2026-09-18-v0.29.0-omni`**
+> （＝現行 pin，digest `cc91c515…` 不變、`latest` 同 digest、無 09-19 後/10 月 tag）；四個 HF 來源
+> —— 27B body `AEON-7/…NVFP4-MIXED`（09-18）、27B drafter `z-lab/Qwen3.8-27B-DFlash2`（08-19）、
+> 35B body `AEON-7/Qwen3.6-35B-A3B-heretic-NVFP4`（07-15）、35B drafter `AEON-7/AEON-DFlash-Qwen3.6-35B-A3B`（06-28）
+> —— **自 09-19 起皆無更新**。完整證據見
+> [`docs/QWEN_27B_35B_UPSTREAM_REVERIFY_2026-09-30.md`](docs/QWEN_27B_35B_UPSTREAM_REVERIFY_2026-09-30.md)。
 
 ### 已部署服務
 

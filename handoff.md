@@ -1,7 +1,7 @@
 # handoff.md — ai-gb10-cluster-runtime-manager（本機 checkout）
 
 > 本檔是本機中繼 checkout 的交接摘要。主要開發在 **node0**（`~/workspace/ai-gb10-cluster-runtime-manager`，branch **`main`**；2026-09-29 實測 node0 為 `main`／upstream `origin/main`、工作區乾淨 —— 舊文件寫的 `keystone` 已於 `496c9b1` 併入 main、**非**現役 checkout）＋ Forgejo `829522`；本機僅作中繼存取，修改前先確認是否應改在 node0。
-> 建立：2026-09-18；更新：**2026-09-20**（DeepSeek V4 Flash **Vision-Exp** lane 上線：同一顆 Anemll image + 啟動 wrapper；bench-c / bench-ctx / bench-mm 實測；`cluster-up` 新增 `SYNC_DIRS` 自動同步 patch 目錄；**vision 開 prefix caching + `dspark-swa-prefix` hotfix**、長上下文邊界 261K/262144、圖片高併發 C=8/16；本檔納入版控並同步三方）；**2026-09-29** 上游查核（Anemll 無新 image/tag、MiaAI-Lab main 未動且 23 檔 byte 全同）→ 見「定期檢討追蹤」；**2026-09-29（後續）** qwen38flash 對齊上游 `2c86a1d0`（GMU 0.80／prefix caching ON／block-drop backport／index share）並完成冷啟驗證（READY、KV 29.88 GiB、無回歸）→ 見「qwen38flash 對齊上游 + 冷啟驗證」；**2026-09-29（後續之二）** DeepSeek-V4.1-Flash **EXL3 2×GB10 選型查核**（取得兩顆可下載 arm64 image 的 digest、證實 sfxnz image 未發佈、TP=2 對 3.5bpw 不可行、各線 benchmark 與 NVIDIA 論壇口碑）→ **本輪不新增 lane**（維持 `deepseek-vision` 為 2-Spark 多模態），詳見 `docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md`；**2026-09-30** 上游再查核（deepseek 與 deepseek-vision 的 **image／配方／官方權重皆無更新** → 兩 lane 現行設定即為最新、無需變更，含首度補查官方權重 commit 比較，見 `docs/DEEPSEEK_UPSTREAM_REVERIFY_2026-09-30.md`）
+> 建立：2026-09-18；更新：**2026-09-20**（DeepSeek V4 Flash **Vision-Exp** lane 上線：同一顆 Anemll image + 啟動 wrapper；bench-c / bench-ctx / bench-mm 實測；`cluster-up` 新增 `SYNC_DIRS` 自動同步 patch 目錄；**vision 開 prefix caching + `dspark-swa-prefix` hotfix**、長上下文邊界 261K/262144、圖片高併發 C=8/16；本檔納入版控並同步三方）；**2026-09-29** 上游查核（Anemll 無新 image/tag、MiaAI-Lab main 未動且 23 檔 byte 全同）→ 見「定期檢討追蹤」；**2026-09-29（後續）** qwen38flash 對齊上游 `2c86a1d0`（GMU 0.80／prefix caching ON／block-drop backport／index share）並完成冷啟驗證（READY、KV 29.88 GiB、無回歸）→ 見「qwen38flash 對齊上游 + 冷啟驗證」；**2026-09-29（後續之二）** DeepSeek-V4.1-Flash **EXL3 2×GB10 選型查核**（取得兩顆可下載 arm64 image 的 digest、證實 sfxnz image 未發佈、TP=2 對 3.5bpw 不可行、各線 benchmark 與 NVIDIA 論壇口碑）→ **本輪不新增 lane**（維持 `deepseek-vision` 為 2-Spark 多模態），詳見 `docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md`；**2026-09-30** 上游再查核（deepseek 與 deepseek-vision 的 **image／配方／官方權重皆無更新** → 兩 lane 現行設定即為最新、無需變更，含首度補查官方權重 commit 比較，見 `docs/DEEPSEEK_UPSTREAM_REVERIFY_2026-09-30.md`）；**2026-09-30（續）** 27b／35b 上游再查核（兩 lane 共用的 `ghcr.io/aeon-7/aeon-vllm-ultimate` 最新 dated tag 仍 `2026-09-18-v0.29.0-omni`＝現行 pin、digest 不變；27B/35B 四個 HF 來源 body/drafter 最後 commit 為 09-18／08-19／07-15／06-28，**皆無 09-19 後更新** → 無需變更，見 `docs/QWEN_27B_35B_UPSTREAM_REVERIFY_2026-09-30.md`）
 > **2026-09-20（後續）**：**Qwen3.8 Flash-Next 125B NVFP4（TP2+EP、MTP3）上線**；同日起 **compose 為唯一啟動 lane**（移除 docker-run 分支）；**27b/35b 改走 compose**；node0 `~/docker-stacks/aeon-vllm-omni/` 清理。詳見下方「已完成（2026-09-20 後續）」。
 > **2026-09-20（後續之二）**：**node-local 佈局歸位**——每個 lane 一個以 image 命名的 `~/docker-stacks/<stack>/`（`STACK_DIR`+`COMPOSE_FILE` materialize）、**cache 每 lane 獨立**（`~/.cache/vllm-<lane>[-cluster|-single]`，移除共用的 `~/.cache/huggingface` 容器掛載）、**log 統一** `~/docker-stacks/logs/<profile>/`；刪除單機 `runtimes.d/{qwen38flash,glm53flash}.conf`。詳見「已完成（2026-09-20 後續之二）」。
 
@@ -372,6 +372,27 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
 - **同族更新模型**（`deepseek-ai/DeepSeek-V4.1-Flash`）為另一款模型、非本 lane 之更新，且已於
   `docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md` 判為 2×GB10 不採用。
 - **淨結論**：兩 lane 現行 image／配方／權重皆為**當下最新且正確**，**無需任何變更**。
+
+### 上游再查核（2026-09-30，27b／35b）
+
+> 觸發：使用者要求確認 `27b` 與 `35b`（cluster TP2 與單機 TP1 皆同）的 docker image 與
+> HuggingFace 模型來源「自 2026-09-19 之後」是否有更新。**結果：皆無更新。** 唯讀查核
+> （registry tags/digest、HF commit、node0 `docker inspect` + 本機快照），**未變更任何 runtime/profile**。
+> 完整證據見 `docs/QWEN_27B_35B_UPSTREAM_REVERIFY_2026-09-30.md`。
+
+- **Image（兩 lane 共用）— 無更新**：`ghcr.io/aeon-7/aeon-vllm-ultimate` 最新 dated tag 仍
+  **`2026-09-18-v0.29.0-omni`**（digest `sha256:cc91c515…` ＝ 本 repo pin、node0 同值）；
+  `2026-09*` dated tag 僅 `09-07-reasoning-eos`／`09-11-v0.29.0-omni`／`09-18-v0.29.0-omni(×2)`，
+  **無 09-19 後或 10 月 tag**；`latest` 指向同 digest。（`edge` 為 rolling dev、不跟隨。）
+- **HF 來源（四個）— 無更新**：
+  - 27B body `AEON-7/Qwen3.8-27B-AEON-ULTIMATE-UNCENSORED-NVFP4-MIXED` → `282e6775`（**09-18**，
+    即 pin image `2026-09-18-v0.29.0-omni` 的同日配套 commit）
+  - 27B drafter `z-lab/Qwen3.8-27B-DFlash2`（git clone HEAD `50307d4c` = 上游 HEAD）（**08-19**）
+  - 35B body `AEON-7/Qwen3.6-35B-A3B-heretic-NVFP4` → `a4837491`（**07-15**）
+  - 35B drafter `AEON-7/AEON-DFlash-Qwen3.6-35B-A3B` → `7f5324ae`（**06-28**）
+- 上游基底（`Qwen/Qwen3.8-27B` 08-14、`Qwen/Qwen3.6-35B-A3B` 04-24、`tvall43/Qwen3.6-35B-A3B-heretic`
+  04-16、`incoai/Qwen3.8-27B-DFlash2` 09-17、`AEON-7/Ornith-1.0-35B…` 07-15）亦全部 ≤ 9/17。
+- **淨結論**：兩 lane 現行 image／模型來源皆為**當下最新且正確**，**無需任何變更**。
 
 ### 版本標記（2026-09-29）
 
