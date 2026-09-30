@@ -435,6 +435,7 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
   `docs/QWEN_27B_35B_UPSTREAM_REVERIFY_2026-09-30.md`（`27b`／`35b` 共用 image 最新 dated tag
   仍 `2026-09-18-v0.29.0-omni`、四個 HF 來源自 09-19 起皆無更新）。README 首頁同步兩則 dated note。
   **無 runtime／profile／程式碼變更**。含本日前述 `v1.3.3` tag 與其 Release 的紀錄 commit（`0869c39`／`6fa388b`）。
+  **GitHub Release 已建**（`id 399699345`，比照 v1.3.1／v1.3.2／v1.3.3；以 API + 本機 GCM 憑證，**未寫入任何檔案**）。
 - **tag 現況**：`v1.0.0`→`496c9b1`、`v1.1.0`→`71ccf20`、`v1.2.0`→`ffd02ea`、
   `v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、`v1.3.3`→`9bb2006`、
   **`v1.3.4`→`a92d2bc`**。
