@@ -7,8 +7,8 @@
 
 ## 目前狀態（本機 checkout）
 
-- 分支：`main`，HEAD = 本檔所在的 commit（`git log -1`）；最新正式版本 tag = **`v1.3.4`**（`a92d2bc`；`v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、`v1.3.3`→`9bb2006`）。早期：2026-09-20 session 共 22 個 commit `a1cba34`…`79a79cb`，其後為本檔的 sync commit。live lane = **`deepseek`**（2026-09-29 由 `qwen38flash` 切回）
-- 同步狀態：**本機＝Forgejo（origin，`829522`）＝GitHub（`sawaichi9527`）＝node0 已 pull**（四方同一 commit；node0 live lane = **`deepseek`**，2026-09-29 切換）
+- 分支：`main`，HEAD = 本檔所在的 commit（`git log -1`）；最新正式版本 tag = **`v1.3.4`**（`a92d2bc`；`v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、`v1.3.3`→`9bb2006`）。早期：2026-09-20 session 共 22 個 commit `a1cba34`…`79a79cb`，其後為本檔的 sync commit。live lane = **`mimo26flash`**（2026-10-03 MiMo V2.6 Flash MOPD 上線；此前 2026-09-29 起為 `deepseek`）
+- 同步狀態：**本機＝Forgejo（origin，`829522`）＝GitHub（`sawaichi9527`）＝node0 已 pull**（四方同一 commit；node0 live lane = **`mimo26flash`**，2026-10-03 切換）
 - `handoff.md` 已納版控（`37bee4c` 起；本次更新亦將 commit）
 - `.gitignore` 已覆蓋 `config/cluster.env`、`state/last-runtime`、logs、`*.bak-*`
 
@@ -41,7 +41,7 @@ node0 對 node1 的連線（由 node0 發起）走 CX7 區網：`ssh -i ~/.ssh/i
 - **Node-local 佈局**：每個 runtime 的節點側產物在 `~/docker-stacks/<stack>/`（stack 名＝image 來源）：`aeon-vllm-omni`(27b/35b)、`anemll-dspark-vllm-gx10`(deepseek)、`anemll-dspark-vllm-gx10-miaFlaver`(deepseek-vision)、`mia-vllm-openai-qwen38flashNext`(qwen38flash)。stack 內含 materialize 的 compose 與 `patches/`。**`~/` 根不得有佈署產物**。同時跑 cluster+single 的 lane（27b/35b）compose 加 `-cluster`/`-single`；cluster-only 用 `docker-compose.<profile>.yml`。
 - **Cache 每 lane 獨立**：`~/.cache/vllm-<profile>`（cluster-only）或 `~/.cache/vllm-<profile>-{cluster,single}`；各 conf 的 `AUTOTUNE_CACHE_REL` 指向自己的根。**Log 統一** `~/docker-stacks/logs/<profile>/`（boot + compose/container）。
 - **統一 AEON stack**：`~/docker-stacks/aeon-vllm-omni/`（`docker-compose-27b-single.yml` + `docker-compose-35b-single.yml` + `docker-compose-{27b,35b}-cluster.yml` + `models/` + `*_029_patched.py`）；27b/35b 皆 v0.29.0-omni image。`aeon-vllm-reasoning-eos` 已退休。
-- **Profiles 資料驅動**：`cluster-profiles.d/`（27b / 35b / deepseek / **deepseek-vision** / **qwen38flash**），由 `cluster-common.sh` 載入；勿在 `cluster-*` 重寫死 profile 資料。
+- **Profiles 資料驅動**：`cluster-profiles.d/`（27b / 35b / deepseek / **deepseek-vision** / **qwen38flash** / **mimo26flash**），由 `cluster-common.sh` 載入；勿在 `cluster-*` 重寫死 profile 資料。
 - **統一 LLM endpoint**：所有 runtime 走 OpenAI API **port 1234**，共用一組 `VLLM_API_KEY`。TP2 與 node0 single 共用 port → **互斥**（`gb10 use` 釋放 singles；`gb10-single use/start` 先拆 TP2）。
 - **Lazy sudo**：`sudo_pass()` 重用 `SUDO_PASS`，無 prompt；unset 時互動或報錯，不 hang。
 - **Placeholder**：`PLACEHOLDER=true` 的 conf 只印 "not deployed yet"。
@@ -54,6 +54,33 @@ node0 對 node1 的連線（由 node0 發起）走 CX7 區網：`ssh -i ~/.ssh/i
 - **Cold start** TP2 約 7–15 min（vision 類似）；`cluster-up`/`gb10 use` 等到 `/health` 200 才報 READY。
 - **TP2 27B prefix caching 刻意關閉**（見 `docs/ADR_2026-09-01_prefix_caching_dflash2.md`）。35b 已啟用 prefix caching（`a5fcc54`）。
 - **ComfyUI** 部署在 Node1 為 `comfyui-aeon` / Flux 2 Dev；不回退 `comfyui-personal`/`comfyui-work`。
+
+## 2026-10-03 — MiMo V2.6 Flash MOPD lane 上線（`mimo26flash`，TP2 vLLM + DFlash）
+
+新叢集 lane **`mimo26flash`**：Xiaomi MiMo-V2.6-Flash-**MOPD**（官方 MXFP4 QAT，
+revision `2479e2d0`）在 2×GB10 TP2 上以 vLLM + checkpoint 內建 DFlash drafter
+服務；cluster-only、互斥，對外 `aeon`、`:1234`、256K、8 併發。完整數據見
+`docs/MIMO26FLASH_TP2_2026-10-03.md`。
+
+- 配方：`tonyd2wild/MiMo-V2.6-Flash-DGX-Spark-Recipe`（MIT, `13621bb3`）；image
+  `ghcr.io/tonyd2wild/vllm-glm53-flash:sm121-v11-dflash2`（digest
+  `sha256:4def0ef6…be85a6`）；3 支 patched vLLM 源碼 + 修好的 dflash config
+  vendored 於 `patches/mimo26flash/`（bind-mount，無重建 image）。
+- **GHCR 卡關的解法（重要經驗）**：本站對 GHCR CDN 一度掉到 ~0.1–0.5 MB/s 且大層
+  反覆 `unexpected EOF`（docker 不續傳單層 → 迴圈）。改用匿名鏡像
+  **`ghcr.nju.edu.cn`**（~2–5 MB/s、支援 range），以 manifest digest 驗證與
+  ghcr.io **byte 相同**，再 `docker tag` 成 ghcr.io 名稱。`IMG_SHA256` 仍可 pin。
+- Model：HF 下載 5h34m（~8–9 MB/s），node0 完成後 rsync 到 node1（CX7 ~350 MB/s）；
+  `SHA256SUMS` 154 行，4 檔與 HF LFS sha256 交叉驗證 PASS。
+- `cluster-common.sh` 擴充：`BATCHED` / `ENABLE_CHUNKED_PREFILL` / prefix caching
+  **未設即不帶旗標**，讓本 lane 完全對齊 recipe；既有 5 lane 渲染逐 byte 不變（已驗）。
+- 冷啟 ~16 分（權重 11m18s、engine init 117s）；**KV cache 2,337,906 tokens、
+  262144 每請求最大併發 8.92x**（8 併發 256K 裝得下，GMU 0.90）。
+- `gb10 smoke` PASS（`HELLO-TP2-OK`）。bench：fixed-length `bench-c` C1 21.1 →
+  C8 **67.9** tok/s；`bench-ctx` cold 32K **1553.7** / 131K **1015.4** / 245K
+  **724.3** tok/s。
+- 待辦：MOPD 的 tool-call repetition A/B（MOPD 的存在理由）尚未量測；multimodal
+  尚未接（text-only 先行）；NVFP4 版列後續評估。
 
 ## 2026-09-20 — DeepSeek V4 Flash Vision-Exp lane 上線（本次重點）
 
