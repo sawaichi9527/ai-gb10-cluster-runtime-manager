@@ -190,7 +190,13 @@ build_vllm_args(){
     --kv-cache-dtype "${KV_DTYPE:-fp8_e4m3}"
     --max-model-len "${MAXLEN}"
     --max-num-seqs "${NUMSEQ}"
-    --max-num-batched-tokens "${BATCHED}"
+  )
+  # --max-num-batched-tokens is profile-optional: when BATCHED is unset the
+  # loader omits the flag and vLLM picks its own default (some recipes, e.g.
+  # mimo26flash, are tuned without it). Splitting the array here keeps the
+  # emitted argv byte-identical for every profile that does set BATCHED.
+  [[ -n "${BATCHED:-}" ]] && VLLM_ARGS+=(--max-num-batched-tokens "${BATCHED}")
+  VLLM_ARGS+=(
     --gpu-memory-utilization "${GMU}"
   )
   # Quantization flag is profile-overridable (data stays in the conf).
@@ -211,9 +217,18 @@ build_vllm_args(){
   [[ -n "${ATTN_BACKEND:-}" ]] && VLLM_ARGS+=(--attention-backend "${ATTN_BACKEND}")
   [[ -n "${LINEAR_BACKEND:-}" ]] && VLLM_ARGS+=(--linear-backend "${LINEAR_BACKEND}")
   [[ -n "${MOE_BACKEND:-}" ]] && VLLM_ARGS+=(--moe-backend "${MOE_BACKEND}")
-  [[ "${ENABLE_CHUNKED_PREFILL:-true}" == "true" ]] && VLLM_ARGS+=(--enable-chunked-prefill)
-  [[ "${ENABLE_PREFIX_CACHING:-false}" == "true" ]] && VLLM_ARGS+=(--enable-prefix-caching) \
-    || VLLM_ARGS+=(--no-enable-prefix-caching)
+  # Chunked prefill / prefix caching are profile-optional: when unset the loader
+  # emits neither flag and vLLM's own default applies (both default on in v1).
+  # Set them explicitly to pin: "true"/"false". Every current profile sets both,
+  # so this stays a no-op for them (byte-identical render).
+  [[ "${ENABLE_CHUNKED_PREFILL:-}" == "true" ]] && VLLM_ARGS+=(--enable-chunked-prefill)
+  if [[ -n "${ENABLE_PREFIX_CACHING:-}" ]]; then
+    if [[ "${ENABLE_PREFIX_CACHING}" == "true" ]]; then
+      VLLM_ARGS+=(--enable-prefix-caching)
+    else
+      VLLM_ARGS+=(--no-enable-prefix-caching)
+    fi
+  fi
   # Compilation config: a profile-owned raw COMPILATION_JSON wins verbatim
   # (e.g. the qwen38flash eager recipe: {"mode":0,"cudagraph_mode":"FULL_DECODE_ONLY"}).
   # Otherwise the base template, with optional profile-owned PASS_CONFIG
