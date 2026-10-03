@@ -83,7 +83,12 @@ revision `2479e2d0`）在 2×GB10 TP2 上以 vLLM + checkpoint 內建 DFlash dra
   trigger）實測，**所有 run 零重複呼叫、每回應中位 2 calls（最多一次 9 個不重複
   calls）**，對照 RL 文件記載的 148/446 重複、659–709 calls → MOPD 的修復成立
   （caveat：合成 trigger，非 recipe 的 captured body，非受控 MOPD-vs-RL A/B）。
-- 待辦：multimodal 尚未接（text-only 先行）；NVFP4 版列後續評估。
+- Multimodal（2026-10-03 啟用）：掛載預建的 `soundfile`+`PyAV`（`${STACK_DIR}/pyextra`
+  → `/cache/pyextra` + `PYTHONPATH`）並設 `--limit-mm-per-prompt {image:16,video:1,audio:4}`。
+  實測 `scripts/bench-mm-mimo.py`：**image 正確**（形狀/顏色/文字）、**audio 兩種格式正確**
+  （轉錄出 password）、**video** object/color 正確、方向判讀為「對角」略有偏差。
+  image 吞吐 `bench-mm.sh`：C=1 22.5 / C=4 62.9 tok/s。
+- 待辦：NVFP4 版列後續評估；GMU 0.90 餘裕待 soak 觀察。
 
 ## 2026-09-20 — DeepSeek V4 Flash Vision-Exp lane 上線（本次重點）
 
