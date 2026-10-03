@@ -79,8 +79,11 @@ revision `2479e2d0`）在 2×GB10 TP2 上以 vLLM + checkpoint 內建 DFlash dra
 - `gb10 smoke` PASS（`HELLO-TP2-OK`）。bench：fixed-length `bench-c` C1 21.1 →
   C8 **67.9** tok/s；`bench-ctx` cold 32K **1553.7** / 131K **1015.4** / 245K
   **724.3** tok/s。
-- 待辦：MOPD 的 tool-call repetition A/B（MOPD 的存在理由）尚未量測；multimodal
-  尚未接（text-only 先行）；NVFP4 版列後續評估。
+- Tool-call repetition（MOPD 的存在理由）：以 `scripts/bench-toolcalls.py`（重建
+  trigger）實測，**所有 run 零重複呼叫、每回應中位 2 calls（最多一次 9 個不重複
+  calls）**，對照 RL 文件記載的 148/446 重複、659–709 calls → MOPD 的修復成立
+  （caveat：合成 trigger，非 recipe 的 captured body，非受控 MOPD-vs-RL A/B）。
+- 待辦：multimodal 尚未接（text-only 先行）；NVFP4 版列後續評估。
 
 ## 2026-09-20 — DeepSeek V4 Flash Vision-Exp lane 上線（本次重點）
 
