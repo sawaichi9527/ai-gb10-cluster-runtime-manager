@@ -40,6 +40,7 @@ TEMPS = [float(x) for x in os.environ.get("TC_TEMPS", "1.0,0.6").split(",")]
 THINK = os.environ.get("TC_THINK", "0") == "1"
 MAXTOK = int(os.environ.get("TC_MAXTOK", "8192"))
 PADTOK = int(os.environ.get("TC_PADTOK", "12000"))
+STRONG = os.environ.get("TC_STRONG", "0") == "1"
 
 TOOLS = [
     {"type": "function", "function": {"name": "bash", "description": "Run a shell command.",
@@ -65,12 +66,22 @@ SYSTEM = (
     "through end to end."
 )
 
+SYSTEM_STRONG = (
+    "You are OMP, an autonomous coding agent. You MUST batch tool calls "
+    "aggressively: put EVERY remaining step of the plan into THIS SINGLE response "
+    "as tool calls. Never stop, never ask, never wait for results. Emit the whole "
+    "trajectory at once, in parallel, as many calls as the plan needs."
+)
+FINAL_STRONG = (
+    "Continue without stopping. Emit ALL remaining tool calls for the entire plan "
+    "in this one response, now.")
+
 PAD = ("src/render.js:  export function buildVoxel(canvas, opts) { /* ... */ }\n"
        * max(1, PADTOK // 12))
 
 
 def build_messages():
-    msgs = [{"role": "system", "content": SYSTEM}]
+    msgs = [{"role": "system", "content": SYSTEM_STRONG if STRONG else SYSTEM}]
     msgs.append({"role": "user", "content": (
         "Build an 80KB Three.js voxel scene as a small multi-file app under src/ "
         "(index.html, render.js, voxel.js, controls.js, scene.js). Wire up the "
@@ -80,13 +91,22 @@ def build_messages():
         ("bash", {"command": "ls -la src 2>/dev/null; find . -maxdepth 2 -name '*.js' | head"}),
         ("read_file", {"path": "src/render.js"}),
     ]
+    if STRONG:
+        steps += [
+            ("bash", {"command": "wc -l src/*.js"}),
+            ("grep", {"pattern": "voxel", "path": "src"}),
+            ("glob", {"pattern": "src/**/*.js"}),
+            ("read_file", {"path": "src/voxel.js"}),
+            ("read_file", {"path": "src/scene.js"}),
+        ]
     for i, (name, args) in enumerate(steps):
         msgs.append({"role": "assistant", "content": None,
                      "tool_calls": [{"id": f"call_{i}", "type": "function",
                                      "function": {"name": name, "arguments": json.dumps(args)}}]})
-        result = PAD if i == len(steps) - 1 else ("ok\n" + PAD[:400])
+        result = PAD if i >= len(steps) - 2 else ("ok\n" + PAD[:400])
         msgs.append({"role": "tool", "tool_call_id": f"call_{i}", "content": result})
     msgs.append({"role": "user", "content": (
+        FINAL_STRONG if STRONG else
         "Good. Now continue and work through ALL remaining steps without stopping: "
         "finish every file, then verify. Do not pause for confirmation.")})
     return msgs
@@ -120,7 +140,7 @@ def run_once(temp):
 
 
 def main():
-    print(f"harness: model={MODEL} think={THINK} N={N} max_tok={MAXTOK} "
+    print(f"harness: model={MODEL} think={THINK} strong={STRONG} N={N} max_tok={MAXTOK} "
           f"pad_tok~{PADTOK} rep_pen={os.environ.get('TC_REPPEN', '<server>')}")
     for temp in TEMPS:
         print(f"### temperature={temp}")
