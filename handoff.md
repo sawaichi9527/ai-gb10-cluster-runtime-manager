@@ -88,7 +88,10 @@ revision `2479e2d0`）在 2×GB10 TP2 上以 vLLM + checkpoint 內建 DFlash dra
   實測 `scripts/bench-mm-mimo.py`：**image 正確**（形狀/顏色/文字）、**audio 兩種格式正確**
   （轉錄出 password）、**video** object/color 正確、方向判讀為「對角」略有偏差。
   image 吞吐 `bench-mm.sh`：C=1 22.5 / C=4 62.9 tok/s。
-- 待辦：NVFP4 版列後續評估；GMU 0.90 餘裕待 soak 觀察。
+- GMU 0.90 評估（2026-10-04）：C=8 soak + C=4×32K prefill 全程，node0 MemAvailable
+  最低 6.23 GiB、node1 7.39 GiB，swap 無增長、未重啟 → **0.90 安全，無需調降**。
+- NVFP4：下載 `ProCreations/MiMo-V2.6-Flash-MOPD-NVFP4`（W4A16，排除 gguf/，~199GB）
+  進行中；其 vLLM 支援性評估為後續步驟。
 
 ## 2026-09-20 — DeepSeek V4 Flash Vision-Exp lane 上線（本次重點）
 
