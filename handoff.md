@@ -112,6 +112,20 @@ revision `2479e2d0`）在 2×GB10 TP2 上以 vLLM + checkpoint 內建 DFlash dra
   即警告改走 Marlin weight-only fallback。**現役＝MXFP4**；回 NVFP4 只需改
   `BODY_REL`+`DISPLAY_NAME` 後 `gb10 use`。詳見
   `docs/MIMO26FLASH_TP2_2026-10-03.md` §11。
+- **DFlash cliff 探測（2026-10-05）＝兩變體皆過**：Plaaasma 報的 1024-token
+  滑窗 NaN cliff（drafter/target KV dtype 不一致觸發）在本棧無法重現。工具
+  `node0:/tmp/dflash-cliff.sh`（長 `ignore_eos` 生成期間每 2s 抓 `spec_decode`
+  Prometheus 指標對 token index 看接受率）：counting 2500tok/temp0 兩變體接受率
+  **7.000/8 恆定**（NVFP4 與 MXFP4 位元相同的 313 steps / 2191 acc）、essay
+  3000tok/temp0.8 過 1024 無崩塌，engine log 0 NaN。400-tok 的 bench 抓不到
+  cliff，`>1070 tok` 接受率是 image/draft 變更後的常設回歸檢查。
+- **最終決定（2026-10-05）＝留在 MXFP4**（`dc49051` 切 NVFP4 探測後切回）。
+  理由：容量 +41%（8.81x 撐得起 NUMSEQ=8）、decode 差距多在噪聲內（僅 C8 是
+  MX 明確贏）、官方 QAT + SHA256SUMS 已驗證 + 磁碟省 21GB/節點；NVFP4 唯一紮實
+  優勢 prefill (+12~28%)，留作一鍵切換。Patch 01 upstream 狀態（research
+  2026-10-05）：QKV/`ckpt_tp` 半邊 = vLLM #57508 同款但 image stock 未含 →
+  MXFP4 上仍必要、image 升級後才可刪；`cache_config`/`sliding_window` 兩處兩
+  變體皆 load-bearing 且 upstream main 仍無對應 → 無論如何都要掛。
 
 ## 2026-09-20 — DeepSeek V4 Flash Vision-Exp lane 上線（本次重點）
 
