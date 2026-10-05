@@ -11,6 +11,14 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 
 ## Deployed services & benchmark results (latest image)
 
+> **2026-10-05 現況。** **現役 lane 切回 `deepseek`**（13:32 boot、t+8m READY、smoke
+> `HELLO-TP2-OK`、KV 11.01 GiB）。10-03 上線的新 lane **`mimo26flash`**（MiMo V2.6 Flash
+> MOPD，TP2 vLLM+DFlash，詳見其章節）完成 **NVFP4 變體評估 + 完整 A/B + DFlash cliff 探測**
+> 後**定案 MXFP4** 並交還執行權：NVFP4 唯一紮實優勢是 prefill（+12~28%），MXFP4 勝在容量
+> （+41% KV、8.81x@256K 撐得起 NUMSEQ=8）、官方 QAT + SHA256SUMS 與磁碟（−21GB/節點），
+> decode 差距多在噪聲內；cliff 探測兩變體皆過（1024-token 滑窗後接受率不崩、0 NaN）。
+> 完整證據見 [`docs/MIMO26FLASH_TP2_2026-10-03.md`](docs/MIMO26FLASH_TP2_2026-10-03.md)（§7 延後調優、§11）。
+>
 > **2026-09-29 現況。** qwen38flash 於當日對齊上游並重新驗證（GMU 0.835→0.80、prefix caching
 > ON + vllm#53388 block-drop、deterministic greedy 預設 ON；見其章節）；**當日稍晚以
 > `gb10 use deepseek` 切回 DeepSeek 0731 mainline**（見下方「現役」）；其餘 lane 仍為
@@ -49,13 +57,15 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 | 27B cluster (TP2) | 同上 | `2026-09-18-v0.29.0-omni` | `http://192.168.23.215:1234/v1` | deployed（09-19 實測） |
 | 35B single (TP1) | `qwen3.6-35b-a3b-heretic-nvfp4` + DFlash n=6 | `2026-09-18-v0.29.0-omni` | `:1234/v1` | deployed（09-19 實測） |
 | 35B cluster (TP2) | 同上 | `2026-09-18-v0.29.0-omni` | `http://192.168.23.215:1234/v1` | deployed（09-19 實測） |
-| DeepSeek V4 Flash cluster (TP2) | `deepseek-v4-flash-0731-official` + DSpark n=7 | `anemll/dspark-vllm-gx10:0.1.1` | `http://192.168.23.215:1234/v1` | **← 現役（09-29 切換）**：KV 12.15 GiB、smoke `HELLO-TP2-OK` |
+| DeepSeek V4 Flash cluster (TP2) | `deepseek-v4-flash-0731-official` + DSpark n=7 | `anemll/dspark-vllm-gx10:0.1.1` | `http://192.168.23.215:1234/v1` | **← 現役（10-05 由 mimo26flash 切回）**：KV 11.01 GiB、smoke `HELLO-TP2-OK` |
 | DeepSeek V4 Flash **Vision-Exp** cluster (TP2) | `deepseek-v4-flash-vision-exp` + DSpark n=6 (multimodal) | `anemll/dspark-vllm-gx10:0.1.1`（**與 deepseek 同 image / 同 digest**） | `http://192.168.23.215:1234/v1` | deployed（09-20 實測，文字＋圖片） |
 | Qwen3.8 Flash-Next **125B** cluster (TP2+EP) | `qwen3.8-flash-next-nvfp4`（ModelOpt NVFP4）+ 內建 MTP n=3 | `vllm/vllm-openai:qwen38-flash-next` | `http://192.168.23.215:1234/v1` | deployed（09-29 重新驗證）：GMU 0.80／prefix caching ON／determinism 預設 ON |
+| MiMo V2.6 Flash **MOPD** cluster (TP2) | `mimo-v2.6-flash-mopd`（官方 MXFP4 QAT）+ DFlash2 n=7 | `tonyd2wild/vllm-glm53-flash:sm121-v11-dflash2` | `http://192.168.23.215:1234/v1` | deployed（10-03 上線；**10-05 定案 MXFP4**，NVFP4 A/B + cliff 探測見下） |
 
-> **現役（2026-09-29）＝ deepseek**（DeepSeek V4 Flash 0731 mainline；`:1234` READY、
-> KV 12.15 GiB、`gb10 smoke` = `HELLO-TP2-OK`；`gb10 use deepseek` 由 qwen38flash 切換，
-> cold boot 約 7.5 分）。TP2 各 lane **互斥**，同一時間只有一條在線；其他列的 `deployed`
+> **現役（2026-10-05）＝ deepseek**（DeepSeek V4 Flash 0731 mainline；`:1234` READY、
+> KV 11.01 GiB、`gb10 smoke` = `HELLO-TP2-OK`；`gb10 use deepseek` 由 `mimo26flash` 切回，
+> cold boot 約 8 分。`mimo26flash` 自 10-03 上線、10-05 13:32 交還執行權）。
+> TP2 各 lane **互斥**，同一時間只有一條在線；其他列的 `deployed`
 > 表示**已部署並實測過**，非同時運行。
 
 ### 27B v0.29.0-omni (bench-c C1-C8, MAX_TOKENS=2048; 245k cold prefill) — 2026-09-19
@@ -297,6 +307,50 @@ caching 已開，且較長探針天然是較短者的前綴，不除霧會嚴重
 > PLE CPU offload 是**單節點**功能；本 lane 維持 `PLE_OFFLOAD=false`（配方預設），
 > `ULIMITS` profile 欄位仍為通用能力（實測 `nofile=1048576` 確實套用）。
 
+### MiMo V2.6 Flash MOPD (TP2, vLLM + DFlash) — 2026-10-03 上線；2026-10-05 定案 MXFP4
+
+> `cluster-profiles.d/mimo26flash.conf`：Xiaomi 官方 **MXFP4 QAT** MOPD checkpoint（RL/base
+> 的 tool-call 重複問題的官方修復版）+ community image `tonyd2wild/vllm-glm53-flash:sm121-v11-dflash2`
+> （vLLM fork，pin manifest digest）+ **DFlash2 n=7**（drafter 內嵌於 checkpoint 的 `dflash/`）。
+> **256K ctx / 8-way、GMU 0.90、prefix caching ON**、`--kv-cache-dtype fp8`、MoE `marlin`；
+> 三支 vendored patch bind-mount 於 `patches/mimo26flash/`（image 內建 `mimo_v2.py` 缺
+> `cache_config`/`sliding_window` 修正 + ckpt_tp QKV 分片，見 docs §2/§11）。cluster-only、
+> exclusive；model id `aeon`。**TP2-only**（178GB 權重放不進單節點，無 gb10-single lane）。
+
+Decode（`bench-c.sh` + `BENCH_IGNORE_EOS=1`，每 stream 恰好 400 tok）與冷 prefill —
+2026-10-03 實測：
+
+| C | 1 | 2 | 4 | 8 |
+|---|---|---|---|---|
+| aggregate tok/s | 21.1 | 33.9 | 49.1 | **67.9** |
+
+| prefill (`BENCH_COLD=1`) | 32K | 131K | 245K |
+|---|---|---|---|
+| tok/s | 1,553.7 | 1,015.4 | 724.3 |
+
+#### NVFP4 變體 A/B + 定案（2026-10-05，單一變量＝只 flip `BODY_REL`）
+
+`ProCreations/MiMo-V2.6-Flash-MOPD-NVFP4`（W4A16，同 MOPD 檢查點的第三方重轉）評估通過
+（smoke/tool-call/多模態全過），與 MXFP4 同 harness 各跑 `scripts/bench-ab.sh`：
+
+| | MXFP4 | NVFP4 | 勝方 |
+|---|---|---|---|
+| 冷 prefill 32K/131K/245K | 1552.8 / 1010.6 / 722.9 | **1995.0 / 1190.5 / 809.8**（+12~28%） | **NVFP4**（超噪聲） |
+| decode C1 / C2 | 18.1 / 33.9 | 23.3 / 37.3 | NVFP4（邊緣，範圍重疊） |
+| decode C4 / C8 | 53.3 / **62.2** | 42.6 / 55.7 | MXFP4（僅 C8 超噪聲） |
+| KV tokens @256K 併發 | **2,310,732 / 8.81x** | 1,366,981 / 5.21x | **MXFP4**（+41%） |
+| SHA256SUMS / 磁碟 | **有 / 177.8 GB** | 無（boot WARN）/ 198.83 GB | **MXFP4** |
+
+> **定案（2026-10-05）＝ MXFP4**：GB10 無原生 FP4（vLLM boot 即警告走 Marlin weight-only），
+> NVFP4 只買到 prefill/低併發的權重讀取優勢、卻以 41% KV 容量與官方 QAT+SHA256SUMS 為代價。
+> 回 NVFP4 只需 flip `BODY_REL`+`DISPLAY_NAME` + `gb10 use`。
+>
+> **DFlash cliff 探測（同日）兩變體皆過**：Plaaasma 報的 1024-token 滑窗 NaN cliff 在本棧
+> 無法重現（`>1070 tok` 長生成接受率不崩、engine 0 NaN）；400-tok bench 抓不到此類問題，
+> image/draft 變更後應以 `node0:/tmp/dflash-cliff.sh` 重跑。延後調優 C/D/E（
+> `repetition_penalty 1.05` A/B、`--long-prefill-token-threshold 2048`、tool-parser truncation）
+> 見 docs §7。完整報告：[`docs/MIMO26FLASH_TP2_2026-10-03.md`](docs/MIMO26FLASH_TP2_2026-10-03.md)。
+
 ## Topology
 
 ```text
@@ -330,7 +384,7 @@ Node0 reaches it over ssh. Node1 only needs the image + model dirs + sudo docker
 ## Cluster CLI — `gb10`
 
 ```bash
-gb10 list                     # profile list (27b/35b/deepseek/deepseek-vision/qwen38flash)
+gb10 list                     # profile list (27b/35b/deepseek/deepseek-vision/qwen38flash/mimo26flash)
 gb10 use 27b                  # default; TP2 up (cold ~7-15 min), waits /health
 gb10 use 35b                  # switch exclusive cluster profile
 gb10 use qwen38flash          # cluster-only lane (determinism on by default)
@@ -344,10 +398,10 @@ gb10 load                     # concurrent load
 gb10 doctor
 ```
 
-Current deployed TP2 profiles are 27B, 35B, DeepSeek (mainline 0731), DeepSeek Vision-Exp
-and **qwen38flash** (all data-driven from `cluster-profiles.d/`). `qwen38flash` is
-**cluster-only** — it has no single-node lane (the `runtimes.d/qwen38flash.conf`
-placeholder was removed 2026-09-20, and so was `glm53flash.conf`).
+Current deployed TP2 profiles are 27B, 35B, DeepSeek (mainline 0731), DeepSeek Vision-Exp,
+**qwen38flash** and **mimo26flash** (all data-driven from `cluster-profiles.d/`). The last two are
+**cluster-only** — no single-node lane (the `runtimes.d/qwen38flash.conf` placeholder was removed
+2026-09-20, and so was `glm53flash.conf`; `mimo26flash` never had one — its weights are TP2-only).
 
 ### TP2 profile registry (completed 2026-09-05)
 
@@ -362,6 +416,8 @@ cluster-profiles.d/
   deepseek-vision.conf  # deployed + live-validated (Vision-Exp, same image as deepseek)
   qwen38flash.conf  # deployed + live-validated (Qwen3.8 Flash-Next 125B NVFP4 TP2+EP,
                     # cluster-only; see its section for the 2026-09-29 realignment)
+  mimo26flash.conf  # deployed + live-validated (MiMo V2.6 Flash MOPD MXFP4 + DFlash2,
+                    # cluster-only; BODY_REL flips MXFP4/NVFP4 — see its section)
 ```
 
 Each conf carries the **profile-scoped image** and per-model vLLM arguments, loaded once by
@@ -454,6 +510,7 @@ cluster.env.example cluster/site config template (NEVER commit real values)
                     aeon-vllm-omni (27b/35b) · anemll-dspark-vllm-gx10 (deepseek)
                     anemll-dspark-vllm-gx10-miaFlaver (deepseek-vision)
                     mia-vllm-openai-qwen38flashNext (qwen38flash)
+                    tonyd2wild-vllm-mimo26flash (mimo26flash)
     docker-compose.<profile>.yml            (cluster-only lanes, materialized)
     docker-compose-<profile>-cluster.yml    (lanes that also run single: 27b/35b)
     docker-compose-<profile>-single.yml
@@ -483,7 +540,7 @@ cluster.env.example cluster/site config template (NEVER commit real values)
 
 - **`state/last-cluster-profile`** — 由 `bin/gb10` 寫入／讀取。
   - **寫入**：`use`／`start`／`restart` 啟動一個 cluster profile 的背景 boot 後，寫入該
-    profile ID（僅限 27b/35b/deepseek/deepseek-vision/qwen38flash；placeholder profile
+    profile ID（僅限 27b/35b/deepseek/deepseek-vision/qwen38flash/mimo26flash；placeholder profile
     不會寫入，因為它不會啟動任何 container）。檔案在 `.gitignore` 內，屬執行期產物，
     不會讓 `check-git-sync.sh` 的乾淨樹判定失敗。
   - **讀取**：`restart` 未指定 profile 時回退到此值
