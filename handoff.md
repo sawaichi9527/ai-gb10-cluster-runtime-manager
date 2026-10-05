@@ -7,7 +7,7 @@
 
 ## 目前狀態（本機 checkout）
 
-- 分支：`main`，HEAD = 本檔所在的 commit（`git log -1`）；最新正式版本 tag = **`v1.3.4`**（`a92d2bc`；`v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、`v1.3.3`→`9bb2006`）。早期：2026-09-20 session 共 22 個 commit `a1cba34`…`79a79cb`，其後為本檔的 sync commit。live lane = **`deepseek`**（**2026-10-05 13:32** 由 `mimo26flash` 切回，t+8m READY / smoke OK / KV 11.01 GiB；`mimo26flash` 自 10-03 上線做 NVFP4 A/B + cliff 探測，**權重定案 MXFP4** 待命，見 `docs/…2026-10-03.md` §11）
+- 分支：`main`，HEAD = 本檔所在的 commit（`git log -1`）；最新正式版本 tag = **`v1.4.0`**（`6aff00d`；`v1.3.4`→`a92d2bc`、`v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、`v1.3.3`→`9bb2006`）。早期：2026-09-20 session 共 22 個 commit `a1cba34`…`79a79cb`，其後為本檔的 sync commit。live lane = **`deepseek`**（**2026-10-05 13:32** 由 `mimo26flash` 切回，t+8m READY / smoke OK / KV 11.01 GiB；`mimo26flash` 自 10-03 上線做 NVFP4 A/B + cliff 探測，**權重定案 MXFP4** 待命，見 `docs/…2026-10-03.md` §11）
 - 同步狀態：**本機＝Forgejo（origin，`829522`）＝GitHub（`sawaichi9527`）＝node0 已 pull**（四方同一 commit；node0 live lane = **`deepseek`**（10-05 切回）；`mimo26flash` 定案 **MXFP4**、一鍵可切回）
 - `handoff.md` 已納版控（`37bee4c` 起；本次更新亦將 commit）
 - `.gitignore` 已覆蓋 `config/cluster.env`、`state/last-runtime`、logs、`*.bak-*`
@@ -535,9 +535,18 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
   仍 `2026-09-18-v0.29.0-omni`、四個 HF 來源自 09-19 起皆無更新）。README 首頁同步兩則 dated note。
   **無 runtime／profile／程式碼變更**。含本日前述 `v1.3.3` tag 與其 Release 的紀錄 commit（`0869c39`／`6fa388b`）。
   **GitHub Release 已建**（`id 399699345`，比照 v1.3.1／v1.3.2／v1.3.3；以 API + 本機 GCM 憑證，**未寫入任何檔案**）。
+- **`v1.4.0`（2026-10-05，新 lane — minor bump）**：`6aff00d` —— 自 v1.3.4 起 24 個
+  commit 全為 `mimo26flash`：① lane 上線（`b553426`..`2a0e433`：MXFP4 QAT + tonyd2wild
+  image + DFlash2 n=7、三 patch、256K/8-way、GMU 0.90、TP2-only）② 驗證（tool-call 重複
+  探測零重複；multimodal image/audio/video 全過）③ NVFP4 變體 A/B（`scripts/bench-ab.sh`：
+  prefill NVFP4 +12~28%、容量 MXFP4 +41%、decode 差距多在噪聲內）④ DFlash cliff 探測
+  **兩變體皆過** → **定案 MXFP4**，patch 01 upstream 狀態與延後調優 C/D/E 註記（docs §7/§11）
+  ⑤ README/handoff 同步（現役切回 `deepseek`）。annotated tag 打於 `6aff00d`（本記錄
+  commit 之前，比照 v1.3.x 慣例）。**GitHub Release 已建**（`id 403407422`，比照
+  v1.3.1～v1.3.4；以 API + 本機 GCM 憑證，**未寫入任何檔案**）。
 - **tag 現況**：`v1.0.0`→`496c9b1`、`v1.1.0`→`71ccf20`、`v1.2.0`→`ffd02ea`、
   `v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、`v1.3.3`→`9bb2006`、
-  **`v1.3.4`→`a92d2bc`**。
+  `v1.3.4`→`a92d2bc`、**`v1.4.0`→`6aff00d`**。
 
 ### qwen38flash 對齊上游 + 冷啟驗證（2026-09-29）
 
