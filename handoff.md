@@ -90,8 +90,10 @@ revision `2479e2d0`）在 2×GB10 TP2 上以 vLLM + checkpoint 內建 DFlash dra
   image 吞吐 `bench-mm.sh`：C=1 22.5 / C=4 62.9 tok/s。
 - GMU 0.90 評估（2026-10-04）：C=8 soak + C=4×32K prefill 全程，node0 MemAvailable
   最低 6.23 GiB、node1 7.39 GiB，swap 無增長、未重啟 → **0.90 安全，無需調降**。
-- NVFP4：下載 `ProCreations/MiMo-V2.6-Flash-MOPD-NVFP4`（W4A16，排除 gguf/，~199GB）
-  進行中；其 vLLM 支援性評估為後續步驟。
+- NVFP4：`ProCreations/MiMo-V2.6-Flash-MOPD-NVFP4`（W4A16，排除 gguf/，198.83GB）
+  已下載**並**同步到 node1（CX7 rsync 329MB/s，9m35s），node0/node1 各一份、
+  SHA256 抽驗皆 MATCH。**TP2-only**（194GB 權重放不進單節點 121.69GiB，無
+  gb10-single 變體）；其 vLLM 支援性評估為後續步驟。
 
 ## 2026-09-20 — DeepSeek V4 Flash Vision-Exp lane 上線（本次重點）
 
