@@ -7,8 +7,8 @@
 
 ## 目前狀態（本機 checkout）
 
-- 分支：`main`，HEAD = 本檔所在的 commit（`git log -1`）；最新正式版本 tag = **`v1.3.4`**（`a92d2bc`；`v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、`v1.3.3`→`9bb2006`）。早期：2026-09-20 session 共 22 個 commit `a1cba34`…`79a79cb`，其後為本檔的 sync commit。live lane = **`mimo26flash`**（2026-10-03 MiMo V2.6 Flash MOPD 上線，2026-10-05 起權重改 NVFP4；此前 2026-09-29 起為 `deepseek`）
-- 同步狀態：**本機＝Forgejo（origin，`829522`）＝GitHub（`sawaichi9527`）＝node0 已 pull**（四方同一 commit；node0 live lane = **`mimo26flash`**（2026-10-03 切換；**2026-10-05 起權重為 NVFP4 變體**））
+- 分支：`main`，HEAD = 本檔所在的 commit（`git log -1`）；最新正式版本 tag = **`v1.3.4`**（`a92d2bc`；`v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、`v1.3.3`→`9bb2006`）。早期：2026-09-20 session 共 22 個 commit `a1cba34`…`79a79cb`，其後為本檔的 sync commit。live lane = **`mimo26flash`**（2026-10-03 MiMo V2.6 Flash MOPD 上線，權重 **MXFP4**；2026-10-05 曾切 NVFP4 評估後切回，兩變體 A/B 見 `docs/…2026-10-03.md` §11；此前 2026-09-29 起為 `deepseek`）
+- 同步狀態：**本機＝Forgejo（origin，`829522`）＝GitHub（`sawaichi9527`）＝node0 已 pull**（四方同一 commit；node0 live lane = **`mimo26flash`**（2026-10-03 切換；權重 = **MXFP4**，NVFP4 已評估後切回））
 - `handoff.md` 已納版控（`37bee4c` 起；本次更新亦將 commit）
 - `.gitignore` 已覆蓋 `config/cluster.env`、`state/last-runtime`、logs、`*.bak-*`
 
@@ -78,7 +78,9 @@ revision `2479e2d0`）在 2×GB10 TP2 上以 vLLM + checkpoint 內建 DFlash dra
   262144 每請求最大併發 8.92x**（8 併發 256K 裝得下，GMU 0.90）。
 - `gb10 smoke` PASS（`HELLO-TP2-OK`）。bench：fixed-length `bench-c` C1 21.1 →
   C8 **67.9** tok/s；`bench-ctx` cold 32K **1553.7** / 131K **1015.4** / 245K
-  **724.3** tok/s。（← **MXFP4 基準**，2026-10-03；現役已是 NVFP4，數字見下）
+  **724.3** tok/s。（← MXFP4 初測，2026-10-03；**2026-10-05 的正規 A/B
+  3×取中位數數字見下**，同為 MXFP4：C1 18.1 / C2 33.9 / C4 53.3 / C8 62.2，
+  prefill 32K 1552.8 / 131K 1010.6 / 245K 722.9）
 - Tool-call repetition（MOPD 的存在理由）：以 `scripts/bench-toolcalls.py`（重建
   trigger）實測，**所有 run 零重複呼叫、每回應中位 2 calls（最多一次 9 個不重複
   calls）**，對照 RL 文件記載的 148/446 重複、659–709 calls → MOPD 的修復成立
@@ -94,14 +96,22 @@ revision `2479e2d0`）在 2×GB10 TP2 上以 vLLM + checkpoint 內建 DFlash dra
   已下載**並**同步到 node1（CX7 rsync 329MB/s，9m35s），node0/node1 各一份、
   SHA256 抽驗皆 MATCH。**TP2-only**（194GB 權重放不進單節點 121.69GiB，無
   gb10-single 變體）。
-- **NVFP4 評估（2026-10-05）＝已上線**：只改 `BODY_REL` 一項（commit `5ffbf9d`），
-  其餘欄位與三支 patch 全不動。冷啟 ~16 分、`gb10 smoke` PASS、tool-call /
-  multimodal 皆正常；vLLM 認得 `modelopt_mixed`、MoE 走 MARLIN、DiffKV 照舊。
-  對照 MXFP4：**prefill 較快**（32K 1553.7→**2001.6**、245K 724.3→**809.7** tok/s）、
-  **decode 較慢**（C4 49.1→**37.2**、C8 67.9→**62.9**）、**KV 16.24→10.58 GiB
-  （9.28x→5.21x @256K）**、consumed 85.95→91.63 GiB。原因：GB10 無原生 FP4，
-  vLLM 啟動即警告改用 Marlin weight-only fallback。MXFP4 目錄保留，回滾只
-  revert `BODY_REL`。詳見 `docs/MIMO26FLASH_TP2_2026-10-03.md` §11。
+- **NVFP4 評估（2026-10-05）＝通過，並與 MXFP4 完整 A/B**：只改 `BODY_REL` 一項
+  （`5ffbf9d` 切 NVFP4 → `b750caa` 切回 MXFP4），其餘欄位與三支 patch 全不動。
+  兩側各冷啟 ~16 分、各跑 `scripts/bench-ab.sh`（decode 固定 400tok × C=1/2/4/8 ×
+  3 輪 + 32K/131K/245K 冷 prefill）。**相容性全過**：vLLM 認得 `modelopt_mixed`、
+  MoE 走 MARLIN、DiffKV 照舊、tool-call/multimodal 皆正常；patch 01 的 `ckpt_tp`
+  QKV 分支在 NVFP4 上是死碼（qkv 已被重排成全域 Q/K/V 且降成 F32）但另外兩處
+  仍必要 → **三支 patch 照掛**。
+  **結果（decode 取中位數 / 冷 prefill）**：prefill **NVFP4 全勝**（32K
+  1552.8→**1995.0**、131K 1010.6→**1190.5**、245K 722.9→**809.8** tok/s）；decode
+  **看併發**（C1 18.1→**23.3**、C2 33.9→**37.3** NV 較快；C4 53.3→42.6、
+  C8 62.2→55.7 MX 較快）；**容量 MXFP4 明顯勝**（KV 16.71→10.58 GiB、
+  2,310,732→1,366,981 tokens、256K 併發 8.81x→**5.21x**，consumed
+  85.39→91.63 GiB，磁碟 177.8→198.83 GB）。根因是 GB10 無原生 FP4，vLLM 啟動
+  即警告改走 Marlin weight-only fallback。**現役＝MXFP4**；回 NVFP4 只需改
+  `BODY_REL`+`DISPLAY_NAME` 後 `gb10 use`。詳見
+  `docs/MIMO26FLASH_TP2_2026-10-03.md` §11。
 
 ## 2026-09-20 — DeepSeek V4 Flash Vision-Exp lane 上線（本次重點）
 
