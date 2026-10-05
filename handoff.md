@@ -126,6 +126,10 @@ revision `2479e2d0`）在 2×GB10 TP2 上以 vLLM + checkpoint 內建 DFlash dra
   2026-10-05）：QKV/`ckpt_tp` 半邊 = vLLM #57508 同款但 image stock 未含 →
   MXFP4 上仍必要、image 升級後才可刪；`cache_config`/`sliding_window` 兩處兩
   變體皆 load-bearing 且 upstream main 仍無對應 → 無論如何都要掛。
+- **緩辦調優註記（2026-10-05，非現行問題）**：C = `repetition_penalty 1.05`
+  override 的 A/B、D = `--long-prefill-token-threshold 2048` 評估、E =
+  tool-parser truncation 修正（Plaaasma kit）——三項均記錄在
+  `docs/MIMO26FLASH_TP2_2026-10-03.md` §7 open items，日後要調優再做。
 
 ## 2026-09-20 — DeepSeek V4 Flash Vision-Exp lane 上線（本次重點）
 
