@@ -142,27 +142,53 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 > Prefix caching 實測：同一 32K prompt 連兩次，第 2 次命中前綴 → prefill **16.95s → 2.30s（1938 → 14314 tok/s）**；重複同 prompt 三次輸出皆完整（無 DSpark 退化，hotfix 生效）。
 > 節點部署：vision 的 hotfix 目錄由 `cluster-up` 的 `SYNC_DIRS` 於每次 boot 從 repo 自動同步到兩節點（node1 不 host repo）。
 
-### DeepSeek V4 Flash 0731 mainline (TP2) — 2026-09-20
+### DeepSeek V4 Flash 0731 mainline (TP2) — 2026-10-06/07（E5 promote 後）
 
 > `cluster-profiles.d/deepseek.conf`：官方 `deepseek-v4-flash-0731-official` fp8 checkpoint +
-> `anemll/dspark-vllm-gx10:0.1.1`（同 Vision-Exp 的 image），DSpark n=7 greedy、256K / 8-way。
+> `anemll/dspark-vllm-gx10:0.1.1`（同 Vision-Exp 的 image），DSpark n=7 **probabilistic**、
+> 256K / 8-way、**prefix caching ON**（2026-10-06 E5 promote；見下）。
 > `bench-c` 之 prompt 約 118 tok（Vision-Exp 約 197 tok——同文字，tokenizer/chat template 差異）。
+>
+> **新基準（取代 2026-09-20 只列 C1/2/3/4/8 的單次量測，舊表見 git 歷史）**：
+> C=1…8、每格 3 次取**中位數**。harness = `scripts/bench-ab-deepseek.sh`
+> （`BENCH_IGNORE_EOS=1` 固定 400 tok/stream、`BENCH_COLD=1` prefill、外加 engine diag、
+> 3× 重複 prompt 完整性、warm 前綴命中探針 `bench-prefix-hit.sh`）。
+> 下表為 **2026-10-07 00:0x 在 production lane 上的驗收量測**（promote 後的 `deepseek.conf`）。
+> **實測雜訊底：decode ≈ ±7 %、prefill ≈ ±8 %** —— 小於此的差異不是結果。
 
-| C | 0731 tok/s | accept % |
+| C | 0731 tok/s (median of 3) | accept % |
 |---|---|---|
-| 1 | 35.7 | 25.1% |
-| 2 | 55.7 | 29.3% |
-| 3 | 45.1 | 25.4% |
-| 4 | 55.5 | 27.1% |
-| 8 | 93.1 | 28.8% |
+| 1 | 42.3 | 30.2 |
+| 2 | 56.9 | 30.1 |
+| 3 | 71.7 | 31.8 |
+| 4 | 79.8 | 30.2 |
+| 5 | 91.8 | 33.6 |
+| 6 | 99.3 | 31.5 |
+| 7 | 113.2 | 33.5 |
+| 8 | 115.7 | 30.6 |
+| **Σ** | **670.7** | 中位 **31.1** |
 
-| prefill probe (`bench-ctx.sh`, max_tokens=1) | 0731 tok/s |
+| prefill probe (`bench-ctx.sh`, `BENCH_COLD=1`, max_tokens=1) | 0731 tok/s |
 |---|---|
-| 32K | 1516.9 |
-| 131K | 1682.3 |
-| 200K | 1725.0 |
+| 32K | 1784.8 |
+| 131K | 1868.8 |
+| 200K | 1747.3 |
 
-> 觀察：C≥4 兩者吞吐相近；C=8 0731 較高（93.1 vs 73.4）；短/中長 prefill Vision-Exp 略快、200K 同級。
+> **同日 A/B 調優（E0–E5，六格、同 image、實驗期間全程不動 `deepseek.conf`）→
+> `docs/DEEPSEEK_TUNE_AB_2026-10-06.md`**：選出 **E5 =
+> `draft_sample_method=probabilistic` + prefix caching +
+> `hotfix-vllm-dspark-swa-prefix.py`**，已 promote 進 `deepseek.conf` 並在 production
+> lane 重新驗收：
+>
+> * **decode Σ 594.2 → 670.7 tok/s（+12.9 %，8 格中 7 格 ≥+10 %）**
+> * **acceptance 中位 26.9 % → 31.1 %（+4.5 pp，8/8 全正）**
+> * **暖前綴 prefill 7.6× HIT**（15.50 s → 2.03 s，2065 → 15786 tok/s），
+>   cold prefill 32K/131K/200K 落在 ±8 % 雜訊底內、啟動時間與 KV 不變
+> * gate：compose-verify（雙 rank）、smoke、3×3 完整性、261K 長文
+>   （261021 tok / 1648.2 tok/s）、garble soak 3/3、`/health 200` 全過
+>
+> **E1**（`CUDAGRAPH_CAPTURE` 8→128）與 **E4**（`VLLM_USE_BREAKABLE_CUDAGRAPH=0`）
+> 落在雜訊內已排除（E1 還要多花 16 s 啟動 + 1.9 GiB）。Winner table 與 Verdict 見該文件。
 
 ### Qwen3.8 Flash-Next 125B NVFP4 (TP2+EP, MTP3) — 2026-09-29（上游對齊＋重新驗證）
 

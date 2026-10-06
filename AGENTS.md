@@ -95,6 +95,30 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
 - **Prefix caching is DELIBERATELY OFF for the TP2 27B (DFlash2) runtime.** See
   `[REDACTED:entropy:42].md` for rationale + the pre-requisites
   (vLLM #53479/#52244/#50457/#50897/#53420/#53426) to check before a new image re-enables it.
+  **This 27B rule does NOT apply to `deepseek`** — see the next bullet.
+- **DeepSeek mainline runs E5 since 2026-10-06** (same image, profile-side only;
+  evidence `docs/DEEPSEEK_TUNE_AB_2026-10-06.md`). `cluster-profiles.d/deepseek.conf`
+  has `draft_sample_method=probabilistic` (was greedy) **and prefix caching ON**, and
+  prefix caching there is **not safe without its hotfix**: `CMD_WRAPPER` runs
+  `patches/dspark-vision/hotfix-vllm-dspark-swa-prefix.py` at container start (fail-closed),
+  the read-only dir is mounted from `${STACK_DIR}/patches`, and `SYNC_DIRS` stages it on
+  **both** nodes (node1 has no repo). Without the hotfix a prefix-cache hit leaves the
+  DSpark draft's 128-token sliding window unpopulated and the verifier accepts a
+  **truncated** answer. Measured vs the pre-promotion config: decode C1..C8 median sum
+  594.2 → **670.7** tok/s (**+12.9 %**, 7/8 cells ≥+10 %), acceptance 26.9 → **31.1 %**
+  (**+4.5 pp, 8/8 positive**), warm-prefix prefill **7.6×** (the tune-lane E5 run measured
+  655.5 / +10.3 % / 32.1 % / 8.5× — same ballpark), cold prefill/boot/memory unchanged.
+  **Production acceptance gate passed 2026-10-07 00:18**: compose-verify on both ranks,
+  `gb10 smoke`, 3×3 completeness, 261K long-context (261021 tok @ 1648 tok/s), garble soak
+  3/3, `/health` 200.
+  Two sibling knobs were measured and **rejected**: `CUDAGRAPH_CAPTURE` 8→128 (E1, +2.1 %
+  = noise but +16 s boot + 1.9 GiB graph pool) and `VLLM_USE_BREAKABLE_CUDAGRAPH=0` (E4, −1.5 %).
+  Repeatable harness: `scripts/ab-setcell.sh` (single-knob cell apply) +
+  `scripts/bench-ab-deepseek.sh` (C1..C8 ×3 medians, cold prefill, engine diag,
+  auto Δ-vs-E0) + `scripts/bench-prefix-hit.sh` (warm prefix HIT/no-hit probe with a
+  temperature=0 completeness verdict) on `cluster-profiles.d/deepseek-tune.conf`.
+  Measured noise floor from that campaign: **decode ≈ ±7 %, prefill ≈ ±8 %** — smaller
+  deltas are not results.
 - **ComfyUI is currently deployed on Node1** as `comfyui-aeon` / Flux 2 Dev. Do not revert it
   to the old `comfyui-personal` / `comfyui-work` split.
 
