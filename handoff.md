@@ -55,6 +55,84 @@ node0 對 node1 的連線（由 node0 發起）走 CX7 區網：`ssh -i ~/.ssh/i
 - **TP2 27B prefix caching 刻意關閉**（見 `docs/ADR_2026-09-01_prefix_caching_dflash2.md`）。35b 已啟用 prefix caching（`a5fcc54`）。
 - **ComfyUI** 部署在 Node1 為 `comfyui-aeon` / Flux 2 Dev；不回退 `comfyui-personal`/`comfyui-work`。
 
+## 2026-10-06/07 — DeepSeek TP2 同 image 調優 A/B（E0–E5）→ E5 promote 進主線
+
+**問題**：在 **pin 住的同一顆 image**（`anemll/dspark-vllm-gx10:0.1.1`，manifest
+`sha256:a8394849…`）之下，第三方配方（AlexLJC／twinspark／Reederey87）與主線之間還剩多少
+空間？不重建 image、不重拉 image，只動 profile／runtime 層（pull-only 規則全程守住）。
+
+**方法**：新增獨立 lane `cluster-profiles.d/deepseek-tune.conf`，**實驗期間完全不動
+`deepseek.conf`**（它同時是 production 與 rollback 目標）。一格一個旋鈕：
+`scripts/ab-setcell.sh E<n>` 先把 conf 還原成 `.base` 再套單一改動（附 anchor 斷言 +
+`bash -n` + diff 稽核，所以沒有任何一格會繼承上一格的改動）→ `cell.sh E<n>`
+（use → wait → compose-verify → smoke → bench）。六格全部冷啟動，互相可比。
+
+**量測**：`scripts/bench-ab-deepseek.sh` = C1…C8 × 3 取**中位數**
+（`BENCH_IGNORE_EOS=1`，每 stream 固定 400 tok）+ `BENCH_COLD=1` prefill 32K/131K/200K
++ **engine diag（證明旋鈕真的生效，例如 `draft_sample_method': 'probabilistic'`）** +
+3× 重複 prompt 完整性 + 自動印 Δ-vs-E0 表。
+`scripts/bench-prefix-hit.sh` = 暖前綴命中探針（同一長 prompt 不加 nonce 跑 3 輪、
+`temp=0` 檢查輸出一致性）。
+
+**實測雜訊底（重要，先講這個）**：**decode ≈ ±7 %、prefill ≈ ±8 %**。
+E0→E1→E2→E3→E4 的 131K prefill 橫跨 1741–1908 tok/s，其中兩格根本沒動 prefill 相關
+設定 —— 所以「單格大跳動」多半是假訊號（E1 的 C5 −20.5 %／C6 +14.5 % 就是）。
+只有「跨全部 8 個 C 同向」或「改變結構性 regime」才算發現。
+
+### 結果
+
+| cell | 旋鈕 | Σ tok/s | 判定 |
+|---|---|---|---|
+| E0 | 基線（≡ promote 前的 `deepseek.conf`） | 594.2 | 參照 |
+| E1 | `CUDAGRAPH_CAPTURE` 8→128 | 606.5 (+2.1 %) | ✗ 雜訊內，卻 +16 s 啟動 +1.9 GiB graph pool |
+| E2 | `draft_sample_method` greedy→probabilistic | 635.2 (+6.9 %) | ✓ acceptance **8/8 同向**（p≈0.4 %） |
+| E3 | prefix caching + SWA-prefix hotfix | 603.7 (+1.6 %) | ✓ 暖前綴 **8.8×**，decode 中性 |
+| E4 | `VLLM_USE_BREAKABLE_CUDAGRAPH=0`（inductor 重啟） | 585.2 (−1.5 %) | ✗ 雜訊內；boot 也沒變慢，純粹不賺 |
+| **E5** | **E2 + E3** | **655.5 (+10.3 %)** | **✓ 勝出** |
+
+**E5 已 promote 進 `deepseek.conf`**（使用方同意），六個改動：
+`ENABLE_PREFIX_CACHING=true`、`draft_sample_method=probabilistic`（k=7 不變）、
+`CMD_WRAPPER`（fail-closed，啟動時套 `hotfix-vllm-dspark-swa-prefix.py`）、
+`VLLM_PREFIX_CACHE_RETENTION_INTERVAL=4096`、EXTRA_MOUNTS 掛 `${STACK_DIR}/patches`
+唯讀、`SYNC_DIRS` 把 `patches/dspark-vision` 佈署到兩節點（node1 沒 repo）。
+
+### production 驗收（2026-10-07 00:18，全過）
+
+promote 後是**在 production lane 上重跑同一套 gate**（不是拿 tune lane 的數字充數）：
+
+- decode Σ **594.2 → 670.7 tok/s（+12.9 %，8 格中 7 格 ≥+10 %）**
+- acceptance 中位 **26.9 % → 31.1 %（+4.5 pp，8/8 全正）**
+- 暖前綴 **7.6× HIT**（15.50 s → 2.03 s，2065 → 15786 tok/s）
+- cold prefill 32K/131K/200K = 1785/1869/1747（±8 % 底內）
+- 261K 長文 261021 tok @ **1648 tok/s**、garble soak 3/3（`uniq_ratio` 0.70/1.00/0.83）
+- `cluster-compose-verify` 雙 rank、`gb10 smoke`、3×3 完整性、`/health 200`
+- 另外單獨驗過 promoted conf 的 render 與 E5 tune **逐字相同**：`PARITY: IDENTICAL`（跑兩次）
+
+**E3 為什麼安全（沒有 hotfix 就不能開 prefix caching）**：cache hit 會讓 DSpark draft 的
+128-token sliding window 沒有前綴，verifier 接受**截斷**答案。實測 `PREFIX-OK` 三輪
+byte 一致。**E4 是探針的對照組**：caching 關 → `1.1× no-hit`，caching 開 → `8.8× HIT`，
+同一支探針、同一 prompt 給出相反結果，所以 E3 的倍率是量測不是巧合。
+
+### 沒有做（勿過度解讀）
+
+- 品質只做了短 prompt 抽查 + 400-token garble soak，**沒有長文風格／事實性 A/B**。
+- acceptance 是固定 ~118 tok prompt 上的數字，與自由跑 `bench-c` 的 30–57 % 是**不同口徑**，
+  不要混在同張表。
+- 8.5×/7.6× 是**暖前綴**才有；首次觸發的 prefill 沒變。
+
+### 本次 commits（Forgejo `origin/main`）
+
+- `4513c3d` `feat(deepseek): same-image A/B harness + deepseek-tune lane`
+  （`ab-setcell.sh`、`bench-ab-deepseek.sh`、`bench-prefix-hit.sh`、
+  `deepseek-tune{,.base}.conf`、`bin/gb10` whitelist）
+- `434f166` `feat(deepseek): promote E5 -- probabilistic drafts + prefix caching`
+  （`deepseek.conf` 六改動 + README C1…C8 新基線 + AGENTS fact + 本 campaign 文件）
+
+**詳見**：`docs/DEEPSEEK_TUNE_AB_2026-10-06.md`（Cell plan／逐格 Results／Winner table／
+Verdict／production acceptance／limits）。
+**下次調優起點**：harness 留著，`E6` 候選 = `--long-prefill-token-threshold`、
+`--block-size 256`、`--reasoning-parser deepseek_v4`（都在 image 裡，都還沒測）。
+
 ## 2026-10-05 — `mimo26flash` 變體定案 MXFP4 + 服務切回 deepseek
 
 - **同日完成的三件事**：① DFlash cliff 探測（A，兩變體皆過）、② NVFP4↔MXFP4 完整 A/B 與
