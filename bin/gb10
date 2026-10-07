@@ -37,8 +37,10 @@ cat <<'HELP'
 gb10 - DGX Spark GB10 2-node cluster (TP2) helper
 
   gb10 list
-  gb10 use <profile>          # 27b (default) | 35b | deepseek | deepseek-tune | deepseek-vision | deepseek-vision-tune | qwen38flash | mimo26flash
+  gb10 use <profile>          # 27b (default) | 35b | deepseek | deepseek-vision | qwen38flash | mimo26flash
   gb10 start <profile>        # same as use (cluster profiles are exclusive)
+  # A/B evaluation only (NOT services): deepseek-tune, deepseek-vision-tune
+  #   accepted by use/start, but excluded from `gb10 list` service output
   gb10 stop                   # stop & remove both cluster containers
   gb10 restart [profile]      # down then background up
   gb10 wait [profile]         # foreground wait for background boot to finish
@@ -125,11 +127,17 @@ case "${1:-help}" in
     echo "  27b  [default]  Qwen3.8 27B (body + DFlash2 drafter)"
     echo "  35b             Qwen3.6 35B-A3B (body + DFlash drafter)"
     echo "  deepseek        DeepSeek-V4-Flash-0731 (fp8 DSpark mainline, 256K)"
-    echo "  deepseek-tune   DeepSeek-V4-Flash-0731 A/B lane (single-knob experiments)"
     echo "  deepseek-vision  DeepSeek-V4-Flash-Vision-Exp (vLLM multimodal, 256K)"
-    echo "  deepseek-vision-tune  DeepSeek-V4-Flash-Vision-Exp A/B lane (single-knob experiments)"
     echo "  qwen38flash     Qwen3.8 Flash-Next 125B NVFP4 (MTP3, TP2+EP, 256K)"
     echo "  mimo26flash     MiMo V2.6 Flash MOPD (vLLM TP2 + DFlash, 256K)"
+    echo ""
+    echo "A/B evaluation only - NOT services:"
+    echo "  deepseek-tune  deepseek-vision-tune"
+    echo "  Temporary single-knob experiment lanes used by tooling to compare"
+    echo "  one parameter against a byte-copy of its production sibling. They"
+    echo "  tear down whatever is live, are never a deploy target, and any"
+    echo "  winning knob must be promoted into the production profile and"
+    echo "  re-gated there. 'gb10 use <name>' still accepts them."
     ;;
   use|start)
     # Preflight: refuse to deploy from a checkout drifted from upstream.

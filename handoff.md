@@ -71,6 +71,13 @@ compose-verify → smoke → bench。**`.base` 對生產 conf 只差 lane 識別
 （`PROFILE_ID`/`DISPLAY_NAME`/`STACK_DIR`/`COMPOSE_FILE`/cache 路徑），argv 與 env 等價**
 —— 升版時逐欄驗過。
 
+> **`deepseek-tune` / `deepseek-vision-tune` 不是服務**：兩者只是 tooling 做
+> **單一旋鈕 A/B 評比**時的臨時 profile（各為生產 profile 的 byte-copy，僅換
+> `PROFILE_ID` 等識別欄）。它們會拆掉現行 live lane、永遠不是部署目標，
+> 勝出的旋鈕必須 promote 回生產 profile 並在那邊重跑 gate。
+> 自 **v1.4.1** 起 `gb10 list` 已把兩者移出服務清單、另列
+> 「A/B evaluation only」；`gb10 use <name>` 仍可呼叫。
+
 **量測**：沿用 `bench-ab-deepseek.sh`（C1…C8 × 3 中位數 + 冷 prefill + engine diag
 + 3× 重複 prompt + 自動 Δ 表）與 `bench-prefix-hit.sh`。
 **Vision 不能照抄 mainline 的旋鈕也不能照抄它的判準**：V0 的 `cudagraph_capture_sizes`
@@ -198,7 +205,8 @@ byte 一致。**E4 是探針的對照組**：caching 關 → `1.1× no-hit`，ca
 
 - `4513c3d` `feat(deepseek): same-image A/B harness + deepseek-tune lane`
   （`ab-setcell.sh`、`bench-ab-deepseek.sh`、`bench-prefix-hit.sh`、
-  `deepseek-tune{,.base}.conf`、`bin/gb10` whitelist）
+  `deepseek-tune{,.base}.conf`、`bin/gb10` whitelist —— 2026-10-07 起
+  tune lane 已在 `gb10 list` 改列「A/B evaluation only」，不再是服務）
 - `434f166` `feat(deepseek): promote E5 -- probabilistic drafts + prefix caching`
   （`deepseek.conf` 六改動 + README C1…C8 新基線 + AGENTS fact + 本 campaign 文件）
 
