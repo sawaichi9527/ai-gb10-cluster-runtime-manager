@@ -60,6 +60,17 @@ node0 對 node1 的連線（由 node0 發起）走 CX7 區網：`ssh -i ~/.ssh/i
 **背景**：使用者確認現行服務用 `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-09-18-v0.29.0-omni`
 （= 27b/35b profile 的 `IMAGE` pin），舊版可刪。
 
+**⚠️ 根因（第一次刪除後 09-11 又回來）**：兩節點各有一個 **9月13 session 遺留的
+`/tmp/pull_watchdog.sh`**（`setsid` 起的 `while true` 迴圈，30 秒一次），內容是
+「若沒有 `docker pull ghcr.io/aeon-7` 進程就自動重啟 `2026-09-11` 的 pull、log 停 600s
+就 pkill 重拉」——所以第一次 rmi 後 9 秒即被拉回（`docker events` 可見連續 `pull` 事件，
+`/tmp/pull029.log` 有 "watchdog: pull gone, restarting"）。**處置**：兩節點
+`pkill -f 'pull_watch[d]og'` + 刪 script + 殺殘留 pull + 再 rmi；90s/120s 兩輪複查：
+無 watchdog、無 pull 進程、**pull 事件為零**、aeon 僅剩 09-18、無任何 `/tmp/*.sh` loop
+在跑。兩節點皆無 crontab / user timer 可疑項目（僅 launchpadlib）。
+**教訓**：刪除鏡像前先查 `pgrep -af 'pull_watch[d]og'` 這類自動化殘留，否則會跟它打架
+（`pkill -f` 注意自噬：模式內放 `[d]`/`[r]` 字元類，且指令列不要出現字面目標字串）。
+
 **清理內容**：
 - **node0**：刪 `2026-08-16-v0.27.1`（50.6 GB）與 `2026-09-11-v0.29.0-omni`（52.3 GB）、
   dangling `ab047f03a432`（20.6 GB）；先移除擋路的殘留容器 `c0911`（Created 狀態、
