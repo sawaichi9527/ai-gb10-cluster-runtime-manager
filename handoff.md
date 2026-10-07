@@ -7,7 +7,7 @@
 
 ## 目前狀態（本機 checkout）
 
-- 分支：`main`，HEAD = 本檔所在的 commit（`git log -1`）；最新正式版本 tag = **`v1.4.0`**（`6aff00d`；`v1.3.4`→`a92d2bc`、`v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、`v1.3.3`→`9bb2006`）。早期：2026-09-20 session 共 22 個 commit `a1cba34`…`79a79cb`，其後為本檔的 sync commit。live lane = **`deepseek`**（**2026-10-05 13:32** 由 `mimo26flash` 切回，t+8m READY / smoke OK / KV 11.01 GiB；`mimo26flash` 自 10-03 上線做 NVFP4 A/B + cliff 探測，**權重定案 MXFP4** 待命，見 `docs/…2026-10-03.md` §11）
+- 分支：`main`，HEAD = 本檔所在的 commit（`git log -1`）；最新正式版本 tag = **`v1.4.1`**（`cc76cbd`；`v1.4.0`→`6aff00d`、`v1.3.4`→`a92d2bc`、`v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、`v1.3.3`→`9bb2006`）。早期：2026-09-20 session 共 22 個 commit `a1cba34`…`79a79cb`，其後為本檔的 sync commit。live lane = **`deepseek`**（**2026-10-05 13:32** 由 `mimo26flash` 切回，t+8m READY / smoke OK / KV 11.01 GiB；`mimo26flash` 自 10-03 上線做 NVFP4 A/B + cliff 探測，**權重定案 MXFP4** 待命，見 `docs/…2026-10-03.md` §11）
 - 同步狀態：**本機＝Forgejo（origin，`829522`）＝GitHub（`sawaichi9527`）＝node0 已 pull**（四方同一 commit；node0 live lane = **`deepseek`**（10-05 切回）；`mimo26flash` 定案 **MXFP4**、一鍵可切回）
 - `handoff.md` 已納版控（`37bee4c` 起；本次更新亦將 commit）
 - `.gitignore` 已覆蓋 `config/cluster.env`、`state/last-runtime`、logs、`*.bak-*`
@@ -709,9 +709,24 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
   ⑤ README/handoff 同步（現役切回 `deepseek`）。annotated tag 打於 `6aff00d`（本記錄
   commit 之前，比照 v1.3.x 慣例）。**GitHub Release 已建**（`id 403407422`，比照
   v1.3.1～v1.3.4；以 API + 本機 GCM 憑證，**未寫入任何檔案**）。
+- **`v1.4.1`（2026-10-07，patch）**：`cc76cbd` —— 自 v1.4.0 起 **11 個 commit**，全是
+  **同 image A/B 調優與其記錄**，**沒有新增部署服務 lane**（故判級為 patch；`-tune`
+  profile 不算服務，見 ④）：① mainline `deepseek` E0–E5 → **E5 promote**
+  （decode C1..C8 median Σ 594.2→670.7 tok/s **+12.9%**、acceptance 26.9→31.1%
+  **+4.5pp**、暖前綴 prefill **7.6×**；E1/E4 判噪聲／回歸；production gate 2026-10-07
+  全過）② `deepseek-vision` V0–V5 + V-win → **只 promote V3**
+  （`--long-prefill-token-threshold 1024→0`，兩次 boot Σ +2.6%／+2.9%、acceptance 中性；
+  `deepseek.conf` 全程未動）③ A/B harness（`ab-setcell.sh`、`ab-run-cell.sh`、
+  `bench-ab-deepseek.sh`、`bench-prefix-hit.sh`）與兩條 eval-only lane
+  （`deepseek-tune{,.base}.conf`、`deepseek-vision-tune{,.base}.conf`）
+  ④ **`gb10 list` 把兩條 tune lane 移出服務清單**（改列「A/B evaluation only —
+  NOT services」；`PROFILES_BY_NAME` 保留，`gb10 use <name>` 仍可呼叫）。
+  annotated tag 打於 `cc76cbd`（本記錄 commit 之前，比照 v1.3.x／v1.4.0 慣例）。
+  **GitHub Release 已建**（`id 405498459`，比照 v1.3.x／v1.4.0；以 API + 本機 GCM
+  憑證，**未寫入任何檔案**）。
 - **tag 現況**：`v1.0.0`→`496c9b1`、`v1.1.0`→`71ccf20`、`v1.2.0`→`ffd02ea`、
   `v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、`v1.3.3`→`9bb2006`、
-  `v1.3.4`→`a92d2bc`、**`v1.4.0`→`6aff00d`**。
+  `v1.3.4`→`a92d2bc`、`v1.4.0`→`6aff00d`、**`v1.4.1`→`cc76cbd`**。
 
 ### qwen38flash 對齊上游 + 冷啟驗證（2026-09-29）
 
