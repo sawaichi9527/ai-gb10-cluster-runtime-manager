@@ -78,7 +78,12 @@ node0 對 node1 的連線（由 node0 發起）走 CX7 區網：`ssh -i ~/.ssh/i
 - 1.1 磁碟預檢：node0 2.2 T / node1 2.1 T 可用 ✅
 - 1.2 `nohup hf download … --local-dir ~/docker-stacks/models/deepseek-v4-flash-0731-nvfp4`
   （log：`~/docker-stacks/logs/deepseek-nvfp4/hf-download.log`）＋ 1.4 node0
-  `nohup docker pull eugr/spark-vllm-b12x:latest` —— **下載中**
+  `nohup docker pull eugr/spark-vllm-b12x:latest` —— **皆完成**（模型 48/48 shards、
+  image digest `036c3076…`）
+- **1.3 模型校驗 PASS**：49/49 LFS 檔（48 shards + index）對 HF `lfs.sha256` 全中、
+  0 缺漏；`SHA256SUMS`（75 檔）產出於模型目錄
+- **1.5 rsync PASS**：經 CX7 傳 node1（rsync log 0 bytes 無錯、兩端 59 條目）→
+  `gb10 verify-models deepseek-nvfp4` **兩節點 PASS**（node0 75 OK、node1 全驗，rc=0）
 - **1.4a image 已完成並經 CX7 內網送達 node1**（`docker save | ssh docker load`，
   log `docker-transfer-node1.log`；node1 早先誤啟的 eugr pull 已停）。
   **digest 兩節點表述不同是已知且已處理**：node0（registry pull）`sha256:036c3076…`、
@@ -100,10 +105,10 @@ node0 對 node1 的連線（由 node0 發起）走 CX7 區網：`ssh -i ~/.ssh/i
   qwen38flash/mimo26flash）**byte-identical**、新 profile render 242 行正常、
   `gb10 list` 顯示正確
 
-**待辦（Phase 3，另排時段）**：模型完成後 SHA256SUMS 48-shard 校驗 → rsync 經 CX7 傳 node1 + SHA 抽驗 →
-`gb10 doctor` → `gb10 use deepseek-nvfp4` 開機（ acceptance、prefix-hit 截斷探針、garble soak、
-Marlin/B12X 實際 quant path）→ 恢復 `gb10 use deepseek`。**commit/push 需先徵得使用者同意。**
-（image 與 digest pin 已於 Phase 1–2 完成，見上。）
+**待辦（Phase 3，另排時段）**：`gb10 doctor` → `gb10 use deepseek-nvfp4` 開機
+（DSpark acceptance、prefix-hit 截斷探針、garble soak、Marlin/B12X 實際 quant path）→
+恢復 `gb10 use deepseek`。**commit/push 需先徵得使用者同意。**
+（Phase 1 資產下載/校驗/傳輸與 Phase 2 repo 檔案、image digest pin 均已完成，見上。）
 
 ## 2026-10-07 — DeepSeek V4 Flash Vision 同 image 調優 A/B（V0–V5, V-win）→ V3 promote
 

@@ -246,13 +246,22 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 > `deepseek-vision.conf`。TP2 專屬、與所有 lane 互斥（同 port 1234 + 同 GPU），
 > 以 `gb10 use deepseek-nvfp4` 啟動。
 >
-> **狀態（2026-10-07，Phase 1–2）**：profile/bin 白名單/文件已落地並通過
-> `bash -n` + 八條既有 lane byte-identical render 比對；模型（node0 `hf download`）與
-> image（node0 `docker pull`）下載中，完成後經 10.0.101.x 內網 rsync / `docker save|load`
-> 傳到 node1（**對外頻寬只吃一次**）。**尚未開機驗證（Phase 3 另排）**——開機前必須：
-> 鎖 `IMG_SHA256`（兩節點 `.RepoDigests` 比對）、`SHA256SUMS` 48-shard 校驗、
-> `gb10 doctor` + smoke + 完整性 + **prefix-hit 截斷探針**（本 image 的 DSpark SWA-prefix
-> 修正與否未證實，見 conf 頭部 KNOWN RISK）。
+> **狀態（2026-10-07，Phase 1–2 完成，Phase 3 開機另排）**：
+> * **模型**：node0 `hf download` 完成 → **49/49 LFS 檔（48 shards + index）對 HF sha256 全中**、
+>   `SHA256SUMS`（75 檔）已產出 → rsync 經 CX7 傳 node1 → `gb10 verify-models
+>   deepseek-nvfp4` **兩節點 PASS**（node0 75 OK、node1 全驗）
+> * **image**：node0 `docker pull` 完成 → `docker save | ssh docker load` 經 CX7 傳 node1
+>   （對外頻寬只吃一次）→ 節點間內容同一性已證（29 層 diff ID + `.Config` 摘要全同）→
+>   鎖每節點 digest（`IMG_SHA256` + `IMG_SHA256_NODE1`，gate 支援每節點 pin）→
+>   node0 實跑 `verify_profile_image_gate` **PASS**、bogus pin 反向測試正確 fail
+> * **repo**：profile/bin 白名單/文件已落地並通過 `bash -n` + 八條既有 lane
+>   byte-identical render；已 commit/push（`1f8a1e8`、`7cef7d5`）並同步 node0
+>
+> **Phase 3（未做，另排時段）**：`gb10 doctor` → `gb10 use deepseek-nvfp4` 開機 ——
+> 必查：DSpark spec decode acceptance（NVIDIA 未驗證此 checkpoint）、
+> **prefix-hit 截斷探針**（本 image 的 DSpark SWA-prefix 修正與否未證實，見 conf 頭部
+> KNOWN RISK；失敗即 `ENABLE_PREFIX_CACHING=false`）、Marlin/B12X 實際 quant path、
+> garble soak。完成後恢復 `gb10 use deepseek`。
 >
 > **配方差異點（相對 eugr recipe，皆記錄於 conf）**：`QUANTIZATION=none`
 > （checkpoint 自帶 `hf_quant_config.json`，vLLM 自動偵測）、`--load-format b12x` 為首選
