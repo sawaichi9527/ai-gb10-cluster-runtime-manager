@@ -99,7 +99,7 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 > 245k prefill 用 `bench-ctx.sh 245000 1`（max_tokens=1 純 prefill）。
 > **踩雷（已自動化）**：FlashInfer autotune cache **無法跨 rank 共用**——持久化的 `file_key` 內含 `tp_rank/ep_rank/cluster_rank`，而 vLLM 只在 leader（world rank 0）存檔、再把該 leader 檔 broadcast 給所有 rank；follower 用 rank-local key 永遠 miss → 兩 rank 要 benchmark 的 tactic 數不同 → 每 tactic 的 `dist.all_reduce` 死鎖（rank0 高 GPU spin-wait、rank1 閒置、`/health` 永不 ready）。故 `scripts/cluster-up` 於每次 boot 前呼叫 `ensure_autotune_cache_reset`（`cluster-common.sh`）**無條件清掉兩節點快取**，讓兩 rank 冷啟 lockstep；`AUTOTUNE_CACHE_POLICY=off` 可跳過（僅診斷）。單節點 runtime 另用獨立 cache root（`~/.cache/vllm-<profile>-single`，TP2 為 `~/.cache/vllm-<profile>[-cluster]`），不污染 TP2 路徑（`gb10-single-boot` 會檢查）。
 
-### DeepSeek V4 Flash Vision-Exp (TP2, 與 deepseek 同 image) — 2026-09-20 實測
+### DeepSeek V4 Flash Vision-Exp (TP2, 與 deepseek 同 image) — 2026-10-07 調優後
 
 > `cluster-profiles.d/deepseek-vision.conf` 使用**與 mainline deepseek 完全相同**的 image
 > `ghcr.io/anemll/dspark-vllm-gx10:0.1.1`（digest `a8394849…`）。Vision-Exp 支援不在 image 內，
@@ -110,14 +110,28 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 > `dspark-swa-prefix` hotfix + `VLLM_PREFIX_CACHE_RETENTION_INTERVAL=4096`）。兩 profile 互斥切換
 > （`gb10 use deepseek` ↔ `gb10 use deepseek-vision`）。實測 `/v1/chat/completions` 文字與
 > `image_url` 圖片輸入皆正常；KV pool 381,364 tokens（0731 為 405,179，差異來自 ViT encoder 佔用權重記憶體）。
+>
+> **2026-10-07 同 image A/B 調優**（拉取式、不重建 image，與 mainline E0–E5 同一套方法論，
+> 但旋鈕不同）：**唯一升版的旋鈕是 `--long-prefill-token-threshold 1024 → 0`（V3）**，
+> `deepseek.conf` 全程未動。V1/V2/V4/V5 與 V1+V3 合體格皆未勝出（V2 無法啟動、V4 −5.2%、V5 −15.4%）。
+> 完整證據：`docs/DEEPSEEK_VISION_TUNE_AB_2026-10-07.md`。
 
-| C | Vision-Exp tok/s | accept % |
-|---|---|---|
-| 1 | 36.7 | 29.9% |
-| 2 | 48.8 | 29.6% |
-| 3 | 58.0 | 32.5% |
-| 4 | 67.3 | 30.9% |
-| 8 | 73.4 | 30.1% |
+**Decode（C1…C8 × 3 取中位數，`scripts/bench-ab-deepseek.sh`；`Σ` = 八段中位數相加）**
+
+| C | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | Σ | accept % |
+|---|---|---|---|---|---|---|---|---|---|---|
+| V0 升版前（tune run A） | 34.3 | 44.6 | 52.9 | 62.6 | 74.5 | 86.2 | 80.9 | 93.4 | 529.4 | 24.55 |
+| V0 升版前（tune run B） | 29.8 | 47.3 | 53.4 | 63.6 | 64.7 | 77.0 | 89.2 | 103.0 | 528.0 | 23.40 |
+| **升版 V3（tune run A）** | 36.8 | 43.3 | 56.6 | 66.3 | 73.7 | 87.1 | 87.9 | 89.9 | **541.6** | 24.25 |
+| **升版 V3（tune run B）** | 35.5 | 47.8 | 55.6 | 68.2 | 74.0 | 80.6 | 87.1 | 94.7 | **543.5** | 24.30 |
+| **升版 V3（production warm boot）** | 33.6 | 46.5 | 64.6 | 69.4 | 70.9 | 78.4 | 85.3 | 89.4 | **538.1** | 23.95 |
+| Δ 升版 vs V0(run B) | | | | | | | | | **+1.91 ~ +2.94 %** | +0.55 ~ +0.90 pp |
+
+> 收益 **≈ +2.7% Σ decode**、acceptance 中性、prefill 兩個可用寬度持平；
+> 已知代價是 **C1 / C5 常態上升（+19~24% / +14%）而 C8 下降（−8~13%）**。
+> 本 lane 的決策門檻是 tune lane 自身的 boot 散佈（`< ~2%` 視為 boot 變異，需兩次 boot 同號）。
+> **production lane 無法驗證此旋鈕**：其實測 boot-to-boot `Σ` 散佈達 **8.1%**，
+> 遠大於 2.7% 的效應量，故升版依據取自 tune lane（V3 兩次 boot 吻合至 **0.35%**）。
 
 | prefill probe (`bench-ctx.sh`, max_tokens=1) | Vision-Exp tok/s |
 |---|---|
@@ -127,6 +141,12 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 | 245K | 1671.3 |
 | 260K | 1638.0 |
 | 261K | 1803.9 |
+
+> 上表為 2026-09-20 上線量測（V0 配置）。2026-10-07 升版後重測 261K = **1657.7 tok/s**
+> （`prompt_tokens=261084`, 157.5 s, `finish=length`）；A/B campaign 的**受控**冷 prefill
+> 131K / 200K 為 1794.1 / 1772.5 tok/s，對 V0 的 1788.5 / 1689.8 為 **+0.3% / +4.9%（持平）**。
+> prefill 雜訊底 ≈ ±8%，261K 單次 −8.1% 落在邊界上，不視為退化。
+> **32K 冷 prefill 這一格已判定為結構性噪聲（跨 9 次 boot 讀數 1109~2026 tok/s，±23%），不可當證據。**
 
 | 圖片輸入 (`bench-mm.sh`, max_tokens=200) | prompt tok | wall (s) | agg tok/s |
 |---|---|---|---|

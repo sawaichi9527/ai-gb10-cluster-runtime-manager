@@ -1,7 +1,7 @@
 # handoff.md — ai-gb10-cluster-runtime-manager（本機 checkout）
 
 > 本檔是本機中繼 checkout 的交接摘要。主要開發在 **node0**（`~/workspace/ai-gb10-cluster-runtime-manager`，branch **`main`**；2026-09-29 實測 node0 為 `main`／upstream `origin/main`、工作區乾淨 —— 舊文件寫的 `keystone` 已於 `496c9b1` 併入 main、**非**現役 checkout）＋ Forgejo `829522`；本機僅作中繼存取，修改前先確認是否應改在 node0。
-> 建立：2026-09-18；更新：**2026-09-20**（DeepSeek V4 Flash **Vision-Exp** lane 上線：同一顆 Anemll image + 啟動 wrapper；bench-c / bench-ctx / bench-mm 實測；`cluster-up` 新增 `SYNC_DIRS` 自動同步 patch 目錄；**vision 開 prefix caching + `dspark-swa-prefix` hotfix**、長上下文邊界 261K/262144、圖片高併發 C=8/16；本檔納入版控並同步三方）；**2026-09-29** 上游查核（Anemll 無新 image/tag、MiaAI-Lab main 未動且 23 檔 byte 全同）→ 見「定期檢討追蹤」；**2026-09-29（後續）** qwen38flash 對齊上游 `2c86a1d0`（GMU 0.80／prefix caching ON／block-drop backport／index share）並完成冷啟驗證（READY、KV 29.88 GiB、無回歸）→ 見「qwen38flash 對齊上游 + 冷啟驗證」；**2026-09-29（後續之二）** DeepSeek-V4.1-Flash **EXL3 2×GB10 選型查核**（取得兩顆可下載 arm64 image 的 digest、證實 sfxnz image 未發佈、TP=2 對 3.5bpw 不可行、各線 benchmark 與 NVIDIA 論壇口碑）→ **本輪不新增 lane**（維持 `deepseek-vision` 為 2-Spark 多模態），詳見 `docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md`；**2026-09-30** 上游再查核（deepseek 與 deepseek-vision 的 **image／配方／官方權重皆無更新** → 兩 lane 現行設定即為最新、無需變更，含首度補查官方權重 commit 比較，見 `docs/DEEPSEEK_UPSTREAM_REVERIFY_2026-09-30.md`）；**2026-09-30（續）** 27b／35b 上游再查核（兩 lane 共用的 `ghcr.io/aeon-7/aeon-vllm-ultimate` 最新 dated tag 仍 `2026-09-18-v0.29.0-omni`＝現行 pin、digest 不變；27B/35B 四個 HF 來源 body/drafter 最後 commit 為 09-18／08-19／07-15／06-28，**皆無 09-19 後更新** → 無需變更，見 `docs/QWEN_27B_35B_UPSTREAM_REVERIFY_2026-09-30.md`）；**2026-10-03** `mimo26flash` lane 上線（MiMo V2.6 Flash MOPD，TP2 vLLM+DFlash，見同名章節）；**2026-10-05** `mimo26flash` NVFP4 變體 A/B + DFlash cliff 探測（兩變體皆過）→ **定案 MXFP4**、延後調優 C/D/E 註記於 docs §7、**服務切回 `deepseek`**、README 同步 → 見「2026-10-05」章節
+> 建立：2026-09-18；更新：**2026-09-20**（DeepSeek V4 Flash **Vision-Exp** lane 上線：同一顆 Anemll image + 啟動 wrapper；bench-c / bench-ctx / bench-mm 實測；`cluster-up` 新增 `SYNC_DIRS` 自動同步 patch 目錄；**vision 開 prefix caching + `dspark-swa-prefix` hotfix**、長上下文邊界 261K/262144、圖片高併發 C=8/16；本檔納入版控並同步三方）；**2026-09-29** 上游查核（Anemll 無新 image/tag、MiaAI-Lab main 未動且 23 檔 byte 全同）→ 見「定期檢討追蹤」；**2026-09-29（後續）** qwen38flash 對齊上游 `2c86a1d0`（GMU 0.80／prefix caching ON／block-drop backport／index share）並完成冷啟驗證（READY、KV 29.88 GiB、無回歸）→ 見「qwen38flash 對齊上游 + 冷啟驗證」；**2026-09-29（後續之二）** DeepSeek-V4.1-Flash **EXL3 2×GB10 選型查核**（取得兩顆可下載 arm64 image 的 digest、證實 sfxnz image 未發佈、TP=2 對 3.5bpw 不可行、各線 benchmark 與 NVIDIA 論壇口碑）→ **本輪不新增 lane**（維持 `deepseek-vision` 為 2-Spark 多模態），詳見 `docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md`；**2026-09-30** 上游再查核（deepseek 與 deepseek-vision 的 **image／配方／官方權重皆無更新** → 兩 lane 現行設定即為最新、無需變更，含首度補查官方權重 commit 比較，見 `docs/DEEPSEEK_UPSTREAM_REVERIFY_2026-09-30.md`）；**2026-09-30（續）** 27b／35b 上游再查核（兩 lane 共用的 `ghcr.io/aeon-7/aeon-vllm-ultimate` 最新 dated tag 仍 `2026-09-18-v0.29.0-omni`＝現行 pin、digest 不變；27B/35B 四個 HF 來源 body/drafter 最後 commit 為 09-18／08-19／07-15／06-28，**皆無 09-19 後更新** → 無需變更，見 `docs/QWEN_27B_35B_UPSTREAM_REVERIFY_2026-09-30.md`）；**2026-10-03** `mimo26flash` lane 上線（MiMo V2.6 Flash MOPD，TP2 vLLM+DFlash，見同名章節）；**2026-10-05** `mimo26flash` NVFP4 變體 A/B + DFlash cliff 探測（兩變體皆過）→ **定案 MXFP4**、延後調優 C/D/E 註記於 docs §7、**服務切回 `deepseek`**、README 同步 → 見「2026-10-05」章節；**2026-10-07** DeepSeek **V4 Flash Vision** 同 image 調優 A/B（V0–V5 + V-win，獨立 `deepseek-vision-tune` lane）→ **只升一個旋鈕 `--long-prefill-token-threshold 1024→0`（V3）**，`deepseek.conf` 全程未動、生產 gate 全過；記錄 production lane boot 散佈 8.1% 無法驗證 2.7% 效應、cold prefill 32K 判為噪聲、garble soak `thinking:true` false alarm → 見「2026-10-07 — DeepSeek V4 Flash Vision」章節
 > **2026-09-20（後續）**：**Qwen3.8 Flash-Next 125B NVFP4（TP2+EP、MTP3）上線**；同日起 **compose 為唯一啟動 lane**（移除 docker-run 分支）；**27b/35b 改走 compose**；node0 `~/docker-stacks/aeon-vllm-omni/` 清理。詳見下方「已完成（2026-09-20 後續）」。
 > **2026-09-20（後續之二）**：**node-local 佈局歸位**——每個 lane 一個以 image 命名的 `~/docker-stacks/<stack>/`（`STACK_DIR`+`COMPOSE_FILE` materialize）、**cache 每 lane 獨立**（`~/.cache/vllm-<lane>[-cluster|-single]`，移除共用的 `~/.cache/huggingface` 容器掛載）、**log 統一** `~/docker-stacks/logs/<profile>/`；刪除單機 `runtimes.d/{qwen38flash,glm53flash}.conf`。詳見「已完成（2026-09-20 後續之二）」。
 
@@ -54,6 +54,80 @@ node0 對 node1 的連線（由 node0 發起）走 CX7 區網：`ssh -i ~/.ssh/i
 - **Cold start** TP2 約 7–15 min（vision 類似）；`cluster-up`/`gb10 use` 等到 `/health` 200 才報 READY。
 - **TP2 27B prefix caching 刻意關閉**（見 `docs/ADR_2026-09-01_prefix_caching_dflash2.md`）。35b 已啟用 prefix caching（`a5fcc54`）。
 - **ComfyUI** 部署在 Node1 為 `comfyui-aeon` / Flux 2 Dev；不回退 `comfyui-personal`/`comfyui-work`。
+
+## 2026-10-07 — DeepSeek V4 Flash Vision 同 image 調優 A/B（V0–V5, V-win）→ V3 promote
+
+**問題**：在**與 mainline 完全相同的 pin image**（`anemll/dspark-vllm-gx10:0.1.1`）
+之下，把 `deepseek-vision`（deepseek-v4-flash-vision-exp）調快。範圍由使用者明確劃定：
+**只動這一個 profile、只動同一顆 image、其餘模型服務不變**。全程 pull-only，
+不重建 image、不碰 `deepseek.conf`。mainline 的 E6 階段（要改 `deepseek.conf`）
+因此**主動取消**。
+
+**方法**：複製 mainline 的做法 —— 獨立 lane
+`cluster-profiles.d/deepseek-vision-tune.conf`（+ `.base`），`scripts/ab-setcell.sh V<n>`
+每次從 `.base` 還原再套單一旋鈕（anchor 斷言 + `bash -n` + diff 稽核），
+`scripts/ab-run-cell.sh <cell> <label> <profile>` 三參數全必填跑 use → wait →
+compose-verify → smoke → bench。**`.base` 對生產 conf 只差 lane 識別欄位
+（`PROFILE_ID`/`DISPLAY_NAME`/`STACK_DIR`/`COMPOSE_FILE`/cache 路徑），argv 與 env 等價**
+—— 升版時逐欄驗過。
+
+**量測**：沿用 `bench-ab-deepseek.sh`（C1…C8 × 3 中位數 + 冷 prefill + engine diag
++ 3× 重複 prompt + 自動 Δ 表）與 `bench-prefix-hit.sh`。
+**Vision 不能照抄 mainline 的旋鈕也不能照抄它的判準**：V0 的 `cudagraph_capture_sizes`
+是 `[1,2,4,8,16,24,32,40,48,56]`（mainline 是 128），且 vision 有 17 個 hotfix
+與 `CUDAGRAPH_CAPTURE`／`MTP_NUM_TOKENS` 的取捨不同，故另開 V1–V5 + V-win 格。
+
+**決策門檻（重要，與 mainline 不同）**：mainline 的「7/8 cells ≥+10%」在這條 lane
+**不可移植**（單格散佈 ±13.2% tok/s、±6.6 pp acceptance）。定案規則：
+**主指標 = `Σ` 八段中位數相加；任何 < ~2% 的 `Σ` 移動視為 boot 變異，必須兩次 boot 同號；
+acceptance 與冷 prefill 為副指標；cold prefill 的 32K 這格判定為結構性噪聲，一律不採信。**
+
+**結果**：
+
+| cell | 旋鈕 | Σ vs V0 | 判定 |
+|---|---|---|---|
+| V0 | （基準，run A/B） | 529.4 / 528.0 | 基準 |
+| V1 | 移除 `VLLM_USE_BREAKABLE_CUDAGRAPH=0` | +2.99% / +0.81% | 兩次同號但幅度不穩，且壓 C8 → 不升版 |
+| V2 | `--block-size 256→128` | 無 | **無法啟動**（`kv_cache_utils` assert → `Engine core initialization failed`） |
+| **V3** | **`--long-prefill-token-threshold 1024→0`** | **+2.58% / +2.94%**（兩次僅差 0.35%） | **升版** |
+| V4 | `CUDAGRAPH_CAPTURE 56→8` | −5.19% | 退化 |
+| V5 | `MTP_NUM_TOKENS 6→9` | −15.41%、accept −7.25 pp | 最差格 |
+| V-win | V1+V3 合體 | +1.91%，**低於 V3 單獨** | 不符合「`V-win ≥ V3` 才留 V1」→ V1 淘汰 |
+
+**升版**：只寫 `cluster-profiles.d/deepseek-vision.conf` **一行**
+（`--long-prefill-token-threshold 1024 → 0`），`deepseek.conf` 的 `git diff` 為空。
+生產 lane 完整 gate 全過：`cluster-compose-verify` 雙 rank PASS、`gb10 smoke` `HELLO-TP2-OK`、
+live container argv 證明**單一旋鈕**（`--block-size 256` / `capture 56` / `k=6 probabilistic` /
+`prefix_caching=True` / `BREAKABLE=0` 全同 V0）、`patches/` 兩 lane `diff -rq` 為空、
+暖前綴 **8.6× HIT**、261K `1657.7 tok/s` `finish=length`、garble soak 3/3、
+3×3 完整性 3/3、`/health 200`、`check-git-sync --block` rc=0。
+
+**⚠️ 生產 lane 的坑（下次別再踩）**：升版後第一次 boot 量到 `Σ 497.7`（比 tune lane
+任何一格都低），第二次 boot（conf 完全相同）卻是 **538.1** —— **同一台機器、同一份 conf、
+boot-to-boot 差 8.12%**，且 `jit_spike_lines` 1→0、model load 241.4→233.3 s。
+最可能是**生產 lane 當次是本 campaign 首次 boot、`~/.cache/vllm-deepseek-vision` 冷**，
+重編譯落在量測窗口內；tune lane 連續 8 次 boot 都用同一份熱快取。
+**結論：production lane 實測 boot 散佈 8.1% > 效應量 2.7%，因此這條 lane 根本無法驗證
+此旋鈕，升版依據取自 tune lane（V3 兩次 boot 吻合 0.35%）。**
+→ **操作教訓：生產 vision lane 改設定後先再 boot 一次，再看 benchmark。**
+
+**另外三個 false alarm（都是方法/工具工件，不是真的壞）**：
+1. 一則捏造的「V3 hung at 103 lines」poller 讀數；
+2. `curl http://…` 未加引號 → `curl: (3) bad range in URL position 2`；
+3. **garble soak 用預設 `thinking:true`** → `finish=length` / `content` 空 / `uniq_ratio=0.00`，
+   看起來像亂碼，其實是 400 token 被 reasoning block 吃掉（`bench-prefix-hit.sh` L61–L66
+   已記載的陷阱）。加 `"chat_template_kwargs":{"thinking":false}` 後 3/3 PASS。
+**懷疑 gate 失敗時，先讀機制再判。**
+
+**六個 harness bug 已修**（`ab-run-cell.sh` 三參數全必填、`wait_or_fail()` watchdog
+防止 `gb10 wait` 燒 2400 s、V-cell 必須指定 `AB_CONF`/`AB_BASE`、`fail()` 不再吞掉子腳本
+錯誤、`bench-c.sh` pipefail、`bench-prefix-hit.sh` 的 `PH_MAX_TOKENS` + `thinking:false`）。
+
+**文件**：`docs/DEEPSEEK_VISION_TUNE_AB_2026-10-07.md`（完整證據與判定）、
+README Vision-Exp 區已改成 V0 vs 升版對照。
+**範圍紀律**：`deepseek.conf` 全程未動；唯一寫入的生產檔是 `deepseek-vision.conf` 一行。
+
+---
 
 ## 2026-10-06/07 — DeepSeek TP2 同 image 調優 A/B（E0–E5）→ E5 promote 進主線
 
@@ -250,7 +324,7 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
   - `CMD_WRAPPER`：先 `cp /model/encoding/encoding_dsv4.py → vllm/tokenizers/deepseek_v4_encoding.py`，再套 17 個 hotfix（含 `hotfix-dsv4-vision-exp.py`＝ViT/Aligner + `image_url`），最後 `exec /usr/local/bin/vllm serve …`（args 由共用 `build_vllm_args` 產生）。
   - `SYNC_DIRS=("${REPO_DIR}/patches/dspark-vision:${STACK_DIR}/patches")` → 每次 boot 自動佈署到兩節點（`STACK_DIR=~/docker-stacks/anemll-dspark-vllm-gx10-miaFlaver`）。
 - **Patches vendored**：`patches/dspark-vision/`（17 patch + `vision_exp/` + `NOTICE.md`），來自 MiaAI-Lab `DeepSeek-v4-Flash-DSpark-2x-DGX-Spark` @ `97e8733238f81f5fdc44b241f8996a7858825744`，MIT，**LF**（Windows clone 會轉 CRLF，需 `-c core.autocrlf=false`）。
-- 啟動參數：`nvfp4_ds_mla` KV、`flashinfer_b12x` MoE、DSpark `k=6 probabilistic`、`MAXLEN=262144`、`NUMSEQ=8`、`BATCHED=16384`、`GMU=0.80`、`CUDAGRAPH_CAPTURE=56`、**prefix caching ON（搭 `dspark-swa-prefix` hotfix + `VLLM_PREFIX_CACHE_RETENTION_INTERVAL=4096`）**、`VLLM_USE_BREAKABLE_CUDAGRAPH=0`、`--limit-mm-per-prompt {"image":8}`、`--long-prefill-token-threshold 1024`、`--generation-config vllm`、reasoning/tool parser `deepseek_v4`。
+- 啟動參數：`nvfp4_ds_mla` KV、`flashinfer_b12x` MoE、DSpark `k=6 probabilistic`、`MAXLEN=262144`、`NUMSEQ=8`、`BATCHED=16384`、`GMU=0.80`、`CUDAGRAPH_CAPTURE=56`、**prefix caching ON（搭 `dspark-swa-prefix` hotfix + `VLLM_PREFIX_CACHE_RETENTION_INTERVAL=4096`）**、`VLLM_USE_BREAKABLE_CUDAGRAPH=0`、`--limit-mm-per-prompt {"image":8}`、**`--long-prefill-token-threshold 0`（2026-10-07 由 1024 改，本 repo 唯一的 vision 調優升版，見「2026-10-07」章節）**、`--generation-config vllm`、reasoning/tool parser `deepseek_v4`。
 
 ### 權重版本釐清（重要）
 - MiaAI 釘 `86f746b36186f0e567729a5c06a8c918caba82a9`；本機/節點是 `6821d6ad3681a4b137b066b76094fa82ebd0a380`（= HF main HEAD）。
@@ -353,6 +427,11 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
 
 ## 現役狀態（session 結束時）
 
+- **2026-10-07 當下**：TP2 正被 vision 調優 campaign 佔用 —— 現役 profile =
+  `deepseek-vision`（已套 V3 升版 `--long-prefill-token-threshold 0`，生產 gate 全過），
+  **`deepseek` mainline 自 13:53 起 DOWN**。campaign 結束後以 `gb10 use deepseek` 切回
+  （見「2026-10-07 — DeepSeek V4 Flash Vision」章節）。以下 2026-09-29 的紀錄
+  即切回後應恢復的狀態。
 - 現役＝**deepseek（DeepSeek V4 Flash 0731 fp8 DSpark mainline）** —— 2026-09-29 以
   `gb10 use deepseek` 由 qwen38flash 切換（`cluster-down` 拆掉舊 TP2 → free node1 singles →
   cold start）。當日共 boot 兩次，皆在一次到位後量測：
