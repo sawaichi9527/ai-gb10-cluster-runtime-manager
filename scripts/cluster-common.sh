@@ -117,7 +117,7 @@ load_profile(){
     exit 2
   fi
   # reset state so a partial conf can't leak a previous profile
-  unset PROFILE_ID DISPLAY_NAME PLACEHOLDER IMAGE IMG_SHA256 LAUNCH_STYLE BODY_REL DRAF_REL \
+  unset PROFILE_ID DISPLAY_NAME PLACEHOLDER IMAGE IMG_SHA256 IMG_SHA256_NODE1 LAUNCH_STYLE BODY_REL DRAF_REL \
         MAXLEN NUMSEQ BATCHED GMU NSPEC \
         KV_DTYPE ATTN_BACKEND LINEAR_BACKEND MOE_BACKEND \
         SPEC_METHOD SPEC_ATTN_BACKEND NSPEC GRAPH_MODE \
@@ -525,6 +525,14 @@ n1(){  # runs a script's body on Node1 via ssh; args: [bash -c '...']
 verify_profile_image_gate(){
   [[ -z "${IMG_SHA256:-}" ]] && return 0
   local expected="${IMG_SHA256#sha256:}"
+  # Optional per-node pin for node1: a CX7-transferred image (docker save |
+  # ssh | docker load) is re-manifested by node1's containerd store, so its
+  # RepoDigest digest legitimately differs from node0's registry-manifest
+  # digest even though the CONTENT is byte-identical (proven by identical
+  # .RootFS.Layers + .Config hashes). Unset => both nodes must carry the
+  # single pinned digest (unchanged behaviour for every other profile).
+  local expected_n1="${IMG_SHA256_NODE1:-${IMG_SHA256}}"
+  expected_n1="${expected_n1#sha256:}"
   local fmt dig_script d0 d1 ok=1
 
   fmt='{{range .RepoDigests}}{{println .}}{{end}}'
@@ -545,9 +553,9 @@ verify_profile_image_gate(){
   chmod 600 "${dig_script}"
   d1="$(n1 bash -s < "${dig_script}" 2>/dev/null || true)"
   rm -f -- "${dig_script}"
-  if [[ "${d1}" != *"sha256:${expected}"* ]]; then
-    echo "ERROR: Node1 image '${IMG}' lacks pinned manifest sha256:${expected}" >&2
-    printf '  %s\n' "${d1:-<no local image — run on node1: docker pull ${IMG}>}" >&2
+  if [[ "${d1}" != *"sha256:${expected_n1}"* ]]; then
+    echo "ERROR: Node1 image '${IMG}' lacks pinned manifest sha256:${expected_n1}" >&2
+    printf '  %s\n' "${d1:-<no local image — transfer/save-load or docker pull ${IMG}>}" >&2
     ok=0
   fi
 
