@@ -57,8 +57,22 @@ if [[ ! -f "$BODY" ]]; then
     > "$BODY"
 fi
 PAYLOAD="/tmp/prefix_hit_payload_${WORDS}.json"
-jq -n --rawfile text "$BODY" \
-  '{"model":"aeon","messages":[{"role":"user","content":$text}],"max_tokens":40,"temperature":0}' \
+# max_tokens must clear the vision lane's reasoning preamble: it runs
+# thinking:true + reasoning_effort=low, so a 40-token budget can be spent
+# entirely inside the thinking block, leaving message.content empty. That is
+# a FALSE no-hit (the probe would report completion=FAIL even on a healthy
+# cache hit), so the budget is generous and the ask is pinned off:
+#   * 512 clears a low-effort thinking block plus the pinned answer
+#   * thinking:false turns the preamble off entirely where the template
+#     honours it (an unsupported key is just an unused Jinja variable, not
+#     an error)
+# Neither changes the speedup ratio: every round generates the same pinned
+# answer, so round1/roundN walls stay comparable.
+PH_MAX_TOKENS="${PH_MAX_TOKENS:-512}"
+jq -n --rawfile text "$BODY" --argjson mt "$PH_MAX_TOKENS" \
+  '{"model":"aeon","messages":[{"role":"user","content":$text}],
+    "max_tokens":$mt,"temperature":0,
+    "chat_template_kwargs":{"thinking":false}}' \
   > "$PAYLOAD"
 
 emit "--- prefix-cache HIT probe (words=${WORDS}, rounds=${ROUNDS}, temp=0, no nonce) ---"
@@ -77,7 +91,11 @@ for r in $(seq 1 "$ROUNDS"); do
   pt=$(jq -r '.usage.prompt_tokens // 0' "$RES")
   ct=$(jq -r '.usage.completion_tokens // 0' "$RES")
   fin=$(jq -r '.choices[0].finish_reason // "ERR"' "$RES")
-  content=$(jq -r '.choices[0].message.content // "ERR"' "$RES")
+  content=$(jq -r '.choices[0].message.content // ""' "$RES")
+  # Non-empty reasoning with empty content = the thinking block swallowed the
+  # budget; report it so a "no-hit" is never mistaken for a broken cache.
+  rlen=$(jq -r '[.choices[0].message.reasoning_content, .choices[0].message.reasoning]
+                 | map(select(. != null)) | join("") | length' "$RES" 2>/dev/null || echo 0)
   speed=$(awk -v p="$pt" -v w="$wall" 'BEGIN{printf "%.1f", p/w}')
 
   n=$((n+1))
@@ -91,13 +109,19 @@ for r in $(seq 1 "$ROUNDS"); do
   prev="$content"
   [[ -z "$content" || "$content" == "ERR" ]] && bad=$((bad+1))
 
-  emit "  round${r}: wall=${wall}s prefill=${speed} tok/s pt=${pt} ct=${ct} finish=${fin} content_len=${#content} vs_prev=${same}"
+  emit "  round${r}: wall=${wall}s prefill=${speed} tok/s pt=${pt} ct=${ct} finish=${fin} content_len=${#content} reasoning_len=${rlen} vs_prev=${same}"
   emit "           content=${content}"
+  if [[ -z "$content" && "${rlen:-0}" -gt 0 ]]; then
+    emit "           ^ EMPTY content but ${rlen} reasoning tokens: the thinking block ate max_tokens=${PH_MAX_TOKENS} - NOT a cache miss"
+  fi
 done
 
 # ---- summary + verdict ------------------------------------------------
 # $wall still holds the last round's wall time from the loop above.
-if [[ -n "${first_wall:-}" && -n "${wall:-}" && -n "${prev:-}" ]]; then
+# Gate on "we got at least one round", not on content being non-empty: a
+# probe that ran but produced empty content must still print its verdict, so
+# the failure is visible instead of silently emitting no summary.
+if [[ -n "${first_wall:-}" && -n "${wall:-}" && "${n}" -gt 0 ]]; then
   awk -v a="$first_wall" -v b="$wall" -v len="${#prev}" \
       -v id="$ident" -v df="$diffs" -v bd="$bad" 'BEGIN{
      speedup = (b > 0) ? a/b : 0

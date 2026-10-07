@@ -65,7 +65,9 @@ jq -n --arg content "$CONTENT" --argjson mt "$MAX_TOKENS" --argjson ie "$IGNORE_
    + (if $t == "" then {} else {temperature:($t|tonumber)} end)
    + (if $s == "" then {} else {seed:($s|tonumber)} end)' > "$OUTDIR/payload.json"
 
-METRICS_BEFORE=$(curl -s http://127.0.0.1:${API_PORT}/metrics | grep -E '^vllm:spec_decode_(num_draft_tokens_total|num_accepted_tokens_total|num_drafts_total|num_accepted_tokens_per_pos_total)' | grep -v '_created' | sed 's/.*position="\([0-9]*\)"} \([0-9.]*\)/POS\1 \2/')
+# `|| true` so a missing spec-decode metric degrades to "(no draft delta)"
+# below instead of aborting the run under pipefail.
+METRICS_BEFORE=$(curl -s http://127.0.0.1:${API_PORT}/metrics | grep -E '^vllm:spec_decode_(num_draft_tokens_total|num_accepted_tokens_total|num_drafts_total|num_accepted_tokens_per_pos_total)' | grep -v '_created' | sed 's/.*position="\([0-9]*\)"} \([0-9.]*\)/POS\1 \2/' || true)
 
 T0=$(date +%s.%N)
 for i in $(seq 1 "$C"); do
@@ -75,7 +77,7 @@ done
 wait
 T1=$(date +%s.%N)
 
-METRICS_AFTER=$(curl -s http://127.0.0.1:${API_PORT}/metrics | grep -E '^vllm:spec_decode_(num_draft_tokens_total|num_accepted_tokens_total|num_drafts_total|num_accepted_tokens_per_pos_total)' | grep -v '_created' | sed 's/.*position="\([0-9]*\)"} \([0-9.]*\)/POS\1 \2/')
+METRICS_AFTER=$(curl -s http://127.0.0.1:${API_PORT}/metrics | grep -E '^vllm:spec_decode_(num_draft_tokens_total|num_accepted_tokens_total|num_drafts_total|num_accepted_tokens_per_pos_total)' | grep -v '_created' | sed 's/.*position="\([0-9]*\)"} \([0-9.]*\)/POS\1 \2/' || true)
 
 WALL=$(echo "$T1 - $T0" | bc -l)
 echo "================================================================"
@@ -100,8 +102,13 @@ echo ""
 echo "  aggregate: completion=${TOTAL_COMP}tok  wall=$(printf '%.3f' "$WALL")s  C_total=$(printf '%.1f' "$C_TOTAL") tok/s  any_errors=$ANY_ERR"
 
 # Overall acceptance: delta_accepted / delta_draft_tokens (draft_tokens = 7/batch)
-get_val(){ echo "$1" | grep -E "^$2" | awk '{print $NF}' | head -1; }
-get_pos(){ echo "$1" | grep "^POS$2 " | awk '{printf "%d", $NF}' | head -1; }
+# Both getters must NEVER fail: they are called from `VAR=$(get_pos ...)`
+# under `set -Eeuo pipefail`, so a grep that matches nothing would make the
+# ASSIGNMENT itself return 1 and set -e would kill the script before the
+# value could be defaulted. deepseek-vision reports only position 0..5
+# (num_speculative_tokens=6), so get_pos ... 6 matches nothing on every run.
+get_val(){ echo "$1" | grep -E "^$2" | awk '{print $NF}' | head -1 || true; }
+get_pos(){ echo "$1" | grep "^POS$2 " | awk '{printf "%d", $NF}' | head -1 || true; }
 b2i(){ awk -v x="$1" 'BEGIN{printf "%d", x}'; }
 
 BATCHES_BEFORE=$(b2i "$(get_val "$METRICS_BEFORE" "vllm:spec_decode_num_drafts_total")")
@@ -126,8 +133,16 @@ fi
 
 echo "  per-position acceptance (delta accepted_at_pos / delta_draft_batches):"
 for p in 0 1 2 3 4 5 6; do
-  P_AFTER=$(get_pos "$METRICS_AFTER" "$p")
-  P_BEFORE=$(get_pos "$METRICS_BEFORE" "$p")
+  # A draft shorter than 7 emits no metric for the tail positions at all:
+  # deepseek-vision runs num_speculative_tokens=6, so metrics only ever
+  # contain position 0..5 and get_pos for p=6 returns an EMPTY string.
+  # Bash arithmetic cannot parse an empty operand ("operand expected"), so
+  # set -e killed the script here with rc=1 — and the caller's
+  # `r=$(bench-c.sh ... 2>&1 | grep ...)` swallowed it, aborting the whole
+  # bench silently right after the decode header. Report missing positions
+  # as 0 instead of dying.
+  P_AFTER=$(get_pos "$METRICS_AFTER" "$p");   P_AFTER="${P_AFTER:-0}"
+  P_BEFORE=$(get_pos "$METRICS_BEFORE" "$p"); P_BEFORE="${P_BEFORE:-0}"
   P_DELTA=$((P_AFTER - P_BEFORE))
   if [ "$DELTA_BATCHES" -gt 0 ]; then
     P_PCT=$(echo "scale=1; $P_DELTA * 100 / $DELTA_BATCHES" | bc -l)

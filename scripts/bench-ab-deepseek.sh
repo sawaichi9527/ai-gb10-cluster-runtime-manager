@@ -28,6 +28,10 @@
 #            Guards the prefix-caching cell: a degenerate DSpark draft on a
 #            cache hit shows up as a truncated/changed completion.
 #
+# Reference file for the delta table: AB_REF=<label> (default E0). The vision
+# lane runs AB_REF=V0 so its cells are never compared against a mainline file.
+#   scripts/bench-ab-deepseek.sh V1 deepseek-vision-tune   AB_REF=V0
+#
 # Output: stdout and /tmp/ab-<label>.txt. Every line is self-describing
 # (`decode C=4 run=2 ...`, `prefill w=131000 ...`) so two files can be diffed
 # or pasted straight into a table.
@@ -39,6 +43,9 @@ set -Eeuo pipefail
 
 LABEL="${1:?usage: bench-ab-deepseek.sh <label> [profile]}"
 PROFILE="${2:-deepseek-tune}"
+# Baseline label the delta table compares against. The vision lane sets V0 so
+# its cells never pick up a mainline reference file.
+AB_REF="${AB_REF:-E0}"
 cd "$(dirname "$0")/.." || exit 1
 # shellcheck disable=SC1091
 source scripts/cluster-common.sh
@@ -47,6 +54,10 @@ OUT="/tmp/ab-${LABEL}.txt"
 : >"$OUT"
 
 emit(){ printf '%s\n' "$*" | tee -a "$OUT"; }
+# Loud abort: set -e on its own kills the script with NO output when a
+# subshell fails, which is exactly how the POS6 bug below hid for a whole
+# campaign. Always say what broke before exiting.
+fail(){ emit "FATAL: $*"; exit 1; }
 
 # --- readiness -------------------------------------------------------
 if ! curl -fsS -m 5 "http://localhost:${API_PORT}/health" >/dev/null 2>&1; then
@@ -72,8 +83,49 @@ emit_diag(){
   # proof-of-effect: the engine's own config dump / server_args echo. Loose
   # pattern so JSON, repr and argv forms all match; sorted -u trims the noise.
   # A cell that failed to change anything shows the E0 value here and is void.
-  { echo "$d" | grep -oiE "(draft_sample_method|num_speculative_tokens|enable_prefix_caching|max_num_seqs)[^,}{]{0,60}"
+  { echo "$d" | grep -oiE "(draft_sample_method|num_speculative_tokens|enable_prefix_caching|max_num_seqs|block_size|long_prefill_token_threshold)[^,}{]{0,60}"
   } | sort -u | sed 's/^/  cfg /' | tee -a "$OUT" || emit "  (engine config dump not found)"
+  # Authoritative proof-of-effect: the argv the live container is actually
+  # running. Log formats vary per image and several knobs (--block-size,
+  # --long-prefill-token-threshold) never appear in the engine dump at all,
+  # so a cell with no log evidence would otherwise be unverifiable.
+  local argv lenv
+  argv="$(sdk docker inspect cluster-node0 \
+            --format '{{range .Config.Entrypoint}}{{printf "%s " .}}{{end}}{{range .Config.Cmd}}{{printf "%s " .}}{{end}}' \
+            2>/dev/null || true)"
+  # A sh -c style Cmd carries the whole vLLM command (and its newlines) in one
+  # element; flatten so the line-oriented greps below can see every flag.
+  argv="$(printf '%s' "$argv" | tr '\n' ' ')"
+  lenv="$(sdk docker inspect cluster-node0 \
+            --format '{{range .Config.Env}}{{printf "%s\n" .}}{{end}}' 2>/dev/null || true)"
+  if [[ -n "$argv" ]]; then
+    local k v
+    for k in block-size long-prefill-token-threshold max-cudagraph-capture-size reasoning-parser served-model-name; do
+      v="$(printf ' %s' "$argv" | grep -oE -- " --${k} [^ ]+" | head -1)"
+      [[ -n "$v" ]] && { printf '  argv%s\n' "$v" | tee -a "$OUT"; } || true
+    done
+    printf ' %s' "$argv" | grep -oE -- '--speculative-config [^ ]+' | head -1 \
+      | sed 's/^/  argv /' | tee -a "$OUT" || true
+    if printf ' %s' "$argv" | grep -qE -- '--enable-prefix-caching'; then
+      echo "  argv --enable-prefix-caching" | tee -a "$OUT"
+    elif printf ' %s' "$argv" | grep -qE -- '--no-enable-prefix-caching'; then
+      echo "  argv --no-enable-prefix-caching" | tee -a "$OUT"
+    fi
+  else
+    emit "  (docker inspect argv unavailable - proof skipped)"
+  fi
+  # VLLM_USE_BREAKABLE_CUDAGRAPH is an env var, not argv — proof it from the
+  # container env, never from Config.Cmd (it can never appear there).
+  if [[ -n "$lenv" ]]; then
+    if printf '%s\n' "$lenv" | grep -q '^VLLM_USE_BREAKABLE_CUDAGRAPH='; then
+      printf '  env %s\n' "$(printf '%s\n' "$lenv" | grep '^VLLM_USE_BREAKABLE_CUDAGRAPH=' | head -1)" | tee -a "$OUT"
+    else
+      echo "  env VLLM_USE_BREAKABLE_CUDAGRAPH not set" | tee -a "$OUT"
+    fi
+    if printf '%s\n' "$lenv" | grep -q '^VLLM_PREFIX_CACHE_RETENTION_INTERVAL='; then
+      printf '  env %s\n' "$(printf '%s\n' "$lenv" | grep '^VLLM_PREFIX_CACHE_RETENTION_INTERVAL=' | head -1)" | tee -a "$OUT"
+    fi
+  fi
   if echo "$d" | grep -q "Auto-enabling VLLM_USE_BREAKABLE_CUDAGRAPH"; then
     emit "  breakable_cudagraph=ON (=> inductor/torch.compile DISABLED)"
   else
@@ -116,7 +168,7 @@ summarize(){
   done
 }
 
-# --- side-by-side vs the E0 baseline ----------------------------------
+# --- side-by-side vs the AB_REF baseline -------------------------------
 # Decode deltas under ~10% are noise; print them anyway so a trend across
 # cells is visible without re-opening two files.
 medof(){ # <file> <C> -> median C_total of the 3 runs
@@ -128,11 +180,11 @@ prefof(){ # <file> <w> -> prefill speed
 }
 
 compare_e0(){
-  local ref="/tmp/ab-E0.txt" c m0 m1 d
-  [[ "$LABEL" == "E0" ]] && return 0
-  if [[ ! -s "$ref" ]]; then emit "--- delta vs E0: SKIP (no /tmp/ab-E0.txt) ---"; return 0; fi
-  emit "--- delta vs E0 (decode, median of 3) ---"
-  printf '%-6s %-9s %-9s %-9s %-9s %-9s %-9s\n' C E0_t/s this_t/s d_tps% E0_acc this_acc d_acc_pp | tee -a "$OUT"
+  local ref="/tmp/ab-${AB_REF}.txt" c m0 m1 d
+  [[ "$LABEL" == "$AB_REF" ]] && return 0
+  if [[ ! -s "$ref" ]]; then emit "--- delta vs ${AB_REF}: SKIP (no ${ref}) ---"; return 0; fi
+  emit "--- delta vs ${AB_REF} (decode, median of 3) ---"
+  printf '%-6s %-9s %-9s %-9s %-9s %-9s %-9s\n' C "${AB_REF}_t/s" this_t/s d_tps% "${AB_REF}_acc" this_acc d_acc_pp | tee -a "$OUT"
   for c in 1 2 3 4 5 6 7 8; do
     m0="$(medof "$ref" "$c")"; m1="$(medof "$OUT" "$c")"
     if [[ -z "$m0" || -z "$m1" ]]; then emit "  C=$c: missing data"; continue; fi
@@ -143,12 +195,12 @@ compare_e0(){
     dap="$(awk -v a="${a0:-0}" -v b="${a1:-0}" 'BEGIN{printf "%+.1f", b-a}')"
     printf '%-6s %-9s %-9s %-9s %-9s %-9s %-9s\n' "$c" "$m0" "$m1" "${d}%" "${a0:-n/a}" "${a1:-n/a}" "${dap}pp" | tee -a "$OUT"
   done
-  emit "--- delta vs E0 (cold prefill tok/s) ---"
+  emit "--- delta vs ${AB_REF} (cold prefill tok/s) ---"
   for w in 32000 131000 200000; do
     m0="$(prefof "$ref" "$w")"; m1="$(prefof "$OUT" "$w")"
     if [[ -z "$m0" || -z "$m1" ]]; then emit "  w=$w: missing data"; continue; fi
     d="$(awk -v a="$m0" -v b="$m1" 'BEGIN{printf "%+.1f", (b-a)/a*100}')"
-    emit "  w=$w  E0=${m0}  this=${m1}  ${d}%"
+    emit "  w=$w  ${AB_REF}=${m0}  this=${m1}  ${d}%"
   done
   emit "  (* d_tps% = relative tok/s change; d_acc_pp = acceptance percentage points."
   emit "     |d| >10% tok/s or >3pp  => real;  below that => noise.)"
@@ -159,8 +211,17 @@ emit_diag
 emit "--- decode fixed-400 (BENCH_IGNORE_EOS=1), 3 runs each, C=1..8 ---"
 for c in 1 2 3 4 5 6 7 8; do
   for i in 1 2 3; do
-    r=$(BENCH_IGNORE_EOS=1 bash scripts/bench-c.sh "$c" 2>&1 |
-      grep -E 'aggregate:|acceptance:' | tr -s ' ' | tr '\n' '|')
+    # Capture the child's output FIRST and test its status, instead of
+    # letting `set -e` abort on a failed pipeline whose stderr had already
+    # been merged into the substitution and then filtered away by grep.
+    rc=0
+    raw=$(BENCH_IGNORE_EOS=1 bash scripts/bench-c.sh "$c" 2>&1) || rc=$?
+    if (( rc != 0 )); then
+      emit "decode C=${c} run=${i}: bench-c FAILED rc=${rc}"
+      emit "  raw tail: $(printf '%s\n' "$raw" | tail -15 | tr '\n' ' ' | tr -s ' ')"
+      fail "bench-c.sh died for C=${c} — cell aborted; do not read a partial table"
+    fi
+    r=$(printf '%s\n' "$raw" | grep -E 'aggregate:|acceptance:' | tr -s ' ' | tr '\n' '|')
     emit "decode C=${c} run=${i} ${r}"
   done
 done
@@ -169,8 +230,14 @@ summarize
 
 emit "--- cold prefill (BENCH_COLD=1) ---"
 for w in 32000 131000 200000; do
-  r=$(BENCH_COLD=1 bash scripts/bench-ctx.sh "$w" 2>&1 |
-    grep -E 'prompt_tokens|wall_time|prefill_speed' | tr -s ' ' | tr '\n' ' ')
+  rc=0
+  raw=$(BENCH_COLD=1 bash scripts/bench-ctx.sh "$w" 2>&1) || rc=$?
+  if (( rc != 0 )); then
+    emit "prefill w=${w}: bench-ctx FAILED rc=${rc}"
+    emit "  raw tail: $(printf '%s\n' "$raw" | tail -15 | tr '\n' ' ' | tr -s ' ')"
+    fail "bench-ctx.sh died for w=${w} — cell aborted; do not read a partial table"
+  fi
+  r=$(printf '%s\n' "$raw" | grep -E 'prompt_tokens|wall_time|prefill_speed' | tr -s ' ' | tr '\n' ' ')
   emit "prefill w=${w} ${r}"
 done
 
