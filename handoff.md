@@ -427,11 +427,11 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
 
 ## 現役狀態（session 結束時）
 
-- **2026-10-07 當下**：TP2 正被 vision 調優 campaign 佔用 —— 現役 profile =
-  `deepseek-vision`（已套 V3 升版 `--long-prefill-token-threshold 0`，生產 gate 全過），
-  **`deepseek` mainline 自 13:53 起 DOWN**。campaign 結束後以 `gb10 use deepseek` 切回
-  （見「2026-10-07 — DeepSeek V4 Flash Vision」章節）。以下 2026-09-29 的紀錄
-  即切回後應恢復的狀態。
+- **2026-10-07 vision campaign 已收尾**：當日 13:53–15:05 TP2 由 vision 調優 campaign
+  佔用（現役 profile 一度為 `deepseek-vision`，已套 V3 升版
+  `--long-prefill-token-threshold 0`，生產 gate 全過）；**15:05 已以 `gb10 use deepseek`
+  切回 mainline** —— `status: ready`、node0+node1 up、`/health` 200、
+  `gb10 smoke` `HELLO-TP2-OK`、KV 11.37 GiB。以下 2026-09-29 的紀錄即現行狀態。
 - 現役＝**deepseek（DeepSeek V4 Flash 0731 fp8 DSpark mainline）** —— 2026-09-29 以
   `gb10 use deepseek` 由 qwen38flash 切換（`cluster-down` 拆掉舊 TP2 → free node1 singles →
   cold start）。當日共 boot 兩次，皆在一次到位後量測：
