@@ -409,7 +409,7 @@ trailing-newline fix).
 |---|---|---|---|
 | decode Σ, C1…C8 medians | 594.2 tok/s | **670.7 tok/s** | **+12.9 %** |
 | cells ≥ +10 % | — | **7 of 8** (only C5 at +3.4 %) | |
-| draft acceptance, median across C | 26.9 % | **31.1 %** | **+4.5 pp, 8/8 positive** |
+| draft acceptance, median across C | 26.9 % | **31.1 %** | **+4.5 pp**¹, 8/8 positive |
 | cold prefill 32K / 131K / 200K | 1510 / 1908 / 1792 | 1785 / 1869 / 1747 | +18.2 / −2.0 / −2.5 % |
 | warm prefix prefill | no cache | **7.6× HIT** (15.50 s → 2.03 s, 2065 → 15786 tok/s) | structural |
 
@@ -426,6 +426,13 @@ C   Δ tok/s   Δ acc
 7   +13.0 %   +6.8 pp
 8   +11.5 %   +1.9 pp
 ```
+
+¹ `+4.5 pp` is the **median of the eight per-cell deltas** above — the same
+convention as the winner table's `acc Δ (median pp)` column. Subtracting the
+two medians directly (31.1 − 26.9) gives **+4.2 pp**. "Median of differences"
+≠ "difference of medians"; both are correct, but pick one and don't mix them
+across tables. The tok/s Δ in the same row *is* a direct ratio of the two sums
+(594.2 → 670.7), so that one subtracts cleanly.
 
 Gates, all PASS:
 

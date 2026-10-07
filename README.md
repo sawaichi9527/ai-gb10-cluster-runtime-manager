@@ -149,46 +149,70 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 > 256K / 8-way、**prefix caching ON**（2026-10-06 E5 promote；見下）。
 > `bench-c` 之 prompt 約 118 tok（Vision-Exp 約 197 tok——同文字，tokenizer/chat template 差異）。
 >
-> **新基準（取代 2026-09-20 只列 C1/2/3/4/8 的單次量測，舊表見 git 歷史）**：
-> C=1…8、每格 3 次取**中位數**。harness = `scripts/bench-ab-deepseek.sh`
-> （`BENCH_IGNORE_EOS=1` 固定 400 tok/stream、`BENCH_COLD=1` prefill、外加 engine diag、
-> 3× 重複 prompt 完整性、warm 前綴命中探針 `bench-prefix-hit.sh`）。
-> 下表為 **2026-10-07 00:0x 在 production lane 上的驗收量測**（promote 後的 `deepseek.conf`）。
+> **三欄對照怎麼讀**（下面兩張表的 Δ 欄一律只對 **E0** 計算）：
+>
+> * `改動前 2026-09-20` = 參數改動前的**舊版**量測：greedy、prefix caching off、
+>   **單次**、只跑 C1/2/3/4/8、舊 harness（prefill 也沒有 `BENCH_COLD` 開關）。
+> * `改動前 E0 2026-10-06` = **同樣是改動前的設定**，但換成新 harness 重測：
+>   C=1…8、每格 3 次取**中位數**。所以 **09-20 → E0 這一段的差異是量測方法，不是效能提升**
+>   （09-20 欄本身非單調：C3 45.1 < C2 55.7，正是單次抖動的證據）。
+> * `改動後 E5/PROD 2026-10-07` = promote 進 `deepseek.conf` 後在 **production lane** 上的驗收量測。
+> * `—` = 舊版沒測那格。只有 E0 ↔ E5 是同 harness、可直接相減。
+>
+> **改了什麼（E0 → E5，六個、全在 profile 層、不重建 image）**：
+> `draft_sample_method` greedy → **probabilistic**、`ENABLE_PREFIX_CACHING` → **true**、
+> `CMD_WRAPPER` 啟動時套 `hotfix-vllm-dspark-swa-prefix.py`（fail-closed）、
+> `VLLM_PREFIX_CACHE_RETENTION_INTERVAL=4096`、EXTRA_MOUNTS 掛 `patches/`、
+> `SYNC_DIRS` 同步到兩節點。
+>
+> **量測方法**：harness = `scripts/bench-ab-deepseek.sh`（`BENCH_IGNORE_EOS=1` 固定 400
+> tok/stream、`BENCH_COLD=1` prefill、engine diag、3× 重複 prompt 完整性）+
+> `scripts/bench-prefix-hit.sh`（暖前綴命中探針）。
 > **實測雜訊底：decode ≈ ±7 %、prefill ≈ ±8 %** —— 小於此的差異不是結果。
 
-| C | 0731 tok/s (median of 3) | accept % |
-|---|---|---|
-| 1 | 42.3 | 30.2 |
-| 2 | 56.9 | 30.1 |
-| 3 | 71.7 | 31.8 |
-| 4 | 79.8 | 30.2 |
-| 5 | 91.8 | 33.6 |
-| 6 | 99.3 | 31.5 |
-| 7 | 113.2 | 33.5 |
-| 8 | 115.7 | 30.6 |
-| **Σ** | **670.7** | 中位 **31.1** |
+單格格式 **`tok/s · accept %`**。
 
-| prefill probe (`bench-ctx.sh`, `BENCH_COLD=1`, max_tokens=1) | 0731 tok/s |
-|---|---|
-| 32K | 1784.8 |
-| 131K | 1868.8 |
-| 200K | 1747.3 |
+| C | 改動前 2026-09-20（單次） | 改動前 E0 2026-10-06（中位×3） | **改動後 E5/PROD 2026-10-07（中位×3）** | Δ vs E0 |
+|---|---|---|---|---|
+| 1 | 35.7 · 25.1 | 38.4 · 27.1 | **42.3 · 30.2** | **+10.2 % · +3.1 pp** |
+| 2 | 55.7 · 29.3 | 50.3 · 25.0 | **56.9 · 30.1** | **+13.1 % · +5.1 pp** |
+| 3 | 45.1 · 25.4 | 62.5 · 25.0 | **71.7 · 31.8** | **+14.7 % · +6.8 pp** |
+| 4 | 55.5 · 27.1 | 67.7 · 26.3 | **79.8 · 30.2** | **+17.9 % · +3.9 pp** |
+| 5 | — | 88.8 · 28.4 | **91.8 · 33.6** | +3.4 % · +5.2 pp |
+| 6 | — | 82.5 · 28.8 | **99.3 · 31.5** | **+20.4 % · +2.7 pp** |
+| 7 | — | 100.2 · 26.7 | **113.2 · 33.5** | **+13.0 % · +6.8 pp** |
+| 8 | 93.1 · 28.8 | 103.8 · 28.7 | **115.7 · 30.6** | **+11.5 % · +1.9 pp** |
+| **Σ / 中位** | —（僅 C1/2/3/4/8，不可比） | 594.2 · 26.9 | **670.7 · 31.1** | **+12.9 % · +4.5 pp** |
 
-> **同日 A/B 調優（E0–E5，六格、同 image、實驗期間全程不動 `deepseek.conf`）→
-> `docs/DEEPSEEK_TUNE_AB_2026-10-06.md`**：選出 **E5 =
-> `draft_sample_method=probabilistic` + prefix caching +
-> `hotfix-vllm-dspark-swa-prefix.py`**，已 promote 進 `deepseek.conf` 並在 production
-> lane 重新驗收：
+> **Σ 行的兩個 Δ 口徑不同，請照這個讀**：
+> `Σ tok/s` = 八格中位數相加後相除（594.2 → 670.7 = **+12.9 %**）；
+> **`Δ accept` = 八格 delta 的中位數 = +4.5 pp**（與 campaign 文件同口徑，欄名 `acc Δ (median pp)`；
+> 逐格 delta 全正 ⇒ **8/8 positive**）。
+> 直接相減兩欄中位數 31.1 − 26.9 會得到 +4.2 pp ——「差的中位數」≠「中位數的差」，兩者都對，別混用。
+
+| cold prefill（`bench-ctx.sh`, `max_tokens=1`） | 改動前 2026-09-20<br>（舊 harness，無 `BENCH_COLD`） | 改動前 E0 2026-10-06<br>（`BENCH_COLD=1`） | **改動後 E5/PROD 2026-10-07**<br>（`BENCH_COLD=1`） | Δ vs E0 |
+|---|---|---|---|---|
+| 32K | 1516.9 | 1510.1 | **1784.8** | +18.2 % |
+| 131K | 1682.3 | 1907.6 | **1868.8** | −2.0 % |
+| 200K | 1725.0 | 1791.8 | **1747.3** | −2.5 % |
+
+> 131K/200K 在 ±8 % 底內＝持平；32K 的 +18.2 % 是該探針最吵的一格（E0…E4 各格橫跨
+> 1106–1711 tok/s）且另兩格沒動 → **不算提升**。
+> E0 與 PROD 兩欄為 `BENCH_COLD=1`（每次重起容器後首測）；09-20 舊欄當時沒有這個開關，
+> 跨欄只能參考。prefix caching 的收益三欄都看不到（都是冷啟動），見下方暖前綴 probe。
+
+> **promote 後的正式設定驗收（2026-10-07 00:18，全過）**，詳見
+> `docs/DEEPSEEK_TUNE_AB_2026-10-06.md`（E0–E5 六格完整記錄、Winner table、Verdict）：
 >
-> * **decode Σ 594.2 → 670.7 tok/s（+12.9 %，8 格中 7 格 ≥+10 %）**
-> * **acceptance 中位 26.9 % → 31.1 %（+4.5 pp，8/8 全正）**
-> * **暖前綴 prefill 7.6× HIT**（15.50 s → 2.03 s，2065 → 15786 tok/s），
->   cold prefill 32K/131K/200K 落在 ±8 % 雜訊底內、啟動時間與 KV 不變
-> * gate：compose-verify（雙 rank）、smoke、3×3 完整性、261K 長文
->   （261021 tok / 1648.2 tok/s）、garble soak 3/3、`/health 200` 全過
->
-> **E1**（`CUDAGRAPH_CAPTURE` 8→128）與 **E4**（`VLLM_USE_BREAKABLE_CUDAGRAPH=0`）
-> 落在雜訊內已排除（E1 還要多花 16 s 啟動 + 1.9 GiB）。Winner table 與 Verdict 見該文件。
+> * **暖前綴 prefill 7.6× HIT**（15.50 s → 2.03 s，2065 → 15786 tok/s）——
+>   cold prefill／啟動時間／graph pool／KV 皆不變；首次觸發的 prefill 沒變快
+> * gate：`cluster-compose-verify`（雙 rank）、`gb10 smoke`、3×3 完整性、
+>   261K 長文（261021 tok / 1648.2 tok/s）、garble soak 3/3、`/health 200` 全過
+> * **E1**（`CUDAGRAPH_CAPTURE` 8→128）與 **E4**（`VLLM_USE_BREAKABLE_CUDAGRAPH=0`）
+>   落在雜訊內已排除（E1 還要多花 16 s 啟動 + 1.9 GiB graph pool）
+> * 為什麼 prefix caching 必須配 hotfix：沒有 `hotfix-vllm-dspark-swa-prefix.py` 時，
+>   cache hit 會讓 DSpark draft 的 128-token sliding window 沒有前綴，
+>   verifier 接受**截斷**答案 —— 所以 `CMD_WRAPPER` 是 fail-closed（套不上就不起服）
 
 ### Qwen3.8 Flash-Next 125B NVFP4 (TP2+EP, MTP3) — 2026-09-29（上游對齊＋重新驗證）
 
