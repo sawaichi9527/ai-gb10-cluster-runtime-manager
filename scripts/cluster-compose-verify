@@ -107,7 +107,7 @@ exp_mnt_lines(){ # rank -> "SRC;DEST;true|false" lines (Source;Destination;RW)
 # The separator MUST NOT appear in any field: a CMD_WRAPPER command contains
 # `||` (from `|| exit 1`), so `||` cannot be used here.
 CVSEP='@@CVSEP@@'
-TM_SCALARS="{{json .Config.Entrypoint}}${CVSEP}{{json .Config.Cmd}}${CVSEP}{{.HostConfig.NetworkMode}}${CVSEP}{{.HostConfig.IpcMode}}${CVSEP}{{.HostConfig.ShmSize}}${CVSEP}{{join .HostConfig.Devices \"|\"}}${CVSEP}{{join .HostConfig.CapAdd \"|\"}}${CVSEP}{{range .HostConfig.Ulimits}}{{.Name}}={{.Soft}}={{.Hard}};{{end}}${CVSEP}{{range .HostConfig.DeviceRequests}}[{{.Driver}}|{{.Count}}|{{join .Capabilities \",\"}}];{{end}}"
+TM_SCALARS="{{json .Config.Entrypoint}}${CVSEP}{{json .Config.Cmd}}${CVSEP}{{.HostConfig.NetworkMode}}${CVSEP}{{.HostConfig.IpcMode}}${CVSEP}{{.HostConfig.ShmSize}}${CVSEP}{{join .HostConfig.Devices \"|\"}}${CVSEP}{{join .HostConfig.CapAdd \"|\"}}${CVSEP}{{range .HostConfig.Ulimits}}{{.Name}}={{.Soft}}={{.Hard}};{{end}}${CVSEP}{{join .HostConfig.SecurityOpt \"|\"}}${CVSEP}{{range .HostConfig.DeviceRequests}}[{{.Driver}}|{{.Count}}|{{join .Capabilities \",\"}}];{{end}}"
 
 get_facts(){ # <rank> -> sets GET_* and NODE_HOME ; 0 runs locally, 1 over n1 (sudo)
   local rank="$1"
@@ -124,12 +124,13 @@ get_facts(){ # <rank> -> sets GET_* and NODE_HOME ; 0 runs locally, 1 over n1 (s
     GET_MNT="$(n1 "export SUDO_PASS=${SP}; echo \"\$SUDO_PASS\" | sudo -S docker inspect $cid --format '{{range .Mounts}}{{.Source}};{{.Destination}};{{.RW}}{{println}}{{end}}'")"
     out="$(n1 "export SUDO_PASS=${SP}; echo \"\$SUDO_PASS\" | sudo -S docker inspect $cid --format '$TM_SCALARS'")"
   fi
-  # scalars split on CVSEP: entry cmd net ipc shm dev cap ul dr
+  # scalars split on CVSEP: entry cmd net ipc shm dev cap ul sec dr
   GET_ENTRY="${out%%${CVSEP}*}"
   rest="${out#*${CVSEP}}"; GET_CMD="${rest%%${CVSEP}*}"; rest="${rest#*${CVSEP}}"
   GET_NET="${rest%%${CVSEP}*}"; rest="${rest#*${CVSEP}}"; GET_IPC="${rest%%${CVSEP}*}"; rest="${rest#*${CVSEP}}"
   GET_SHM="${rest%%${CVSEP}*}"; rest="${rest#*${CVSEP}}"; GET_DEV="${rest%%${CVSEP}*}"; rest="${rest#*${CVSEP}}"
   GET_CAP="${rest%%${CVSEP}*}"; rest="${rest#*${CVSEP}}"; GET_UL="${rest%%${CVSEP}*}"; rest="${rest#*${CVSEP}}"
+  GET_SEC="${rest%%${CVSEP}*}"; rest="${rest#*${CVSEP}}"
   GET_DR="$rest"
 }
 
@@ -186,6 +187,17 @@ verify_rank(){ # 0 | 1
       fi
     } | sort | tr '\n' ' ')"
   check "$( [[ "$got_ul" == "$exp_ul" ]] && echo OK || echo BAD )" "Ulimits ${GET_UL}"
+  # security_opt: profile-owned SECURITY_OPT entries (docker reports them
+  # verbatim in HostConfig.SecurityOpt; unset profile => empty on both sides).
+  exp_sec=""
+  if [[ -n "${SECURITY_OPT+x}" ]]; then
+    local _se first_sec=1
+    for _se in "${SECURITY_OPT[@]}"; do
+      (( first_sec )) || exp_sec+="|"
+      exp_sec+="$_se"; first_sec=0
+    done
+  fi
+  check "$( [[ "$GET_SEC" == "$exp_sec" ]] && echo OK || echo BAD )" "SecurityOpt ${GET_SEC} != ${exp_sec}"
   if [[ "$GET_DR" == '[nvidia|-1|'* || "$GET_DR" == '[nvidia|0|'* ]]; then
     [[ "$GET_DR" == *gpu* ]] || check BAD "DeviceRequests ${GET_DR}"
   else

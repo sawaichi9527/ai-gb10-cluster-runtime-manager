@@ -128,6 +128,7 @@ load_profile(){
         ENABLE_CHUNKED_PREFILL ENABLE_PREFIX_CACHING \
         QUANTIZATION SPEC_CONFIG PASS_CONFIG COMPILATION_JSON CUDAGRAPH_CAPTURE \
         EXTRA_ARGS EXTRA_ENV EXTRA_MOUNTS CMD_WRAPPER SYNC_DIRS CAP_ADD ULIMITS \
+        SECURITY_OPT \
         AUTOTUNE_CACHE_REL STACK_DIR COMPOSE_FILE HEALTH_TIMEOUT \
         DISABLE_CUSTOM_ALL_REDUCE SHM_SIZE ENGINE MODELS_BASE 2>/dev/null || true
   # shellcheck disable=SC1090
@@ -387,6 +388,16 @@ _compose_service(){ # <service> <rank> -> emits one service block to stdout
   done
   echo '    network_mode: host'
   echo '    ipc: host'
+  # Profile-owned seccomp/apparmor policy (array SECURITY_OPT; unset => no-op,
+  # byte-identical render). Needed e.g. by deepseek-nvfp4: the Docker default
+  # seccomp profile blocks io_uring (EPERM), which the b12x checkpoint
+  # loader's bounce path requires (upstream eugr launch-cluster.sh hides this
+  # by running --privileged).
+  if [[ -n "${SECURITY_OPT+x}" ]]; then
+    local _so
+    echo '    security_opt:'
+    for _so in "${SECURITY_OPT[@]}"; do echo "      - ${_so}"; done
+  fi
   printf '    shm_size: %s\n' "${SHM_SIZE:-16g}"
   echo '    devices:'
   echo '      - /dev/infiniband'
@@ -458,7 +469,7 @@ inspect_profile(){
   echo "spec:     ${SPEC_METHOD:-none}$([[ -n "${DRAF:-}" && -n "${SPEC_METHOD:-}" && "${SPEC_METHOD}" != "none" ]] && echo " n=${NSPEC:-?} (model=/drafter)")$([[ -n "${SPEC_CONFIG:-}" ]] && echo " (SPEC_CONFIG override)")"
   echo "graph:    ${GRAPH_MODE:-FULL_AND_PIECEWISE}"
   echo "compile:  ${COMPILATION_JSON:-<template>}"
-  echo "caps:     cap_add=[${CAP_ADD[*]:-}] ulimits=[${ULIMITS[*]:-}]"
+  echo "caps:     cap_add=[${CAP_ADD[*]:-}] ulimits=[${ULIMITS[*]:-}] security=[${SECURITY_OPT[*]:-}]"
   echo "prefill:  chunked=${ENABLE_CHUNKED_PREFILL:-true} prefix_cache=${ENABLE_PREFIX_CACHING:-false}"
   echo "revision: $(cat "${BODY}/.hf_revision" 2>/dev/null || echo '<none>')"
   echo "parsers:  reasoning=${REASONING_PARSER:-none} tool=${TOOL_CALL_PARSER:-none} autotool=${ENABLE_AUTO_TOOL_CHOICE:-false}"

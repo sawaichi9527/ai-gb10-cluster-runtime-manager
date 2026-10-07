@@ -47,11 +47,14 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
 - **Single launch lane = compose (since 2026-09-20).** `scripts/cluster-up` renders
   `docker-compose.yml` per launch from the same profile data
   (`build_vllm_args`/`build_docker_env`); the old docker-run branch was removed. Every
-  profile declares `LAUNCH_STYLE="compose"`. Three generic, model-agnostic profile
+  profile declares `LAUNCH_STYLE="compose"`. Four generic, model-agnostic profile
   fields exist for things the shared builders do not cover: `COMPILATION_JSON` (raw
   `--compilation-config` override), `CAP_ADD=(...)` and `ULIMITS=(NAME=VALUE ...)`
-  (compose `cap_add` / `ulimits` extras). All three are no-ops when unset — keep it
-  that way so 27b/35b/deepseek stay byte-identical.
+  (compose `cap_add` / `ulimits` extras), and `SECURITY_OPT=(...)` (compose
+  `security_opt` entries — e.g. `deepseek-nvfp4` needs `seccomp=unconfined` because
+  the Docker default seccomp profile blocks io_uring, which the b12x loader requires;
+  upstream eugr hides this behind `--privileged`). All four are no-ops when unset —
+  keep it that way so 27b/35b/deepseek stay byte-identical.
 - **SGLang launcher removed (2026-09-20).** `build_sglang_args` and every `ENGINE=sglang`
   branch were deleted from `cluster-common.sh`, `cluster-up` and `cluster-compose-verify` —
   the SGLang route was abandoned (it was only ever an early DeepSeek-Vision experiment) and
