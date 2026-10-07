@@ -234,6 +234,34 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 >   cache hit 會讓 DSpark draft 的 128-token sliding window 沒有前綴，
 >   verifier 接受**截斷**答案 —— 所以 `CMD_WRAPPER` 是 fail-closed（套不上就不起服）
 
+### DeepSeek V4 Flash 0731 NVFP4 on eugr b12x (TP2) — 2026-10-07（建置中，未開機）
+
+> `cluster-profiles.d/deepseek-nvfp4.conf`：NVIDIA `DeepSeek-V4-Flash-0731-NVFP4` checkpoint
+> （MoE routed experts 為 NVFP4、DSpark heads 保留未量化，~172 GB / 48 shards，非 gated、MIT）+
+> **`eugr/spark-vllm-b12x:latest`**（DockerHub nightly CI，`eugr/spark-vllm-docker`
+> `recipes/deepseek-v4-flash-0731.yaml` 為配方基準）。
+>
+> **動機**：mainline/vision 鎖在 `anemll/dspark-vllm-gx10:0.1.1`（上游疑似停止維護）；
+> 本 lane 把同一代 0731 模型搬到有持續 CI 的 runtime，**不動** `deepseek.conf` /
+> `deepseek-vision.conf`。TP2 專屬、與所有 lane 互斥（同 port 1234 + 同 GPU），
+> 以 `gb10 use deepseek-nvfp4` 啟動。
+>
+> **狀態（2026-10-07，Phase 1–2）**：profile/bin 白名單/文件已落地並通過
+> `bash -n` + 八條既有 lane byte-identical render 比對；模型（node0 `hf download`）與
+> image（node0 `docker pull`）下載中，完成後經 10.0.101.x 內網 rsync / `docker save|load`
+> 傳到 node1（**對外頻寬只吃一次**）。**尚未開機驗證（Phase 3 另排）**——開機前必須：
+> 鎖 `IMG_SHA256`（兩節點 `.RepoDigests` 比對）、`SHA256SUMS` 48-shard 校驗、
+> `gb10 doctor` + smoke + 完整性 + **prefix-hit 截斷探針**（本 image 的 DSpark SWA-prefix
+> 修正與否未證實，見 conf 頭部 KNOWN RISK）。
+>
+> **配方差異點（相對 eugr recipe，皆記錄於 conf）**：`QUANTIZATION=none`
+> （checkpoint 自帶 `hf_quant_config.json`，vLLM 自動偵測）、`--load-format b12x` 為首選
+> （NVFP4 tensor 走同一 loader，開機若載入失敗先退回預設 safetensors）、
+> prefix caching 暫按 recipe 開啟但**開機必過截斷探針**（失敗即改 `false`，正確性優先）、
+> `--attention_config.use_fp4_indexer_cache` / `--enable-expert-parallel` 列為
+> boot-stage 候選不預設。NVIDIA **未驗證**此 checkpoint 的 DSpark spec decode——開機量
+> acceptance。同名舊 lane（AEON NVFP4 實驗）已刪，非復活。
+
 ### Qwen3.8 Flash-Next 125B NVFP4 (TP2+EP, MTP3) — 2026-09-29（上游對齊＋重新驗證）
 
 > **2026-09-29：對齊上游 MiaAI 配方 `2c86a1d0`。** `cluster-profiles.d/qwen38flash.conf`：官方
@@ -472,6 +500,8 @@ Current deployed TP2 profiles are 27B, 35B, DeepSeek (mainline 0731), DeepSeek V
 **qwen38flash** and **mimo26flash** (all data-driven from `cluster-profiles.d/`). The last two are
 **cluster-only** — no single-node lane (the `runtimes.d/qwen38flash.conf` placeholder was removed
 2026-09-20, and so was `glm53flash.conf`; `mimo26flash` never had one — its weights are TP2-only).
+**deepseek-nvfp4** (2026-10-07) is built and registered but **not yet booted** — see its
+section for the pending asset gates.
 
 ### TP2 profile registry (completed 2026-09-05)
 
@@ -488,6 +518,8 @@ cluster-profiles.d/
                     # cluster-only; see its section for the 2026-09-29 realignment)
   mimo26flash.conf  # deployed + live-validated (MiMo V2.6 Flash MOPD MXFP4 + DFlash2,
                     # cluster-only; BODY_REL flips MXFP4/NVFP4 — see its section)
+  deepseek-nvfp4.conf   # built 2026-10-07, boot PENDING (NVFP4 0731 on eugr
+                        # spark-vllm-b12x; assets gated, see its README section)
 ```
 
 Each conf carries the **profile-scoped image** and per-model vLLM arguments, loaded once by
@@ -515,7 +547,10 @@ official fp8 checkpoint (`deepseek-v4-flash-0731-official`, weights under
 `ghcr.io/anemll/dspark-vllm-gx10:0.1.1`, SHA256SUMS-gated and validated with a real
 generation. It serves the unified :1234 API at 256K context (same-model DSpark draft,
 8 concurrent streams). The retired NVFP4 AEON lane is archived to
-`~/_archieve/cluster-profiles.d/deepseek-nvfp4.conf`.
+`~/_archieve/cluster-profiles.d/deepseek-nvfp4.conf` — **name collision warning**: the
+active `deepseek-nvfp4` profile (2026-10-07, `nvidia/DeepSeek-V4-Flash-0731-NVFP4` on
+`eugr/spark-vllm-b12x`) is a **different, unrelated lane** that reuses the name; the
+archived one was an AEON-image experiment and is not being revived.
 
 ## Single-node CLI — `gb10-single`
 

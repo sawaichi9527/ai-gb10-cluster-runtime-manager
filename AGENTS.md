@@ -134,6 +134,9 @@ cluster-profiles.d/
   deepseek-vision.conf  # Vision-Exp (2026-09-20); SAME image as deepseek + CMD_WRAPPER hotfixes
   qwen38flash.conf   # Qwen3.8 Flash-Next 125B NVFP4 TP2+EP (2026-09-20); official
                      # vllm/vllm-openai:qwen38-flash-next + vendored MiaAI patchers
+  deepseek-nvfp4.conf   # DeepSeek-V4-Flash-0731-NVFP4 on eugr/spark-vllm-b12x (built
+                        # 2026-10-07, boot PENDING); same name as a retired unrelated
+                        # AEON experiment — not a revival
 ```
 
 Key rules:
