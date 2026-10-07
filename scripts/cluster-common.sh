@@ -34,7 +34,10 @@ fi
 : "${NODE0_MGMT:=${NODE0_IP:-127.0.0.1}}"
 : "${NODE1_MGMT:=${NODE1_IP:-127.0.0.1}}"
 # Cluster-global default image (fallback; a cluster profile may override).
-: "${IMG:=ghcr.io/aeon-7/aeon-vllm-ultimate:2026-09-11-v0.29.0-omni}"
+# 2026-09-18 is the current aeon pin (27b/35b IMAGE, both nodes' cluster.env
+# + standalone.env AEON_IMAGE); the 2026-09-11 / 2026-08-16 images were
+# deleted from both nodes 2026-10-07 — do not point this fallback there.
+: "${IMG:=ghcr.io/aeon-7/aeon-vllm-ultimate:2026-09-18-v0.29.0-omni}"
 
 # ---- SUDO_PASS: prefer env, else prompt on first docker use (lazy) ----
 # Lazy so read-only/registry commands (gb10 list|inspect|help, profiles)

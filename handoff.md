@@ -55,6 +55,24 @@ node0 對 node1 的連線（由 node0 發起）走 CX7 區網：`ssh -i ~/.ssh/i
 - **TP2 27B prefix caching 刻意關閉**（見 `docs/ADR_2026-09-01_prefix_caching_dflash2.md`）。35b 已啟用 prefix caching（`a5fcc54`）。
 - **ComfyUI** 部署在 Node1 為 `comfyui-aeon` / Flux 2 Dev；不回退 `comfyui-personal`/`comfyui-work`。
 
+## 2026-10-07 — aeon 舊 image 清理（兩節點）
+
+**背景**：使用者確認現行服務用 `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-09-18-v0.29.0-omni`
+（= 27b/35b profile 的 `IMAGE` pin），舊版可刪。
+
+**清理內容**：
+- **node0**：刪 `2026-08-16-v0.27.1`（50.6 GB）與 `2026-09-11-v0.29.0-omni`（52.3 GB）、
+  dangling `ab047f03a432`（20.6 GB）；先移除擋路的殘留容器 `c0911`（Created 狀態、
+  2026-09-18 建、掛舊 image）。`c0918`（掛 09-18）保留。
+- **node1**：刪 `2026-09-11-v0.29.0-omni`（74.6 GB）與 2 個 dangling（38.1 + 38 GB，
+  回收 37.46 GB）。
+- **設定指向同步**（否則刪完指向壞掉）：兩節點 `config/cluster.env` 的 `IMG` 與
+  node1 `config/standalone.env` 的 `AEON_IMAGE`（node0 早已是 09-18）→ 全部改
+  `2026-09-18-v0.29.0-omni`；repo `cluster-common.sh` 的 `IMG` fallback 預設值
+  09-11 → 09-18。`~/docker-stacks` 內 config/compose/env/sh **零殘留**（複查）。
+- 執行中服務不受影響：兩節點 `cluster-node*` 跑的是 `anemll/dspark-vllm-gx10:0.1.1`，
+  未觸碰；`2026-09-18` 兩節點皆保留。
+
 ## 2026-10-07 — deepseek-nvfp4 lane 建置（Phase 1–2；Phase 3 開機另排）
 
 **動機**：mainline/vision 鎖在 `anemll/dspark-vllm-gx10:0.1.1`（上游疑似停止維護）。
@@ -72,7 +90,8 @@ node0 對 node1 的連線（由 node0 發起）走 CX7 區網：`ssh -i ~/.ssh/i
 - **模型與 image 只在 node0 下載一次**，經 10.0.101.x CX7 內網
   （rsync／`docker save|ssh docker load`）送 node1 —— 對外頻寬有限，不雙邊 pull
   （node1 先前誤啟的 eugr pull 已停止；node1 另有一個**非本 session** 的
-  `aeon-vllm-ultimate:2026-09-11-v0.29.0-omni` pull 在跑，未動它）
+  `aeon-vllm-ultimate:2026-09-11-v0.29.0-omni` pull —— 後續已結束，並連同舊 image 清理，
+  見下方「2026-10-07 — aeon 舊 image 清理」）
 
 **已完成（Phase 1–2，2026-10-07）**：
 - 1.1 磁碟預檢：node0 2.2 T / node1 2.1 T 可用 ✅
