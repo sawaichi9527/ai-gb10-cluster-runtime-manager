@@ -11,6 +11,17 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 
 ## Deployed services & benchmark results (latest image)
 
+> **2026-10-08 現況。** **現役 lane 切換為 `deepseek-nvfp4`**（NVFP4 0731 on eugr b12x）。
+> Phase 3 完成：4 次 boot 依序修復 **seccomp/io_uring**（`SECURITY_OPT`）→ **b12x loader
+> strided scale**（改 `--load-format safetensors`）→ **DSpark draft MXFP4 根因 hotfix**
+> （in-checkpoint `mtp.*` 原生 MXFP4 被建成 NVFP4 → draft 垃圾；fail-closed 容器啟動
+> patch，= vllm#49133 半修補）後 **READY、全 gate PASS**。C1–C8 聚合 **47.1 → 129.9
+> tok/s（2.76×）**、acceptance 41–50% 全程不崩、prefix-hit 44.8×、garble 3/3、
+> cold ctx 200K **1984.6 tok/s**。同日 **NVFP4 KV（`nvfp4_ds_mla`）A/B 負結果**
+> （三重硬閘、已回退 fp8）與 `bench-c.sh` metrics auth 修正。使用者裁定
+> **先不恢復主線**（`deepseek` 待命，`gb10 use deepseek` 隨時切回，TP2 互斥自動拆）。
+> 詳見其章節與 handoff Phase 3。
+>
 > **2026-10-05 現況。** **現役 lane 切回 `deepseek`**（13:32 boot、t+8m READY、smoke
 > `HELLO-TP2-OK`、KV 11.01 GiB）。10-03 上線的新 lane **`mimo26flash`**（MiMo V2.6 Flash
 > MOPD，TP2 vLLM+DFlash，詳見其章節）完成 **NVFP4 變體評估 + 完整 A/B + DFlash cliff 探測**
@@ -57,15 +68,17 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 | 27B cluster (TP2) | 同上 | `2026-09-18-v0.29.0-omni` | `http://192.168.23.215:1234/v1` | deployed（09-19 實測） |
 | 35B single (TP1) | `qwen3.6-35b-a3b-heretic-nvfp4` + DFlash n=6 | `2026-09-18-v0.29.0-omni` | `:1234/v1` | deployed（09-19 實測） |
 | 35B cluster (TP2) | 同上 | `2026-09-18-v0.29.0-omni` | `http://192.168.23.215:1234/v1` | deployed（09-19 實測） |
-| DeepSeek V4 Flash cluster (TP2) | `deepseek-v4-flash-0731-official` + DSpark n=7 | `anemll/dspark-vllm-gx10:0.1.1` | `http://192.168.23.215:1234/v1` | **← 現役（10-05 由 mimo26flash 切回）**：KV 11.01 GiB、smoke `HELLO-TP2-OK` |
+| DeepSeek V4 Flash cluster (TP2) | `deepseek-v4-flash-0731-official` + DSpark n=7 | `anemll/dspark-vllm-gx10:0.1.1` | `http://192.168.23.215:1234/v1` | deployed（10-05 由 mimo26flash 切回；**10-07 E5 promote 實測**；10-08 讓位給 `deepseek-nvfp4` 待命） |
+| DeepSeek V4 Flash **0731 NVFP4** cluster (TP2) | `DeepSeek-V4-Flash-0731-NVFP4`（MoE routed experts NVFP4，~172 GB／48 shards）+ DSpark n=5（in-checkpoint `mtp.*`，draft MXFP4 hotfix） | `eugr/spark-vllm-b12x:latest`（**2026-10-06** nightly，雙節點 digest pin） | `http://192.168.23.215:1234/v1` | **← 現役（2026-10-08 Phase 3 完成）**：C8 129.9 tok/s、accept 41–50%、KV 344,195 tok、smoke `HELLO-TP2-OK` |
 | DeepSeek V4 Flash **Vision-Exp** cluster (TP2) | `deepseek-v4-flash-vision-exp` + DSpark n=6 (multimodal) | `anemll/dspark-vllm-gx10:0.1.1`（**與 deepseek 同 image / 同 digest**） | `http://192.168.23.215:1234/v1` | deployed（09-20 實測，文字＋圖片） |
 | Qwen3.8 Flash-Next **125B** cluster (TP2+EP) | `qwen3.8-flash-next-nvfp4`（ModelOpt NVFP4）+ 內建 MTP n=3 | `vllm/vllm-openai:qwen38-flash-next` | `http://192.168.23.215:1234/v1` | deployed（09-29 重新驗證）：GMU 0.80／prefix caching ON／determinism 預設 ON |
 | MiMo V2.6 Flash **MOPD** cluster (TP2) | `mimo-v2.6-flash-mopd`（官方 MXFP4 QAT）+ DFlash2 n=7 | `tonyd2wild/vllm-glm53-flash:sm121-v11-dflash2` | `http://192.168.23.215:1234/v1` | deployed（10-03 上線；**10-05 定案 MXFP4**，NVFP4 A/B + cliff 探測見下） |
 
-> **現役（2026-10-05）＝ deepseek**（DeepSeek V4 Flash 0731 mainline；`:1234` READY、
-> KV 11.01 GiB、`gb10 smoke` = `HELLO-TP2-OK`；`gb10 use deepseek` 由 `mimo26flash` 切回，
-> cold boot 約 8 分。`mimo26flash` 自 10-03 上線、10-05 13:32 交還執行權）。
-> TP2 各 lane **互斥**，同一時間只有一條在線；其他列的 `deployed`
+> **現役（2026-10-08）＝ deepseek-nvfp4**（NVIDIA NVFP4 0731 checkpoint on
+> `eugr/spark-vllm-b12x`；`:1234` READY、smoke `HELLO-TP2-OK`、KV 344,195 tok。
+> Phase 3 四次 boot 修復 seccomp → safetensors → DSpark draft 根因 hotfix；使用者裁定
+> **先不恢復主線**，`gb10 use deepseek` 隨時切回——TP2 各 lane **互斥**，同一時間只有一條
+> 在線，切換由 `gb10 use` 自動拆）。其他列的 `deployed`
 > 表示**已部署並實測過**，非同時運行。
 
 ### 27B v0.29.0-omni (bench-c C1-C8, MAX_TOKENS=2048; 245k cold prefill) — 2026-09-19
@@ -234,42 +247,95 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 >   cache hit 會讓 DSpark draft 的 128-token sliding window 沒有前綴，
 >   verifier 接受**截斷**答案 —— 所以 `CMD_WRAPPER` 是 fail-closed（套不上就不起服）
 
-### DeepSeek V4 Flash 0731 NVFP4 on eugr b12x (TP2) — 2026-10-07（建置中，未開機）
+### DeepSeek V4 Flash 0731 NVFP4 on eugr b12x (TP2) — 2026-10-08（Phase 3 完成，**現役**）
 
 > `cluster-profiles.d/deepseek-nvfp4.conf`：NVIDIA `DeepSeek-V4-Flash-0731-NVFP4` checkpoint
 > （MoE routed experts 為 NVFP4、DSpark heads 保留未量化，~172 GB / 48 shards，非 gated、MIT）+
 > **`eugr/spark-vllm-b12x:latest`**（DockerHub nightly CI，`eugr/spark-vllm-docker`
-> `recipes/deepseek-v4-flash-0731.yaml` 為配方基準）。
+> `recipes/deepseek-v4-flash-0731.yaml` 為配方基準；image created **2026-10-06**、
+> vLLM `0.1.dev21554+geda1715e9.d20261006`，**雙節點 digest pin**
+> `IMG_SHA256=sha256:036c3076…` + `IMG_SHA256_NODE1=sha256:dc0e9faa…`）。
 >
 > **動機**：mainline/vision 鎖在 `anemll/dspark-vllm-gx10:0.1.1`（上游疑似停止維護）；
 > 本 lane 把同一代 0731 模型搬到有持續 CI 的 runtime，**不動** `deepseek.conf` /
 > `deepseek-vision.conf`。TP2 專屬、與所有 lane 互斥（同 port 1234 + 同 GPU），
-> 以 `gb10 use deepseek-nvfp4` 啟動。
->
-> **狀態（2026-10-07，Phase 1–2 完成，Phase 3 開機另排）**：
-> * **模型**：node0 `hf download` 完成 → **49/49 LFS 檔（48 shards + index）對 HF sha256 全中**、
->   `SHA256SUMS`（75 檔）已產出 → rsync 經 CX7 傳 node1 → `gb10 verify-models
->   deepseek-nvfp4` **兩節點 PASS**（node0 75 OK、node1 全驗）
-> * **image**：node0 `docker pull` 完成 → `docker save | ssh docker load` 經 CX7 傳 node1
->   （對外頻寬只吃一次）→ 節點間內容同一性已證（29 層 diff ID + `.Config` 摘要全同）→
->   鎖每節點 digest（`IMG_SHA256` + `IMG_SHA256_NODE1`，gate 支援每節點 pin）→
->   node0 實跑 `verify_profile_image_gate` **PASS**、bogus pin 反向測試正確 fail
-> * **repo**：profile/bin 白名單/文件已落地並通過 `bash -n` + 八條既有 lane
->   byte-identical render；已 commit/push（`1f8a1e8`、`7cef7d5`）並同步 node0
->
-> **Phase 3（未做，另排時段）**：`gb10 doctor` → `gb10 use deepseek-nvfp4` 開機 ——
-> 必查：DSpark spec decode acceptance（NVIDIA 未驗證此 checkpoint）、
-> **prefix-hit 截斷探針**（本 image 的 DSpark SWA-prefix 修正與否未證實，見 conf 頭部
-> KNOWN RISK；失敗即 `ENABLE_PREFIX_CACHING=false`）、Marlin/B12X 實際 quant path、
-> garble soak。完成後恢復 `gb10 use deepseek`。
->
-> **配方差異點（相對 eugr recipe，皆記錄於 conf）**：`QUANTIZATION=none`
-> （checkpoint 自帶 `hf_quant_config.json`，vLLM 自動偵測）、`--load-format b12x` 為首選
-> （NVFP4 tensor 走同一 loader，開機若載入失敗先退回預設 safetensors）、
-> prefix caching 暫按 recipe 開啟但**開機必過截斷探針**（失敗即改 `false`，正確性優先）、
-> `--attention_config.use_fp4_indexer_cache` / `--enable-expert-parallel` 列為
-> boot-stage 候選不預設。NVIDIA **未驗證**此 checkpoint 的 DSpark spec decode——開機量
-> acceptance。同名舊 lane（AEON NVFP4 實驗）已刪，非復活。
+> 以 `gb10 use deepseek-nvfp4` 啟動。合約與 aeon 同級：**262144 ctx / 8-way /
+> 8192 batched / GMU 0.85**（KV pool 344,195 tok ⇒ 全長 256K 單流 1.31x；
+> 8 路一般長度足夠，8×256K 同時為物理上限外——conf 註解已記）。
+
+**Phase 1–2（2026-10-07，資產 + repo）**：模型 49/49 LFS 對 HF sha256 全中、`SHA256SUMS`
+（75 檔）rsync 經 CX7 傳 node1、`gb10 verify-models` 兩節點 PASS；image 經 `docker save |
+ssh` 傳 node1（對外頻寬只吃一次）、節點間內容同一性已證（29 層 diff ID + `.Config` 摘要）；
+profile/bin 白名單通過 `bash -n` + 八條既有 lane byte-identical render（`1f8a1e8`、`7cef7d5`）。
+
+**Phase 3（2026-10-08，4 次 boot → READY ~21 min，全 gate PASS）**：
+
+1. **boot #1 fail（io_uring/seccomp）**：Docker 預設 seccomp 擋 io_uring → 通用 profile
+   欄位 `SECURITY_OPT=("seccomp=unconfined")` + `cluster-compose-verify` SecurityOpt
+   改 **subset match**（`10fff38` + `2cdec55`）。
+2. **boot #2 fail（b12x loader strided conversion）**：`--load-format b12x` 對
+   `mtp.1.ffn.experts.0.w1.scale` 嘗試 E8M0→e4m3 轉換 `NotImplementedError` →
+   改 **`--load-format safetensors`**（`d2b090d`；事後證實此錯正是 #3 的另一表現）。
+3. **boot #3 READY 但 DSpark acceptance 崩**（~16 tok/s、pos0 0.10）→ **根因**：
+   checkpoint 的 draft 專家（`mtp.*`，quant `ignore` 明列豁免）**原生 MXFP4**
+   （int8+ue8m0 g32），但 draft 的 quant 實例 `moe_quant_algo` 懶解析自**與 target
+   共享的 NVFP4 hf dict** → 建成 `ModelOptNvFp4FusedMoE` → ue8m0 g32 scale 靜默灌進
+   e4m3 g16 buffer → **draft MoE 算垃圾**。= 上游 `vllm-project/vllm#49133`
+   （closed unmerged；本 image 只吃了一半修法）。鐵證：`Mxfp4 MoE backend` 兩節點 0 次、
+   modelopt w1/w3 警告與 draft load 同秒。
+4. **boot #4 hotfix 接線 → READY、全 gate PASS**：
+   `patches/eugr-spark-vllm-b12x/hotfix-dspark-draft-mxfp4.py` —— fail-closed
+   容器啟動 patch（region 恰一次 + 全檔 sha pin、原子寫入；在 draft 自己的 quant
+   實例上預清空 `_resolved_moe_quant_algo` → dispatch 走官方 `Mxfp4MoEMethod`；
+   target 不動），由 `CMD_WRAPPER` + `EXTRA_MOUNTS`（ro `/opt/eugr-patches`）+
+   `SYNC_DIRS`（雙節點，Node1 無 repo）接線。完整根因見 conf 頭部 **KNOWN RISK #2**。
+   Gate：hotfix `applied` ×2 rank、`Mxfp4 MoE backend`（`B12X_MXFP4_MXFP8`）出現、
+   modelopt 警告 0/0、health 200、smoke `HELLO-TP2-OK`、compose-verify 兩 rank PASS、
+   prefix-hit **HIT 44.8×**（3 輪 `PREFIX-OK` 一致無截斷）、garble soak **3/3**
+   （`finish=stop`、`uniq=1.0`、primes 10/10）、**無 Marlin fallback**。
+
+#### Benchmark（2026-10-08，現役 boot）
+
+`scripts/bench-c.sh` + `BENCH_IGNORE_EOS=1`（每 stream 恰 400 tok；prompt 197 tok
+混合 code+JSON；**thinking 預設開**——payload 無 `chat_template_kwargs`）。
+acceptance 由 `/metrics` spec-decode 計數 delta 取得（期間修掉 `bench-c.sh` 的
+metrics scrape 缺 auth bug：本 image `/metrics` 掛在 `VLLM_API_KEY` 後，401 → 全格
+`(no draft delta)`）。首輪/重跑吞吐逐格誤差 ≤9%；decode 噪聲底 ≈ ±7%。
+
+| C | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|
+| aggregate tok/s | 47.1 | 69.0 | 71.3 | 90.7 | 87.1 | 110.1 | 123.4 | **129.9** |
+| accept % | 47.6 | 50.0 | 41.4 | 43.0 | 44.8 | 43.9 | 48.8 | 45.2 |
+| mean accept len /5 | 2.38 | 2.50 | 2.07 | 2.15 | 2.24 | 2.19 | 2.44 | 2.26 |
+| pos0 accept % | 83.8 | 79.0 | 73.8 | 79.8 | 79.6 | 77.9 | 83.0 | 79.5 |
+
+> **判讀**：C1→C8 **2.76× 擴展**（Σ=728.7 tok/s），C6→C8 仍爬升未見高原；
+> **acceptance 全程 41–50% 不隨併發崩落**（pos0 穩 74–84%，pos5/6 恆 0 = n=5 結構上限）
+> ⇒ 多流 DSpark 健康、併發原生可用。per-pos 遞減至 pos4 15.8–26.2%。
+> 單流對照（thinking off）：**code 66.4 tok/s / accept 78.2% / AL 4.91**
+> （per-pos 0.93/0.86/0.81/0.70/0.61）；warm prose 37.3 tok/s（temp0）／36.9（temp0.7）。
+> temp0 驗收 gate（pos0 ≥ 0.3）：**pos0 0.629 / avg 27.0% / AL 2.35**（基線 16 tok/s → 33.6，
+> **+110%**）。`temp0.7`（`gb10 load` 3 輪）avg **49.6–59.0%** —— 官方 ckpt 社區基準
+> 46–60% 同級。cold prefill `bench-ctx 200000` = **1984.6 tok/s**（200101 tok / 100.8 s）。
+> 社區對照（pnivek/vllm-dspark-nvfp4：code 59.7 / prose 38.5 tok/s）——本 lane code 超越、
+> prose 相近；60+ tok/s 的「community 數字」= code-gen／thinking-off／warm，與 workload 相符。
+
+#### NVFP4 KV A/B（2026-10-08）＝**負結果，已回退 fp8**
+
+`KV_DTYPE=nvfp4_ds_mla` 單旋鈕 B cell **決定性開機失敗**（雙 rank `EngineCore init` →
+`ValueError`）。三重獨立硬閘（image 2026-10-06）：① DeepSeekV4 模型層
+`use_fp8_ds_mla_layout=True`，resolver 只收 `fp8*`（`config/cache.py` 的通用接受清單
+會誤導）；② `b12x_mla_sparse.py`「B12X nvfp4_ds_mla requires **GLM5Next**」；
+③ `flashmla_sparse.py` 需 **SM100**。→ **DeepSeekV4 on GB10 無可行路**，未有上游
+變更勿重試（完整註記在 conf `KV_DTYPE` 段與 handoff Phase 3 第 7 項）。
+
+**配方差異點（相對 eugr recipe，皆記錄於 conf）**：`QUANTIZATION=none`
+（checkpoint 自帶 `hf_quant_config.json`，vLLM 自動偵測）、**`--load-format
+safetensors`**（`b12x` loader 對 draft strided scale 崩，見 Phase 3 #2）、
+prefix caching 按 recipe 開啟且**已過截斷探針**、`--attention_config.
+use_fp4_indexer_cache` / `--enable-expert-parallel` 列為 boot-stage 候選不預設。
+NVIDIA **未驗證**此 checkpoint 的 DSpark spec decode——已在 Phase 3 實測。
+同名舊 lane（AEON NVFP4 實驗）已刪，非復活。
 
 ### Qwen3.8 Flash-Next 125B NVFP4 (TP2+EP, MTP3) — 2026-09-29（上游對齊＋重新驗證）
 
@@ -491,7 +557,7 @@ Node0 reaches it over ssh. Node1 only needs the image + model dirs + sudo docker
 ## Cluster CLI — `gb10`
 
 ```bash
-gb10 list                     # profile list (27b/35b/deepseek/deepseek-vision/qwen38flash/mimo26flash)
+gb10 list                     # profile list (27b/35b/deepseek/deepseek-nvfp4/deepseek-vision/qwen38flash/mimo26flash)
 gb10 use 27b                  # default; TP2 up (cold ~7-15 min), waits /health
 gb10 use 35b                  # switch exclusive cluster profile
 gb10 use qwen38flash          # cluster-only lane (determinism on by default)
@@ -505,12 +571,13 @@ gb10 load                     # concurrent load
 gb10 doctor
 ```
 
-Current deployed TP2 profiles are 27B, 35B, DeepSeek (mainline 0731), DeepSeek Vision-Exp,
-**qwen38flash** and **mimo26flash** (all data-driven from `cluster-profiles.d/`). The last two are
+Current deployed TP2 profiles are 27B, 35B, DeepSeek (mainline 0731), **DeepSeek NVFP4
+(0731 on eugr b12x)**, DeepSeek Vision-Exp, **qwen38flash** and **mimo26flash** (all
+data-driven from `cluster-profiles.d/`). The last two plus deepseek-nvfp4 are
 **cluster-only** — no single-node lane (the `runtimes.d/qwen38flash.conf` placeholder was removed
-2026-09-20, and so was `glm53flash.conf`; `mimo26flash` never had one — its weights are TP2-only).
-**deepseek-nvfp4** (2026-10-07) is built and registered but **not yet booted** — see its
-section for the pending asset gates.
+2026-09-20, and so was `glm53flash.conf`; `mimo26flash` never had one — its weights are TP2-only;
+`deepseek-nvfp4` is TP2-only by design). **deepseek-nvfp4 completed Phase 3 on 2026-10-08 and
+is the current live lane** — see its section for boot fixes and benchmarks.
 
 ### TP2 profile registry (completed 2026-09-05)
 
@@ -527,8 +594,8 @@ cluster-profiles.d/
                     # cluster-only; see its section for the 2026-09-29 realignment)
   mimo26flash.conf  # deployed + live-validated (MiMo V2.6 Flash MOPD MXFP4 + DFlash2,
                     # cluster-only; BODY_REL flips MXFP4/NVFP4 — see its section)
-  deepseek-nvfp4.conf   # built 2026-10-07, boot PENDING (NVFP4 0731 on eugr
-                        # spark-vllm-b12x; assets gated, see its README section)
+  deepseek-nvfp4.conf   # deployed + live-validated (2026-10-08 Phase 3; NVFP4 0731 on
+                        # eugr spark-vllm-b12x; draft MXFP4 hotfix, see its README section)
 ```
 
 Each conf carries the **profile-scoped image** and per-model vLLM arguments, loaded once by
@@ -654,7 +721,7 @@ cluster.env.example cluster/site config template (NEVER commit real values)
 
 - **`state/last-cluster-profile`** — 由 `bin/gb10` 寫入／讀取。
   - **寫入**：`use`／`start`／`restart` 啟動一個 cluster profile 的背景 boot 後，寫入該
-    profile ID（僅限 27b/35b/deepseek/deepseek-vision/qwen38flash/mimo26flash；placeholder profile
+    profile ID（僅限 27b/35b/deepseek/deepseek-nvfp4/deepseek-vision/qwen38flash/mimo26flash；placeholder profile
     不會寫入，因為它不會啟動任何 container）。檔案在 `.gitignore` 內，屬執行期產物，
     不會讓 `check-git-sync.sh` 的乾淨樹判定失敗。
   - **讀取**：`restart` 未指定 profile 時回退到此值
