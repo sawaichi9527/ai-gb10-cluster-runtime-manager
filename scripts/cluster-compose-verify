@@ -187,17 +187,23 @@ verify_rank(){ # 0 | 1
       fi
     } | sort | tr '\n' ' ')"
   check "$( [[ "$got_ul" == "$exp_ul" ]] && echo OK || echo BAD )" "Ulimits ${GET_UL}"
-  # security_opt: profile-owned SECURITY_OPT entries (docker reports them
-  # verbatim in HostConfig.SecurityOpt; unset profile => empty on both sides).
-  exp_sec=""
-  if [[ -n "${SECURITY_OPT+x}" ]]; then
-    local _se first_sec=1
-    for _se in "${SECURITY_OPT[@]}"; do
-      (( first_sec )) || exp_sec+="|"
-      exp_sec+="$_se"; first_sec=0
-    done
-  fi
-  check "$( [[ "$GET_SEC" == "$exp_sec" ]] && echo OK || echo BAD )" "SecurityOpt ${GET_SEC} != ${exp_sec}"
+  # security_opt: every profile-owned SECURITY_OPT entry must be honored.
+  # Subset match — the daemon/Compose appends its own defaults when seccomp
+  # is relaxed (observed 2026-10-08: "label=disable" alongside our
+  # seccomp=unconfined, both nodes). Unset profile => live set must stay
+  # empty (the other lanes have no daemon-added opts).
+  local -a _sec_got=() _sec_exp=()
+  local _se _g _found sec_ok=1
+  [[ -n "$GET_SEC" ]] && IFS='|' read -ra _sec_got <<< "$GET_SEC"
+  [[ -n "${SECURITY_OPT+x}" ]] && _sec_exp=("${SECURITY_OPT[@]}")
+  for _se in "${_sec_exp[@]}"; do
+    _found=0
+    for _g in "${_sec_got[@]}"; do [[ "$_g" == "$_se" ]] && _found=1; done
+    (( _found )) || sec_ok=0
+  done
+  # daemon-added extras tolerated only when the profile opted in
+  if (( ${#_sec_exp[@]} == 0 )) && (( ${#_sec_got[@]} > 0 )); then sec_ok=0; fi
+  check "$( (( sec_ok )) && echo OK || echo BAD )" "SecurityOpt ${GET_SEC} (expect all of: ${_sec_exp[*]:-<empty>})"
   if [[ "$GET_DR" == '[nvidia|-1|'* || "$GET_DR" == '[nvidia|0|'* ]]; then
     [[ "$GET_DR" == *gpu* ]] || check BAD "DeviceRequests ${GET_DR}"
   else
