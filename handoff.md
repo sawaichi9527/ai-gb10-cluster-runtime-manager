@@ -900,6 +900,38 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
   `v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、`v1.3.3`→`9bb2006`、
   `v1.3.4`→`a92d2bc`、`v1.4.0`→`6aff00d`、`v1.4.1`→`cc76cbd`、**`v1.5.0`→`3201363`**。
 
+### 2026-10-08 — README 發布 + v1.5.0 版號：session close Validation evidence
+
+- **範圍**：本收尾輪僅改 `README.md`（`3201363`）與 `handoff.md`（`3201363` 第 4 行、
+  `5ef23d0` 版本記錄）＋ tag/Release 中繼資料 —— `git show --stat` 證實兩 commit 各只含
+  這兩個檔，**docs-only ⇒ Runtime test = N/A**（無 profile/script/args 變更；runtime 行為
+  證據仍為 Phase 3 項 1–7，前輪已驗，本輪未觸碰）。
+- **結構與內容檢查**（本地 worktree；2026-10-08 11:41–11:42 +08:00，每項 <1s、exit 0）：
+  1. `git status` → clean；`git diff --stat` → 空（兩 commit 已入庫）→ **Pass**
+  2. README 陳舊字串掃描（`建置中|not yet booted|boot PENDING|另排時段|現役（2026-10-05|
+     現役（10-05`）→ **0 命中 = Pass**
+  3. 內容到位：`現役` 命中 L14 現況塊／L72 服務表列／L77 現役註記／L250 章節標題／
+     L297 benchmark 標題；`129.9`×3、`Phase 3 完成`×3、`1984.6`×2（README）、
+     `406384910`×1（handoff）→ **Pass**
+  4. tag 檢查：`git for-each-ref refs/tags/v1.5.0` → `type=tag`（annotated）、target
+     `3201363`；message 首行 `v1.5.0 (2026-10-08) - minor`、`13 commits since v1.4.1` →
+     **Pass**（授權重建後計數正確）
+  5. 四端一致：local／`origin/main`／`github/main` 皆 `5ef23d0`；node0 於 push 後同步驗證
+     （ff-only 至 `5ef23d0`、`git fetch --tags --force` 顯示 `[標籤更新] v1.5.0`、
+     tag→`3201363`、tree clean）→ **Pass**
+  6. GitHub Release API `GET /releases/tags/v1.5.0` → `id=406384910`、`tag=v1.5.0`、
+     `name=v1.5.0`、`draft=false`、`published_at=2026-10-08T03:35:08Z`、body 46 行 →
+     **Pass**（憑證走本機 GCM `git credential fill`，LF-only 檔 + `cmd /c`，**未寫入任何檔案**）
+- **統計：Pass 6 組 / Fail 0 / Skip 0**（Runtime = N/A，docs-only）。
+- **Test environment**：本機 Windows + pwsh 7.4.6 + git 2.56.0.windows.1；node0
+  `192.168.23.215`（Posh-SSH）；GitHub API。
+- **Artifacts**：tag message（`git show v1.5.0`）、Release
+  <https://github.com/sawaichi9527/ai-gb10-cluster-runtime-manager/releases/tag/v1.5.0>、
+  commits `3201363`／`5ef23d0`。
+- **尚未驗證／不在本輪範圍**：README 的瀏覽器實際渲染（僅文字檢查）；Release body 的
+  GitHub UI 顯示效果；runtime 面 —— `deepseek-nvfp4` 維持前輪 READY 服務中（本輪未重啟，
+  預期行為）。
+
 ### qwen38flash 對齊上游 + 冷啟驗證（2026-09-29）
 
 觸發：上游 `MiaAI-Lab/Qwen3.8-Flash-Next-Dual-DGX-Sparks` 的 `main` 已前進到 **`2c86a1d0`**
