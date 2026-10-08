@@ -176,10 +176,26 @@ boot ×4，兩個啟動修復 + 一個 acceptance 根因 hotfix：
    - garble soak 3/3（`finish=stop`、`uniq=1.0`、primes 10/10）
    - Marlin **無 fallback**（唯一提及是候選清單字串）
 
-**狀態（2026-10-08）**：4 項改動已獲使用者核准 commit/push（compose-verify subset
-修正 `2cdec55`；hotfix 接線 + `patches/eugr-spark-vllm-b12x/` + 本 Phase 3 記錄隨後
-一併提交）。**主線恢復經使用者裁決「先不恢復」——`deepseek-nvfp4` 維持在線**，
+6. **C1~C8 完整併發 benchmark（2026-10-08，`bench-c.sh` ×8、`BENCH_IGNORE_EOS=1`
+   固定 400 tok/流、thinking 預設開、混合 code+JSON prompt）**：
+   聚合 **47.1 / 69.0 / 71.3 / 90.7 / 87.1 / 110.1 / 123.4 / 129.9 tok/s**（C1→C8
+   = **2.76×**、C8 單流攤提 16.2 tok/s、全格 `finish=length` `any_errors=0`）；
+   acceptance **41.4–50.0%**（AL 2.07–2.50）、pos0 **73.8–83.8%**、per-pos 遞減
+   至 pos4 15.8–26.2%（pos5/6 恆 0 = n=5 結構性上限）——**8 路下 DSpark 驗收
+   不崩**，多流併發原生可用（keys/drowzeys 7 月 patch 已內建於 10-06 image）。
+   同輪修 `bench-c.sh`：本 image `/metrics` 掛在同一把 `VLLM_API_KEY` 後
+   （no-auth **401**）但兩處 scrape 沒帶 `AUTH_ARGS` → 每格 `(no draft delta)`；
+   已補 auth + 註解（無 key 時陣列為空、其他 lane 行為不變）。首輪（未修）與
+   重跑（已修）吞吐逐格誤差 ≤9%（單跑 vs 單跑，比 ±7% 中位噪聲帶略寬，方向一致）。
+   備註：此測試 thinking **預設開**（payload 無 `chat_template_kwargs`），
+   token 進 reasoning 故 acceptance 低於先前 thinking:false 純 code 探針的 78.2%。
+
+**狀態（2026-10-08 更新）**：Phase 2–3 改動**已提交並推送**——`2cdec55`
+（compose-verify subset 修正）、`c0ef7fd`（hotfix 接線 + `patches/eugr-spark-vllm-b12x/`
++ Phase 3 記錄），origin 與 github 雙推、node0 pull 對齊，四樹清潔；
+**主線恢復經使用者裁決「先不恢復」——`deepseek-nvfp4` 維持在線**，
 之後隨時以 `gb10 use deepseek` 切回主線（nvfp4 ↔ deepseek 互斥，`gb10 use` 自動拆）。
+本節第 6 項的 `bench-c.sh` auth 修正為 2026-10-08 新增（另輪 commit）。
 
 ## 2026-10-07 — DeepSeek V4 Flash Vision 同 image 調優 A/B（V0–V5, V-win）→ V3 promote
 

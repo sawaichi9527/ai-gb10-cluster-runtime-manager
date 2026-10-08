@@ -67,7 +67,9 @@ jq -n --arg content "$CONTENT" --argjson mt "$MAX_TOKENS" --argjson ie "$IGNORE_
 
 # `|| true` so a missing spec-decode metric degrades to "(no draft delta)"
 # below instead of aborting the run under pipefail.
-METRICS_BEFORE=$(curl -s http://127.0.0.1:${API_PORT}/metrics | grep -E '^vllm:spec_decode_(num_draft_tokens_total|num_accepted_tokens_total|num_drafts_total|num_accepted_tokens_per_pos_total)' | grep -v '_created' | sed 's/.*position="\([0-9]*\)"} \([0-9.]*\)/POS\1 \2/' || true)
+# /metrics is behind the same VLLM_API_KEY as the API (401 otherwise), so
+# the scrape needs AUTH_ARGS too — without it every cell reports no delta.
+METRICS_BEFORE=$(curl -s "${AUTH_ARGS[@]}" http://127.0.0.1:${API_PORT}/metrics | grep -E '^vllm:spec_decode_(num_draft_tokens_total|num_accepted_tokens_total|num_drafts_total|num_accepted_tokens_per_pos_total)' | grep -v '_created' | sed 's/.*position="\([0-9]*\)"} \([0-9.]*\)/POS\1 \2/' || true)
 
 T0=$(date +%s.%N)
 for i in $(seq 1 "$C"); do
@@ -77,7 +79,7 @@ done
 wait
 T1=$(date +%s.%N)
 
-METRICS_AFTER=$(curl -s http://127.0.0.1:${API_PORT}/metrics | grep -E '^vllm:spec_decode_(num_draft_tokens_total|num_accepted_tokens_total|num_drafts_total|num_accepted_tokens_per_pos_total)' | grep -v '_created' | sed 's/.*position="\([0-9]*\)"} \([0-9.]*\)/POS\1 \2/' || true)
+METRICS_AFTER=$(curl -s "${AUTH_ARGS[@]}" http://127.0.0.1:${API_PORT}/metrics | grep -E '^vllm:spec_decode_(num_draft_tokens_total|num_accepted_tokens_total|num_drafts_total|num_accepted_tokens_per_pos_total)' | grep -v '_created' | sed 's/.*position="\([0-9]*\)"} \([0-9.]*\)/POS\1 \2/' || true)
 
 WALL=$(echo "$T1 - $T0" | bc -l)
 echo "================================================================"
