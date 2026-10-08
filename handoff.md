@@ -7,7 +7,7 @@
 
 ## 目前狀態（本機 checkout）
 
-- 分支：`main`，HEAD = 本檔所在的 commit（`git log -1`）；最新正式版本 tag = **`v1.4.1`**（`cc76cbd`；`v1.4.0`→`6aff00d`、`v1.3.4`→`a92d2bc`、`v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、`v1.3.3`→`9bb2006`）。早期：2026-09-20 session 共 22 個 commit `a1cba34`…`79a79cb`，其後為本檔的 sync commit。live lane = **`deepseek`**（**2026-10-05 13:32** 由 `mimo26flash` 切回，t+8m READY / smoke OK / KV 11.01 GiB；`mimo26flash` 自 10-03 上線做 NVFP4 A/B + cliff 探測，**權重定案 MXFP4** 待命，見 `docs/…2026-10-03.md` §11）
+- 分支：`main`，HEAD = 本檔所在的 commit（`git log -1`）；最新正式版本 tag = **`v1.5.0`**（`3201363`；`v1.4.1`→`cc76cbd`、`v1.4.0`→`6aff00d`、`v1.3.4`→`a92d2bc`、`v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、`v1.3.3`→`9bb2006`）。早期：2026-09-20 session 共 22 個 commit `a1cba34`…`79a79cb`，其後為本檔的 sync commit。live lane = **`deepseek-nvfp4`**（**2026-10-08** Phase 3 完成上線，README/handoff 詳載；主線 `deepseek` 待命 —— 使用者裁定「先不恢復」，`gb10 use deepseek` 隨時切回；`mimo26flash` 自 10-03 上線做 NVFP4 A/B + cliff 探測，**權重定案 MXFP4** 待命，見 `docs/…2026-10-03.md` §11）
 - 同步狀態：**本機＝Forgejo（origin，`829522`）＝GitHub（`sawaichi9527`）＝node0 已 pull**（四方同一 commit；node0 live lane = **`deepseek`**（10-05 切回）；`mimo26flash` 定案 **MXFP4**、一鍵可切回）
 - `handoff.md` 已納版控（`37bee4c` 起；本次更新亦將 commit）
 - `.gitignore` 已覆蓋 `config/cluster.env`、`state/last-runtime`、logs、`*.bak-*`
@@ -883,9 +883,22 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
   annotated tag 打於 `cc76cbd`（本記錄 commit 之前，比照 v1.3.x／v1.4.0 慣例）。
   **GitHub Release 已建**（`id 405498459`，比照 v1.3.x／v1.4.0；以 API + 本機 GCM
   憑證，**未寫入任何檔案**）。
+- **`v1.5.0`（2026-10-08，新 lane — minor bump）**：`3201363`（README「已部署服務」正式
+  列入 `deepseek-nvfp4` 為**現役** + benchmark 區塊重寫 + 本檔第 4 行條目）。自 v1.4.1 起
+  **13 個 commit**（`b458133`…`3201363`）—— ① lane Phase 1–2 建置（`1f8a1e8` profile +
+  bin 白名單、`7cef7d5` 每節點 image digest pin、`3a9b7bf` 資產兩節點驗證）② **Phase 3
+  上線**（`10fff38` seccomp `SECURITY_OPT`、`d2b090d` `--load-format safetensors`、
+  `2cdec55` compose-verify SecurityOpt subset、`c0ef7fd` **DSpark draft MXFP4 根因 hotfix**
+  —— 共享 NVFP4 quant dict 把原生 MXFP4 的 `mtp.*` draft 建成 ModelOptNvFp4，上游
+  #49133 closed unmerged；全 gate PASS、成為現役）③ `f2eb2dd` `bench-c.sh` metrics scrape
+  補 auth + C1–C8 記錄（47.1→**129.9 tok/s**、accept 41–50%）④ `d7bda45` **NVFP4 KV
+  （`nvfp4_ds_mla`）A/B 負結果**（三重硬閘，回退 fp8）。使用者裁定主線 `deepseek` 先不
+  恢復。**annotated tag 重建一次**：初版 message 誤植「12 commits」，經使用者授權在**尚無
+  Release 指向時**刪兩端重建為 13，無痕。**GitHub Release 已建**（`id 406384910`，
+  比照歷版；以 API + 本機 GCM 憑證，**未寫入任何檔案**）。
 - **tag 現況**：`v1.0.0`→`496c9b1`、`v1.1.0`→`71ccf20`、`v1.2.0`→`ffd02ea`、
   `v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、`v1.3.3`→`9bb2006`、
-  `v1.3.4`→`a92d2bc`、`v1.4.0`→`6aff00d`、**`v1.4.1`→`cc76cbd`**。
+  `v1.3.4`→`a92d2bc`、`v1.4.0`→`6aff00d`、`v1.4.1`→`cc76cbd`、**`v1.5.0`→`3201363`**。
 
 ### qwen38flash 對齊上游 + 冷啟驗證（2026-09-29）
 
