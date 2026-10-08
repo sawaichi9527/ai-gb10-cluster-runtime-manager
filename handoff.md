@@ -1,7 +1,7 @@
 # handoff.md — ai-gb10-cluster-runtime-manager（本機 checkout）
 
 > 本檔是本機中繼 checkout 的交接摘要。主要開發在 **node0**（`~/workspace/ai-gb10-cluster-runtime-manager`，branch **`main`**；2026-09-29 實測 node0 為 `main`／upstream `origin/main`、工作區乾淨 —— 舊文件寫的 `keystone` 已於 `496c9b1` 併入 main、**非**現役 checkout）＋ Forgejo `829522`；本機僅作中繼存取，修改前先確認是否應改在 node0。
-> 建立：2026-09-18；更新：**2026-09-20**（DeepSeek V4 Flash **Vision-Exp** lane 上線：同一顆 Anemll image + 啟動 wrapper；bench-c / bench-ctx / bench-mm 實測；`cluster-up` 新增 `SYNC_DIRS` 自動同步 patch 目錄；**vision 開 prefix caching + `dspark-swa-prefix` hotfix**、長上下文邊界 261K/262144、圖片高併發 C=8/16；本檔納入版控並同步三方）；**2026-09-29** 上游查核（Anemll 無新 image/tag、MiaAI-Lab main 未動且 23 檔 byte 全同）→ 見「定期檢討追蹤」；**2026-09-29（後續）** qwen38flash 對齊上游 `2c86a1d0`（GMU 0.80／prefix caching ON／block-drop backport／index share）並完成冷啟驗證（READY、KV 29.88 GiB、無回歸）→ 見「qwen38flash 對齊上游 + 冷啟驗證」；**2026-09-29（後續之二）** DeepSeek-V4.1-Flash **EXL3 2×GB10 選型查核**（取得兩顆可下載 arm64 image 的 digest、證實 sfxnz image 未發佈、TP=2 對 3.5bpw 不可行、各線 benchmark 與 NVIDIA 論壇口碑）→ **本輪不新增 lane**（維持 `deepseek-vision` 為 2-Spark 多模態），詳見 `docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md`；**2026-09-30** 上游再查核（deepseek 與 deepseek-vision 的 **image／配方／官方權重皆無更新** → 兩 lane 現行設定即為最新、無需變更，含首度補查官方權重 commit 比較，見 `docs/DEEPSEEK_UPSTREAM_REVERIFY_2026-09-30.md`）；**2026-09-30（續）** 27b／35b 上游再查核（兩 lane 共用的 `ghcr.io/aeon-7/aeon-vllm-ultimate` 最新 dated tag 仍 `2026-09-18-v0.29.0-omni`＝現行 pin、digest 不變；27B/35B 四個 HF 來源 body/drafter 最後 commit 為 09-18／08-19／07-15／06-28，**皆無 09-19 後更新** → 無需變更，見 `docs/QWEN_27B_35B_UPSTREAM_REVERIFY_2026-09-30.md`）；**2026-10-03** `mimo26flash` lane 上線（MiMo V2.6 Flash MOPD，TP2 vLLM+DFlash，見同名章節）；**2026-10-05** `mimo26flash` NVFP4 變體 A/B + DFlash cliff 探測（兩變體皆過）→ **定案 MXFP4**、延後調優 C/D/E 註記於 docs §7、**服務切回 `deepseek`**、README 同步 → 見「2026-10-05」章節；**2026-10-07** DeepSeek **V4 Flash Vision** 同 image 調優 A/B（V0–V5 + V-win，獨立 `deepseek-vision-tune` lane）→ **只升一個旋鈕 `--long-prefill-token-threshold 1024→0`（V3）**，`deepseek.conf` 全程未動、生產 gate 全過；記錄 production lane boot 散佈 8.1% 無法驗證 2.7% 效應、cold prefill 32K 判為噪聲、garble soak `thinking:true` false alarm → 見「2026-10-07 — DeepSeek V4 Flash Vision」章節；**2026-10-07（續）** `deepseek-nvfp4` lane **建置**（NVIDIA NVFP4 0731 checkpoint + `eugr/spark-vllm-b12x`，Phase 1–2：下載/傳輸 + profile/白名單/文件，**Phase 3 開機另排**）→ 見「2026-10-07 — deepseek-nvfp4 lane 建置」章節
+> 建立：2026-09-18；更新：**2026-09-20**（DeepSeek V4 Flash **Vision-Exp** lane 上線：同一顆 Anemll image + 啟動 wrapper；bench-c / bench-ctx / bench-mm 實測；`cluster-up` 新增 `SYNC_DIRS` 自動同步 patch 目錄；**vision 開 prefix caching + `dspark-swa-prefix` hotfix**、長上下文邊界 261K/262144、圖片高併發 C=8/16；本檔納入版控並同步三方）；**2026-09-29** 上游查核（Anemll 無新 image/tag、MiaAI-Lab main 未動且 23 檔 byte 全同）→ 見「定期檢討追蹤」；**2026-09-29（後續）** qwen38flash 對齊上游 `2c86a1d0`（GMU 0.80／prefix caching ON／block-drop backport／index share）並完成冷啟驗證（READY、KV 29.88 GiB、無回歸）→ 見「qwen38flash 對齊上游 + 冷啟驗證」；**2026-09-29（後續之二）** DeepSeek-V4.1-Flash **EXL3 2×GB10 選型查核**（取得兩顆可下載 arm64 image 的 digest、證實 sfxnz image 未發佈、TP=2 對 3.5bpw 不可行、各線 benchmark 與 NVIDIA 論壇口碑）→ **本輪不新增 lane**（維持 `deepseek-vision` 為 2-Spark 多模態），詳見 `docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md`；**2026-09-30** 上游再查核（deepseek 與 deepseek-vision 的 **image／配方／官方權重皆無更新** → 兩 lane 現行設定即為最新、無需變更，含首度補查官方權重 commit 比較，見 `docs/DEEPSEEK_UPSTREAM_REVERIFY_2026-09-30.md`）；**2026-09-30（續）** 27b／35b 上游再查核（兩 lane 共用的 `ghcr.io/aeon-7/aeon-vllm-ultimate` 最新 dated tag 仍 `2026-09-18-v0.29.0-omni`＝現行 pin、digest 不變；27B/35B 四個 HF 來源 body/drafter 最後 commit 為 09-18／08-19／07-15／06-28，**皆無 09-19 後更新** → 無需變更，見 `docs/QWEN_27B_35B_UPSTREAM_REVERIFY_2026-09-30.md`）；**2026-10-03** `mimo26flash` lane 上線（MiMo V2.6 Flash MOPD，TP2 vLLM+DFlash，見同名章節）；**2026-10-05** `mimo26flash` NVFP4 變體 A/B + DFlash cliff 探測（兩變體皆過）→ **定案 MXFP4**、延後調優 C/D/E 註記於 docs §7、**服務切回 `deepseek`**、README 同步 → 見「2026-10-05」章節；**2026-10-07** DeepSeek **V4 Flash Vision** 同 image 調優 A/B（V0–V5 + V-win，獨立 `deepseek-vision-tune` lane）→ **只升一個旋鈕 `--long-prefill-token-threshold 1024→0`（V3）**，`deepseek.conf` 全程未動、生產 gate 全過；記錄 production lane boot 散佈 8.1% 無法驗證 2.7% 效應、cold prefill 32K 判為噪聲、garble soak `thinking:true` false alarm → 見「2026-10-07 — DeepSeek V4 Flash Vision」章節；**2026-10-07（續）** `deepseek-nvfp4` lane **建置**（NVIDIA NVFP4 0731 checkpoint + `eugr/spark-vllm-b12x`，Phase 1–2：下載/傳輸 + profile/白名單/文件，**Phase 3 開機另排**）→ 見「2026-10-07 — deepseek-nvfp4 lane 建置」章節；**2026-10-08（續）** `deepseek-nvfp4` **Phase 3 完成**（boot ×4：seccomp/safetensors 兩個啟動修復 → DSpark acceptance 垃圾 draft 根因＝共享 NVFP4 quant dict 把原生 MXFP4 draft 建成 ModelOptNvFp4（上游 #49133 closed）→ `hotfix-dspark-draft-mxfp4` 容器啟動補丁 → **全 gate PASS**：acceptance 2%→**27%**（temp0，pos0 0.629）／**49–59%**（temp0.7）、單流 16→**33.6 tok/s**、prefix-hit 44.8×、garble 3/3、compose-verify 過）→ 見同章節「Phase 3」
 > **2026-09-20（後續）**：**Qwen3.8 Flash-Next 125B NVFP4（TP2+EP、MTP3）上線**；同日起 **compose 為唯一啟動 lane**（移除 docker-run 分支）；**27b/35b 改走 compose**；node0 `~/docker-stacks/aeon-vllm-omni/` 清理。詳見下方「已完成（2026-09-20 後續）」。
 > **2026-09-20（後續之二）**：**node-local 佈局歸位**——每個 lane 一個以 image 命名的 `~/docker-stacks/<stack>/`（`STACK_DIR`+`COMPOSE_FILE` materialize）、**cache 每 lane 獨立**（`~/.cache/vllm-<lane>[-cluster|-single]`，移除共用的 `~/.cache/huggingface` 容器掛載）、**log 統一** `~/docker-stacks/logs/<profile>/`；刪除單機 `runtimes.d/{qwen38flash,glm53flash}.conf`。詳見「已完成（2026-09-20 後續之二）」。
 
@@ -84,7 +84,7 @@ node0 對 node1 的連線（由 node0 發起）走 CX7 區網：`ssh -i ~/.ssh/i
 - 執行中服務不受影響：兩節點 `cluster-node*` 跑的是 `anemll/dspark-vllm-gx10:0.1.1`，
   未觸碰；`2026-09-18` 兩節點皆保留。
 
-## 2026-10-07 — deepseek-nvfp4 lane 建置（Phase 1–2；Phase 3 開機另排）
+## 2026-10-07 — deepseek-nvfp4 lane 建置（Phase 1–2；Phase 3 完成 2026-10-08）
 
 **動機**：mainline/vision 鎖在 `anemll/dspark-vllm-gx10:0.1.1`（上游疑似停止維護）。
 新 lane 把同一代 0731 模型搬到**有持續 nightly CI** 的 `eugr/spark-vllm-b12x`
@@ -135,10 +135,51 @@ node0 對 node1 的連線（由 node0 發起）走 CX7 區網：`ssh -i ~/.ssh/i
   qwen38flash/mimo26flash）**byte-identical**、新 profile render 242 行正常、
   `gb10 list` 顯示正確
 
-**待辦（Phase 3，另排時段）**：`gb10 doctor` → `gb10 use deepseek-nvfp4` 開機
-（DSpark acceptance、prefix-hit 截斷探針、garble soak、Marlin/B12X 實際 quant path）→
-恢復 `gb10 use deepseek`。**commit/push 需先徵得使用者同意。**
-（Phase 1 資產下載/校驗/傳輸與 Phase 2 repo 檔案、image digest pin 均已完成，見上。）
+### Phase 3 完成（2026-10-08）
+
+boot ×4，兩個啟動修復 + 一個 acceptance 根因 hotfix：
+
+1. **boot #1 fail（io_uring/seccomp）**：Docker 預設 seccomp 擋 io_uring → 新增通用
+   profile 欄位 `SECURITY_OPT=("seccomp=unconfined")`、`cluster-compose-verify`
+   SecurityOpt 改 **subset match**（`10fff38` + `2cdec55`）。
+2. **boot #2 fail（b12x loader strided conversion）**：`--load-format b12x` 對
+   `mtp.1.ffn.experts.0.w1.scale` 嘗試 E8M0→e4m3 轉換 `NotImplementedError` →
+   改 `--load-format safetensors`（commit `d2b090d`；**事後證實此錯正是下面
+   draft 量化 bug 的另一表現**——b12x loader 發現 param 期待 e4m3）。
+3. **boot #3 READY 但 DSpark acceptance 崩**（~1.1 tok/step、pos0 0.10、單流 16 tok/s）
+   → 根因（詳見 conf KNOWN RISK #2）：checkpoint 的 DSpark draft 專家（`mtp.*`）
+   **原生 MXFP4**（int8+E8M0 g32，checkpoint `ignore` 明列豁免），但 draft 的
+   quant 實例 `moe_quant_algo` 懶解析自**與 target 共享的 NVFP4 hf quant dict**
+   → draft 專家建成 `ModelOptNvFp4FusedMoE` → E8M0 g32 scale 靜默灌進 e4m3 g16
+   buffer → **draft MoE 算垃圾**。= 上游 `vllm-project/vllm#49133`（closed unmerged；
+   本 image 已吃一半修法——fresh draft quant 實例，但資料源仍共享 → 同捆 draft
+   照樣解析 NVFP4）。鐵證：`Mxfp4 MoE backend` 行兩節點 **0 次**（PR 給的診斷特徵）、
+   modelopt w1/w3 警告與 draft load 同秒、draft 與官方 ckpt 逐位相同卻 10× 驗收差。
+   **已排除**：取樣語義（temp=0 本來就 greedy）、heterogeneous vocab、prefix cache、
+   停用 spec decode（使用者選「再調查」→ 根因定位）。
+4. **hotfix（boot #4 採用）**：`patches/eugr-spark-vllm-b12x/hotfix-dspark-draft-mxfp4.py`
+   —— SWA hotfix 同模式（region 恰一次 + 全檔 sha pin、fail-closed、原子寫入；
+   容器內實測 apply／冪等／篡改 fail-closed 全過）：在 draft 自己的 quant 實例上
+   預清空 `_resolved_moe_quant_algo`（僅當共享 dict 明列 `mtp.*` 豁免時）→
+   dispatch 走 `Mxfp4MoEMethod` = 官方 ckpt 同路徑；target 自己的實例不變。
+   conf 接線：`CMD_WRAPPER`（fail-closed）+ `EXTRA_MOUNTS` ro 掛 `/opt/eugr-patches`
+   + `SYNC_DIRS`（雙節點佈署，Node1 無 repo）。
+5. **boot #4 全 gate PASS**（01:23:52 → 01:45:08 READY，~21 min）：
+   - hotfix `applied` ×2 rank；`Mxfp4 MoE backend`（`B12X_MXFP4_MXFP8`）出現；
+     modelopt w1/w3 警告 **0/0**；target `B12X NvFp4` 不變、`expert_dtype fp4`；
+     health 200、smoke `HELLO-TP2-OK`、compose-verify 兩 rank PASS
+   - **DSpark acceptance（門檻 pos0≥0.3 / >16 tok/s）**：
+     temp0（483 tok）→ pos0 **0.629**、avg **27.0%**、AL **2.35**/5、
+     單流 **33.6 tok/s**（基線 16，**+110%**）；temp0.7（`gb10 load` 3 輪）
+     → avg **49.6–59.0%**、AL 3.5–4.0（官方 ckpt 社區基準 46–60% 同級）
+   - prefix-hit：**HIT 44.8×**、3 輪 `PREFIX-OK` 完全一致、無截斷
+   - garble soak 3/3（`finish=stop`、`uniq=1.0`、primes 10/10）
+   - Marlin **無 fallback**（唯一提及是候選清單字串）
+
+**狀態（2026-10-08）**：4 項改動已獲使用者核准 commit/push（compose-verify subset
+修正 `2cdec55`；hotfix 接線 + `patches/eugr-spark-vllm-b12x/` + 本 Phase 3 記錄隨後
+一併提交）。**主線恢復經使用者裁決「先不恢復」——`deepseek-nvfp4` 維持在線**，
+之後隨時以 `gb10 use deepseek` 切回主線（nvfp4 ↔ deepseek 互斥，`gb10 use` 自動拆）。
 
 ## 2026-10-07 — DeepSeek V4 Flash Vision 同 image 調優 A/B（V0–V5, V-win）→ V3 promote
 
