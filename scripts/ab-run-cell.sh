@@ -39,7 +39,11 @@ PROFILE="${3:?usage: ab-run-cell.sh <cell> <label> <profile>  (no default, see h
 cd "$(dirname "$0")/.." || exit 1
 
 if [[ -z "${AB_REF:-}" ]]; then
-  if [[ "$PROFILE" == *vision* ]]; then AB_REF=V0; else AB_REF=E0; fi
+  case "$PROFILE" in
+    *vision*)      AB_REF=V0 ;;
+    *nvfp4*)       AB_REF=N0 ;;
+    *)             AB_REF=E0 ;;
+  esac
 fi
 export AB_REF
 

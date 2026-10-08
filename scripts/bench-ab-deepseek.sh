@@ -101,7 +101,11 @@ emit_diag(){
   if [[ -n "$argv" ]]; then
     local k v
     for k in block-size long-prefill-token-threshold max-cudagraph-capture-size reasoning-parser served-model-name; do
-      v="$(printf ' %s' "$argv" | grep -oE -- " --${k} [^ ]+" | head -1)"
+      # `|| true` is mandatory here: the assignment's status IS the grep
+      # status under set -e/pipefail, and the nvfp4 argv has NO
+      # --long-prefill-token-threshold — grep exit 1 killed the whole cell
+      # silently right after "argv --block-size" (2026-10-08, N0).
+      v="$(printf ' %s' "$argv" | grep -oE -- " --${k} [^ ]+" | head -1)" || true
       [[ -n "$v" ]] && { printf '  argv%s\n' "$v" | tee -a "$OUT"; } || true
     done
     printf ' %s' "$argv" | grep -oE -- '--speculative-config [^ ]+' | head -1 \

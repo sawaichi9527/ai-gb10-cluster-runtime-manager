@@ -38,6 +38,33 @@
 #   AB_BASE=cluster-profiles.d/deepseek-vision-tune.conf.base \
 #   scripts/ab-setcell.sh V1
 #
+# deepseek-nvfp4 lane (2026-10-08, N-cells) — eugr/spark-vllm-b12x image,
+# production profile deepseek-nvfp4.conf. The N anchors:
+#   N0           nvfp4 baseline — byte-identical argv to deepseek-nvfp4.conf
+#   N1           SPEC_CONFIG + rejection_sample_method:"block"
+#                (default is "standard"; block keeps more of an accepted
+#                 prefix when a later draft token is rejected)
+#   N2           num_speculative_tokens 5 -> $N2_K (default 6)
+#   N3           num_speculative_tokens 5 -> $N3_K (default 7) — the
+#                vLLM official-recipe depth; the in-checkpoint draft head
+#                is trained for blocks of 5, so 6/7 must EARN their keep
+#                (bench-c prints per-position acceptance: pos6/7 tells
+#                the story directly)
+#   N4           N1 + enable_adaptive_verification:true (confidence-
+#                scheduled verification, vLLM blog 2026-08-14; pairs with
+#                a larger k — N4 alone runs at baseline k=5)
+#   N5           attention/spec backend B12X -> B12X_MLA_SPARSE (sparse
+#                MLA decode; VLLM_USE_B12X_SPARSE_INDEXER=1 is already in
+#                the profile env. eugr canonical recipe uses the sparse
+#                variant; our profile does NOT — biggest untried lever)
+#   N-win        winners combined: WINNERS="N1,N5" (aliases: block, k6,
+#                k7, adaptive, sparse)
+#
+# Same override for this lane (N-cells are refused without it, like V):
+#   AB_CONF=cluster-profiles.d/deepseek-nvfp4-tune.conf \
+#   AB_BASE=cluster-profiles.d/deepseek-nvfp4-tune.conf.base \
+#   scripts/ab-setcell.sh N1
+#
 # Usage:
 #   scripts/ab-setcell.sh E1
 #   WINNERS="E1,E3" scripts/ab-setcell.sh E5
@@ -45,7 +72,7 @@
 # =====================================================================
 set -Eeuo pipefail
 
-CELL="${1:?usage: ab-setcell.sh base|E0|E1|E2|E3|E4|E5|V0|V1|V2|V3|V4|V5}"
+CELL="${1:?usage: ab-setcell.sh base|E0|E1|E2|E3|E4|E5|V0|V1|V2|V3|V4|V5|N0|N1|N2|N3|N4|N5}"
 cd "$(dirname "$0")/.." || exit 1
 
 # Default to the mainline experiment lane; a vision run overrides both.
@@ -63,9 +90,9 @@ die(){ echo "ab-setcell: FAIL: $*" >&2; exit 1; }
 # deepseek-vision-tune.conf silently stayed at block-size 128
 # (sha 148a3f13). Refuse rather than lie about which file was touched.
 case "$CELL" in
-  V*)
+  V*|N*)
     if [ -z "${AB_CONF:-}" ] || [ -z "${AB_BASE:-}" ]; then
-      die "V-cell '${CELL}' needs an explicit target (the default is the mainline deepseek-tune lane):
+      die "${CELL%%[0-9]*}-cell '${CELL}' needs an explicit target (the default is the mainline deepseek-tune lane):
   AB_CONF=cluster-profiles.d/<lane>.conf AB_BASE=cluster-profiles.d/<lane>.conf.base scripts/ab-setcell.sh ${CELL}"
     fi
     ;;
@@ -183,6 +210,62 @@ v_k(){                            # V5: draft depth
   repl '  MTP_NUM_TOKENS=6' "  MTP_NUM_TOKENS=${k}"
 }
 
+# ---- deepseek-nvfp4 (N) knob functions -------------------------------
+# Every N-cell starts from the pristine nvfp4 baseline. The whole spec
+# block lives on ONE line (SPEC_CONFIG=...). Field-level edits only —
+# the first implementation rewrote the whole line from a template, and
+# N-win(N1,N5) then silently dropped N1's rejection_sample_method when
+# N5 re-rendered the line without it. A knob may only touch its own
+# field; everything else on the line must pass through untouched.
+
+nv4_spec_line(){ grep -n '^SPEC_CONFIG=' "$CONF" | head -1 | cut -d: -f1; }
+
+nv4_spec_sed(){              # sed expr applied to the SPEC_CONFIG line only
+  local n; n="$(nv4_spec_line)"
+  [ -n "$n" ] || die "SPEC_CONFIG missing"
+  sed -i "${n}$1" "$CONF"
+}
+
+nv4_assert_spec(){           # fields a knob did not touch must survive
+  grep -qF '"method":"dspark"' "$CONF" || die "method lost"
+  grep -qF '"draft_sample_method":"probabilistic"' "$CONF" || die "probabilistic lost"
+  grep -qF '"attention_backend":"B12X' "$CONF" || die "attention_backend lost"
+}
+
+n_block(){                   # N1: insert rejection_sample_method (idempotent)
+  grep -qF '"rejection_sample_method":"block"' "$CONF" && return 0
+  nv4_spec_sed 's|"draft_sample_method":"probabilistic"|"draft_sample_method":"probabilistic","rejection_sample_method":"block"|'
+  grep -qF '"rejection_sample_method":"block"' "$CONF" || die "block not applied"
+  nv4_assert_spec
+}
+
+n_k(){                       # N2 (k6) / N3 (k7): only the depth field
+  local k="$1"
+  (( k >= 5 )) || die "k=${k} illegal - must be >= dspark_block_size 5"
+  nv4_spec_sed "s|\"num_speculative_tokens\":[0-9]*|\"num_speculative_tokens\":${k}|"
+  grep -qF "\"num_speculative_tokens\":${k}" "$CONF" || die "k=${k} not applied"
+  nv4_assert_spec
+}
+
+n_adaptive(){                # N4 = N1 + enable_adaptive_verification
+  n_block
+  grep -qF '"enable_adaptive_verification":true' "$CONF" && return 0
+  nv4_spec_sed 's|"rejection_sample_method":"block"|"rejection_sample_method":"block","enable_adaptive_verification":true|'
+  grep -qF '"enable_adaptive_verification":true' "$CONF" || die "adaptive not applied"
+  nv4_assert_spec
+}
+
+n_sparse(){                  # N5: the sparse-MLA variant of the B12X
+  # backend — the main --attention-backend AND the spec-decode
+  # attention_backend move together (eugr canonical recipe uses the
+  # sparse variant for both). Field-level on the SPEC line so an N-win
+  # that composes N5 with N1/N2/N3 keeps their fields.
+  repl 'ATTN_BACKEND="B12X"' 'ATTN_BACKEND="B12X_MLA_SPARSE"'
+  nv4_spec_sed 's|"attention_backend":"B12X"|"attention_backend":"B12X_MLA_SPARSE"|'
+  grep -qF '"attention_backend":"B12X_MLA_SPARSE"' "$CONF" || die "spec backend not applied"
+  nv4_assert_spec
+}
+
 apply_key(){
   case "$1" in
     E1|capture|CUDAGRAPH_CAPTURE) k_capture ;;
@@ -194,6 +277,11 @@ apply_key(){
     V3|vthr)                      v_prefillthresh ;;
     V4|vcap)                      v_capture ;;
     V5|vk)                        v_k ;;
+    N1|block)                     n_block ;;
+    N2|k6)                        n_k "${N2_K:-6}" ;;
+    N3|k7)                        n_k "${N3_K:-7}" ;;
+    N4|adaptive)                  n_adaptive ;;
+    N5|sparse)                    n_sparse ;;
     *) die "unknown cell/key: $1" ;;
   esac
 }
@@ -213,6 +301,13 @@ case "$CELL" in
       [ -n "$W" ] || die "V-win requires WINNERS=<comma list>, e.g. WINNERS=V1,V3"
       for k in ${W//,/ }; do apply_key "$k"; done
       ;;
+  N0)  : ;;                      # nvfp4 baseline only
+  N1|N2|N3|N4|N5)          apply_key "$CELL" ;;
+  N-win)
+      W="${WINNERS:-}"
+      [ -n "$W" ] || die "N-win requires WINNERS=<comma list>, e.g. WINNERS=N1,N5"
+      for k in ${W//,/ }; do apply_key "$k"; done
+      ;;
   *) die "unknown cell: ${CELL}" ;;
 esac
 
@@ -220,7 +315,7 @@ esac
 bash -n "$CONF" || die "profile syntax error after edit"
 
 echo "--- ab-setcell ${CELL}: applied knobs (target ${CONF}) ---"
-grep -nE '^(CUDAGRAPH_CAPTURE|ENABLE_PREFIX_CACHING|SPEC_CONFIG|CMD_WRAPPER|SYNC_DIRS)|VLLM_USE_BREAKABLE_CUDAGRAPH|VLLM_PREFIX_CACHE_RETENTION_INTERVAL|dspark-patches|--block-size|--long-prefill-token-threshold|MTP_NUM_TOKENS' \
+grep -nE '^(CUDAGRAPH_CAPTURE|ENABLE_PREFIX_CACHING|SPEC_CONFIG|ATTN_BACKEND|CMD_WRAPPER|SYNC_DIRS)|VLLM_USE_BREAKABLE_CUDAGRAPH|VLLM_PREFIX_CACHE_RETENTION_INTERVAL|dspark-patches|--block-size|--long-prefill-token-threshold|MTP_NUM_TOKENS' \
   "$CONF" | sed 's/^/  /'
 
 echo "--- diff vs baseline (${BASE}) ---"
