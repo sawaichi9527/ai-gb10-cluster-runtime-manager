@@ -189,6 +189,23 @@ boot ×4，兩個啟動修復 + 一個 acceptance 根因 hotfix：
    重跑（已修）吞吐逐格誤差 ≤9%（單跑 vs 單跑，比 ±7% 中位噪聲帶略寬，方向一致）。
    備註：此測試 thinking **預設開**（payload 無 `chat_template_kwargs`），
    token 進 reasoning 故 acceptance 低於先前 thinking:false 純 code 探針的 78.2%。
+7. **NVFP4 KV A/B（2026-10-08，(c) 題唯一未用槓桿）：B cell 單旋鈕
+   `KV_DTYPE=nvfp4_ds_mla` → 決定性開機失敗，已回退 `fp8`**。Root cause
+   三重獨立硬閘（image 2026-10-06）：① DeepSeekV4 模型層
+   `use_fp8_ds_mla_layout=True`，`_resolve_dsv4_kv_cache_dtype` 只收 `fp8*`
+   （`config/cache.py` 通用接受清單會誤導——模型層覆蓋它）；②
+   `b12x_mla_sparse.py` "B12X nvfp4_ds_mla requires GLM5Next"（backend init
+   也擋）；③ `flashmla_sparse.py` 需 `device_capability.major==10`（SM100）。
+   → DeepSeekV4 on GB10 在此 image **無可行路**，未有上游變更勿重試；
+   完整註記已寫入 conf `KV_DTYPE` 段。A 側參考值（fp8，2026-10-08 實測）：
+   KV pool **343,549 tok**（1.31x@262144）、`bench-ctx 200000 cold`
+   **1984.6 tok/s**（200101 tok / 100.8s）。過程教訓：① B 開機 rank0/rank1
+   皆 `Exited(1)`，但 `gb10 wait` 只輪詢 health、不偵測 container exit，
+   直到 SSH 逾時才暴露——**可選改善：wait 應在 container exit 時提早報錯**；
+   ② SSH 逾時後孤兒背景 boot 仍存續（其 3600s health timeout 到點才自盡），
+   期間 `gb10 use` 拒絕新 boot（`background boot for another profile already
+   running (PID …)`）→ 復原前須確認孤兒 PID 已死；③ **`gb10 down` 非法子
+   命令**（印 usage、rc=2 靜默 no-op），清場正確指令是 `gb10 stop`。
 
 **狀態（2026-10-08 更新）**：Phase 2–3 改動**已提交並推送**——`2cdec55`
 （compose-verify subset 修正）、`c0ef7fd`（hotfix 接線 + `patches/eugr-spark-vllm-b12x/`
