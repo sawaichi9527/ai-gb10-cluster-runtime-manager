@@ -953,6 +953,52 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
   GitHub UI 顯示效果；runtime 面 —— `deepseek-nvfp4` 維持前輪 READY 服務中（本輪未重啟，
   預期行為）。
 
+### 2026-10-09 — `_overdue_recipe/` 歸檔結構 + 兩條配方繼承收尾 + v1.6.0 版號：session close Validation evidence
+
+- **範圍**：本 session 產出 2 個 commit —— `84f343c`（70 檔：`_overdue_recipe/` 61、
+  `cluster-profiles.d` 3（live conf header ×2 + `_backup/README.md` 刪除）、docs ×2、
+  AGENTS／README／`bin/gb10`／handoff 各 1；`git show --name-only` 證實 **`scripts/` 與
+  `runtimes.d/` 零改動**，live conf 僅 header 註釋、`bin/gb10` 僅 heredoc 註解 ——
+  註釋不進 render 產物）＋ `6ead700`（handoff.md 版本記錄）⇒ **Runtime test = N/A**
+  （loader／launcher 未觸碰；docs＋封存檔＋註釋-only）。
+- **結構與內容檢查**：
+  1. 渲染證據（node0，19:59，rc=0）：以 `load_profile`+`render_tp2_compose` 就地重渲染
+     4 份封存 compose → `<REDACTED:from-cluster.env>` placeholder 每檔 ×1、原始 JWT ×0、
+     暫存 conf 已清、tree clean
+  2. 脫敏／LF 檢查（本地 20:07、node0 20:54 各一次）：封存 yml `eyJ`=0 ×4、
+     placeholder=1 ×4；`_overdue_recipe/` 全 LF（無 CR 位元組）
+  3. byte-identity（node0 20:13、20:54 重驗）：`deepseek-anemll.conf`
+     `3147b4e9…78f0562`、`deepseek-vision-anemll.conf` `0df27c38…9eaafe` 與退役當日
+     記錄一致；兩組 tune `.conf`==`.base`（`e0c1f265…`／`5e70ec4e…`）
+  4. `bash -n`（node0 20:13、20:54）：`bin/gb10` + 2 live conf + 4 封存 conf 全 rc=0（7/7）
+  5. loader smoke（node0 20:13、20:54）：`gb10 list` rc=0（7 服務 + `deepseek-nvfp4-tune`
+     A/B only）；`_backup/` 與根 `patches/dspark-vision/` 已不存在，根 `patches/` 僅剩
+     active 三目錄（eugr-spark-vllm-b12x／mimo26flash／qwen38flash）
+  6. 機密掃描（node0 20:54，取 `cluster.env` 的 `VLLM_API_KEY` 對整棵 repo tree
+     `grep -rqF`）：**無原始 key**（僅 placeholder 入庫）
+  7. tag：annotated `v1.6.0`→`84f343c`（首行 `v1.6.0 (2026-10-09) - minor`）；
+     `ls-remote --tags` origin／github 皆 object `8b0602e`；node0 `fetch --tags` 後
+     `git tag --points-at 84f343c` = `v1.6.0`
+  8. GitHub Release `GET /releases/tags/v1.6.0` → `id=407909226`、published
+     （2026-10-09T12:48:39Z）、body 43 行（GCM 憑證、**未寫入任何檔案**）
+  9. 四端一致（20:49–20:54）：local＝origin＝github＝node0 皆 `6ead700`、node0
+     tree clean（0 dirty）
+- **環境參考（非本次修改產出）**：使用者同窗自行啟動 `deepseek-nvfp4` 背景 boot
+  （20:11:39 起、20:32:52 READY、冷啟約 21 分）—— 與 repo 變更無關；收尾批次複量
+  `/health` rc=0（20:54）。
+- **統計：Pass 9 組 / Fail 0 / Skip 0**（Runtime = N/A；首輪 node0 批次 B4–B7 因
+  `source cluster-common.sh` 帶入 `set -e`、grep 零命中 exit 1 中斷，已以防護版重跑
+  補齊）。
+- **Test environment**：本機 Windows + pwsh 7.4.6 + git 2.56.0.windows.1；node0
+  `192.168.23.215`（Posh-SSH，repo `main`）；GitHub API。
+- **Artifacts**：commits `84f343c`／`6ead700`；tag message（`git show v1.6.0`）；Release
+  <https://github.com/sawaichi9527/ai-gb10-cluster-runtime-manager/releases/tag/v1.6.0>；
+  封存 bundle `_overdue_recipe/*/`（含 `recipe_README.md` 歷史 benchmark 與還原步驟）；
+  前輪 A/B 證據 `docs/evidence/{deepseek,vision}-b12x-recipe-ab-2026-10-09/`。
+- **尚未驗證／不在本輪範圍**：封存配方的還原路徑未端到端演練（步驟僅文件化，未執行
+  rollback）；Release／歸檔 README 的 GitHub UI 顯示效果；封存 compose 為參考產物、
+  不直接部署（`cluster-up` 每次啟動由 conf 重渲染，屬設計行為）。
+
 ### qwen38flash 對齊上游 + 冷啟驗證（2026-09-29）
 
 觸發：上游 `MiaAI-Lab/Qwen3.8-Flash-Next-Dual-DGX-Sparks` 的 `main` 已前進到 **`2c86a1d0`**
