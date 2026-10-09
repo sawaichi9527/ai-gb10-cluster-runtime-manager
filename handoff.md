@@ -10,7 +10,7 @@
 
 ## 目前狀態（本機 checkout）
 
-- 分支：`main`，HEAD = 本檔所在的 commit（`git log -1`）；最新正式版本 tag = **`v1.5.0`**（`3201363`；`v1.4.1`→`cc76cbd`、`v1.4.0`→`6aff00d`、`v1.3.4`→`a92d2bc`、`v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、`v1.3.3`→`9bb2006`）。早期：2026-09-20 session 共 22 個 commit `a1cba34`…`79a79cb`，其後為本檔的 sync commit。live lane = **`deepseek-nvfp4`**（**2026-10-08** Phase 3 完成上線，README/handoff 詳載；主線 `deepseek` 待命 —— 使用者裁定「先不恢復」，`gb10 use deepseek` 隨時切回；`mimo26flash` 自 10-03 上線做 NVFP4 A/B + cliff 探測，**權重定案 MXFP4** 待命，見 `docs/…2026-10-03.md` §11）
+- 分支：`main`，HEAD = 本檔所在的 commit（`git log -1`）；最新正式版本 tag = **`v1.6.0`**（`84f343c`；`v1.5.0`→`3201363`、`v1.4.1`→`cc76cbd`、`v1.4.0`→`6aff00d`、`v1.3.4`→`a92d2bc`、`v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、`v1.3.3`→`9bb2006`）。早期：2026-09-20 session 共 22 個 commit `a1cba34`…`79a79cb`，其後為本檔的 sync commit。live lane = **`deepseek-nvfp4`**（**2026-10-08** Phase 3 完成上線，README/handoff 詳載；主線 `deepseek` 待命 —— 使用者裁定「先不恢復」，`gb10 use deepseek` 隨時切回；`mimo26flash` 自 10-03 上線做 NVFP4 A/B + cliff 探測，**權重定案 MXFP4** 待命，見 `docs/…2026-10-03.md` §11）
 - 同步狀態：**本機＝Forgejo（origin，`829522`）＝GitHub（`sawaichi9527`）＝node0 已 pull**（四方同一 commit；node0 live lane = **`deepseek`**（10-05 切回）；`mimo26flash` 定案 **MXFP4**、一鍵可切回）
 - `handoff.md` 已納版控（`37bee4c` 起；本次更新亦將 commit）
 - `.gitignore` 已覆蓋 `config/cluster.env`、`state/last-runtime`、logs、`*.bak-*`
@@ -899,9 +899,27 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
   恢復。**annotated tag 重建一次**：初版 message 誤植「12 commits」，經使用者授權在**尚無
   Release 指向時**刪兩端重建為 13，無痕。**GitHub Release 已建**（`id 406384910`，
   比照歷版；以 API + 本機 GCM 憑證，**未寫入任何檔案**）。
+- **`v1.6.0`（2026-10-09，兩條生產 lane 配方換代 + 歸檔結構 — minor bump）**：`84f343c`
+  —— 自 v1.5.0 起 **10 個 commit**（`5ef23d0`…`84f343c`）—— ① `deepseek-vision`
+  **配方繼承**：eugr-b12x + Vision-EXP-ablit 三 boot 對決過關（B1/B2 decode 持平
+  535.3/545.9 vs 538.1、prefill +9~14%、prefix-hit 50.9× **無需任何 hotfix**；唯一
+  升版旋鈕 `CUDAGRAPH_CAPTURE 48→56`），原生 vision、`CMD_WRAPPER`/`SYNC_DIRS`/patches
+  全撤（`8a3cfc3`、`9c350da`、`50372b3`）② 主線 `deepseek` **配方繼承**：eugr-b12x +
+  Dspark-Ablit 對決 D0 **+3.4%**（Σ 693.3、8/8 正）/ P0 生產複閘 **+0.4%**（673.2）、
+  prefill +16~18%、prefix-hit 38.5×/38.3× 逐字一致**無需 SWA-prefix hotfix**
+  （`22e246e`、`2039b8a`、`2cf92a6`）③ `deepseek-nvfp4` spec-decode A/B lane + N-campaign
+  記錄（eval-only、未 promote，`af8c808`）④ **退休配方歸檔結構整併**：`_backup/` → repo 根
+  `_overdue_recipe/<profile>_<image+tag>_<yyyymmdd>/` 自帶式 bundle（byte-identical conf +
+  重渲染 compose（api-key 脫敏）+ `patches/dspark-vision/` 副本 + `recipe_README.md`
+  歷史 benchmark／還原步驟；image/模型不上傳，`84f343c`）。判級：**非「同 image 調優」**
+  （v1.4.1 的 patch 判準）—— 兩條生產 lane 換 image 譜系與權重，但無新增服務 lane
+  → **minor**。annotated tag 打於 `84f343c`（本記錄 commit 之前，比照歷版慣例）。
+  **GitHub Release 已建**（`id 407909226`，比照歷版；以 API + 本機 GCM 憑證，
+  **未寫入任何檔案**）。
 - **tag 現況**：`v1.0.0`→`496c9b1`、`v1.1.0`→`71ccf20`、`v1.2.0`→`ffd02ea`、
   `v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、`v1.3.3`→`9bb2006`、
-  `v1.3.4`→`a92d2bc`、`v1.4.0`→`6aff00d`、`v1.4.1`→`cc76cbd`、**`v1.5.0`→`3201363`**。
+  `v1.3.4`→`a92d2bc`、`v1.4.0`→`6aff00d`、`v1.4.1`→`cc76cbd`、`v1.5.0`→`3201363`、
+  **`v1.6.0`→`84f343c`**。
 
 ### 2026-10-08 — README 發布 + v1.5.0 版號：session close Validation evidence
 
