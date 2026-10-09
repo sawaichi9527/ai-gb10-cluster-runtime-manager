@@ -1,0 +1,84 @@
+=== P0 start 2026-10-09T19:19:12+08:00  profile=deepseek ===
+--- engine diag (deepseek) ---
+  'cudagraph_capture_sizes': [1, 2, 4, 8, 16, 24, 32, 40, 48, 56, 64]
+  'max_cudagraph_capture_size': 64
+  (Worker_TP0 pid=243) INFO 10-09 11:06:00 [model_runner.py:444] Model loading took 80.76 GiB memory and 31.071082 seconds
+  (Worker_TP0 pid=243) INFO 10-09 11:16:41 [model_runner.py:1251] Graph capturing finished in 3 secs, took 0.74 GiB
+  (Worker_TP0 pid=243) INFO 10-09 11:16:47 [gpu_worker.py:812] Available KV cache memory: 11.62 GiB
+  (Worker_TP0 pid=243) INFO 10-09 11:18:46 [model_runner.py:1251] Graph capturing finished in 5 secs, took 0.94 GiB
+  cfg block_size': 256
+  cfg draft_sample_method': 'probabilistic'
+  cfg enable_prefix_caching': True
+  cfg enable_prefix_caching=True
+  cfg max_num_seqs': 8
+  cfg num_speculative_tokens': 7
+  argv --block-size 256
+  argv --max-cudagraph-capture-size 64
+  argv --reasoning-parser deepseek_v4
+  argv --served-model-name aeon
+  argv --speculative-config {"method":"dspark","num_speculative_tokens":7,"draft_sample_method":"probabilistic","attention_backend":"B12X"}
+  argv --enable-prefix-caching
+  env VLLM_USE_BREAKABLE_CUDAGRAPH=0
+  breakable_cudagraph=auto-enable warning ABSENT (=> inductor ON)
+  jit_spike_lines=1
+--- decode fixed-400 (BENCH_IGNORE_EOS=1), 3 runs each, C=1..8 ---
+decode C=1 run=1  aggregate: completion=400tok wall=9.558s C_total=41.8 tok/s any_errors=0| acceptance: 276 / 868 draft tokens = 31.7% mean_accept_len=2.22|
+decode C=1 run=2  aggregate: completion=400tok wall=10.613s C_total=37.7 tok/s any_errors=0| acceptance: 265 / 938 draft tokens = 28.2% mean_accept_len=1.97|
+decode C=1 run=3  aggregate: completion=400tok wall=11.694s C_total=34.2 tok/s any_errors=0| acceptance: 248 / 1057 draft tokens = 23.4% mean_accept_len=1.64|
+decode C=2 run=1  aggregate: completion=800tok wall=15.718s C_total=50.9 tok/s any_errors=0| acceptance: 544 / 1799 draft tokens = 30.2% mean_accept_len=2.11|
+decode C=2 run=2  aggregate: completion=800tok wall=14.826s C_total=54.0 tok/s any_errors=0| acceptance: 536 / 1897 draft tokens = 28.2% mean_accept_len=1.97|
+decode C=2 run=3  aggregate: completion=800tok wall=13.035s C_total=61.4 tok/s any_errors=0| acceptance: 555 / 1750 draft tokens = 31.7% mean_accept_len=2.22|
+decode C=3 run=1  aggregate: completion=1200tok wall=17.290s C_total=69.4 tok/s any_errors=0| acceptance: 828 / 2653 draft tokens = 31.2% mean_accept_len=2.18|
+decode C=3 run=2  aggregate: completion=1200tok wall=16.955s C_total=70.8 tok/s any_errors=0| acceptance: 836 / 2562 draft tokens = 32.6% mean_accept_len=2.28|
+decode C=3 run=3  aggregate: completion=1200tok wall=16.793s C_total=71.5 tok/s any_errors=0| acceptance: 841 / 2541 draft tokens = 33.0% mean_accept_len=2.31|
+decode C=4 run=1  aggregate: completion=1600tok wall=19.529s C_total=81.9 tok/s any_errors=0| acceptance: 1108 / 3493 draft tokens = 31.7% mean_accept_len=2.22|
+decode C=4 run=2  aggregate: completion=1600tok wall=19.306s C_total=82.9 tok/s any_errors=0| acceptance: 1100 / 3577 draft tokens = 30.7% mean_accept_len=2.15|
+decode C=4 run=3  aggregate: completion=1600tok wall=19.466s C_total=82.2 tok/s any_errors=0| acceptance: 1131 / 3318 draft tokens = 34.0% mean_accept_len=2.38|
+decode C=5 run=1  aggregate: completion=2000tok wall=20.442s C_total=97.8 tok/s any_errors=0| acceptance: 1413 / 4165 draft tokens = 33.9% mean_accept_len=2.37|
+decode C=5 run=2  aggregate: completion=2000tok wall=22.332s C_total=89.6 tok/s any_errors=0| acceptance: 1379 / 4375 draft tokens = 31.5% mean_accept_len=2.20|
+decode C=5 run=3  aggregate: completion=2000tok wall=20.355s C_total=98.3 tok/s any_errors=0| acceptance: 1403 / 4228 draft tokens = 33.1% mean_accept_len=2.32|
+decode C=6 run=1  aggregate: completion=2400tok wall=23.099s C_total=103.9 tok/s any_errors=0| acceptance: 1696 / 4949 draft tokens = 34.2% mean_accept_len=2.39|
+decode C=6 run=2  aggregate: completion=2400tok wall=24.041s C_total=99.8 tok/s any_errors=0| acceptance: 1674 / 5089 draft tokens = 32.8% mean_accept_len=2.30|
+decode C=6 run=3  aggregate: completion=2400tok wall=24.626s C_total=97.5 tok/s any_errors=0| acceptance: 1638 / 5404 draft tokens = 30.3% mean_accept_len=2.12|
+decode C=7 run=1  aggregate: completion=2800tok wall=24.395s C_total=114.8 tok/s any_errors=0| acceptance: 1963 / 5908 draft tokens = 33.2% mean_accept_len=2.32|
+decode C=7 run=2  aggregate: completion=2800tok wall=25.373s C_total=110.4 tok/s any_errors=0| acceptance: 1911 / 6258 draft tokens = 30.5% mean_accept_len=2.13|
+decode C=7 run=3  aggregate: completion=2800tok wall=25.083s C_total=111.6 tok/s any_errors=0| acceptance: 1950 / 5971 draft tokens = 32.6% mean_accept_len=2.28|
+decode C=8 run=1  aggregate: completion=3200tok wall=29.492s C_total=108.5 tok/s any_errors=0| acceptance: 2125 / 7546 draft tokens = 28.1% mean_accept_len=1.97|
+decode C=8 run=2  aggregate: completion=3200tok wall=26.201s C_total=122.1 tok/s any_errors=0| acceptance: 2250 / 6671 draft tokens = 33.7% mean_accept_len=2.36|
+decode C=8 run=3  aggregate: completion=3200tok wall=26.824s C_total=119.3 tok/s any_errors=0| acceptance: 2262 / 6678 draft tokens = 33.8% mean_accept_len=2.37|
+--- summary (median / mean of 3 runs) ---
+C      med_tok/s  mean_tok/s accept%   
+1      37.7       37.9       28.2      
+2      54.0       55.4       30.2      
+3      70.8       70.6       32.6      
+4      82.2       82.3       31.7      
+5      97.8       95.2       33.1      
+6      99.8       100.4      32.8      
+7      111.6      112.3      32.6      
+8      119.3      116.6      33.7      
+--- cold prefill (BENCH_COLD=1) ---
+prefill w=32000  prompt_tokens = 32101  wall_time = 13.239s  prefill_speed = 2424.7 tok/s (prompt_tokens / wall) 
+prefill w=131000  prompt_tokens = 131101  wall_time = 60.441s  prefill_speed = 2169.0 tok/s (prompt_tokens / wall) 
+prefill w=200000  prompt_tokens = 200101  wall_time = 98.598s  prefill_speed = 2029.4 tok/s (prompt_tokens / wall) 
+--- prefix-cache repeat check (3x identical prompt) ---
+  run1: len=12 exact=HELLO-TP2-OK
+  run2: len=12 exact=HELLO-TP2-OK
+  run3: len=12 exact=HELLO-TP2-OK
+  verdict: ok (identical=2/2, no empty responses)
+--- delta vs D0 (decode, median of 3) ---
+C      D0_t/s    this_t/s  d_tps%    D0_acc    this_acc  d_acc_pp 
+1      43.2      37.7      -12.7%    36.7      28.2      -8.5pp   
+2      58.9      54.0      -8.3%     30.0      30.2      +0.2pp   
+3      72.2      70.8      -1.9%     34.1      32.6      -1.5pp   
+4      88.9      82.2      -7.5%     33.7      31.7      -2.0pp   
+5      93.2      97.8      +4.9%     32.6      33.1      +0.5pp   
+6      100.3     99.8      -0.5%     31.9      32.8      +0.9pp   
+7      116.7     111.6     -4.4%     34.1      32.6      -1.5pp   
+8      119.9     119.3     -0.5%     34.0      33.7      -0.3pp   
+--- delta vs D0 (cold prefill tok/s) ---
+  w=32000  D0=2408.4  this=2424.7  +0.7%
+  w=131000  D0=2174.1  this=2169.0  -0.2%
+  w=200000  D0=2042.9  this=2029.4  -0.7%
+  (* d_tps% = relative tok/s change; d_acc_pp = acceptance percentage points.
+     |d| >10% tok/s or >3pp  => real;  below that => noise.)
+DONE P0 2026-10-09T19:30:09+08:00

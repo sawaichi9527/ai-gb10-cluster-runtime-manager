@@ -1,0 +1,102 @@
+profile loaded UTF8
+=== pull ===
+ create mode 100644 docs/evidence/deepseek-b12x-recipe-ab-2026-10-09/ab-D0.txt
+ create mode 100644 docs/evidence/deepseek-b12x-recipe-ab-2026-10-09/d0-cycle-output.txt
+22e246e feat(deepseek): promote eugr-b12x + Dspark-Ablit recipe, archive Anemll recipe as backup
+=== syntax ===
+CONF_SYNTAX_OK
+GB10_SYNTAX_OK
+127:COMPILATION_JSON='{"cudagraph_mode":"FULL_AND_PIECEWISE","custom_ops":["all"]}'
+  Temporary single-knob experiment lanes used by tooling to compare
+  one parameter against a byte-copy of its production sibling. They
+  tear down whatever is live, are never a deploy target, and any
+  winning knob must be promoted into the production profile and
+  re-gated there. 'gb10 use <name>' still accepts them.
+  deepseek-b12x is the recipe-candidate lane: eugr b12x image + 0731
+  Dspark-Ablit vs the README deepseek benchmark record.
+=== stale compose cleanup (node0 + node1) ===
+已刪除 '/home/eye/docker-stacks/anemll-dspark-vllm-gx10/docker-compose.deepseek.yml'
+已刪除 '/home/eye/docker-stacks/eugr-spark-vllm-b12x-deepseek/docker-compose.deepseek-b12x.yml'
+已刪除 '/home/eye/docker-stacks/anemll-dspark-vllm-gx10/docker-compose.deepseek.yml'
+已刪除 '/home/eye/docker-stacks/eugr-spark-vllm-b12x-deepseek/docker-compose.deepseek-b12x.yml'
+=== P0: boot promoted deepseek (tears down candidate) ===
+  log:  /home/eye/docker-stacks/logs/deepseek/boot-cluster.log
+  wait: gb10 wait deepseek
+  poll: gb10 status
+no early arg error -> full wait
+2026-10-09 19:06:14 deepseek: waiting for background boot to complete...
+2026-10-09 19:18:54 deepseek: READY
+2026-10-09 19:18:50 [boot-cluster] profile=deepseek READY
+health=200
+[sudo] eye 的密碼： [sudo] eye 的密碼： [sudo] eye 的密碼： PASS cluster-node1 (compose spec == profile spec)
+compose-verify: OK — profile=deepseek compose parity holds on both ranks
+usage: {'prompt_tokens': 95, 'total_tokens': 127, 'completion_tokens': 32, 'prompt_tokens_details': None, 'completion_tokens_details': {'reasoning_tokens': 22}}
+smoke DONE
+=== P0 diagnostics ===
+load_format': 'b12x'
+(EngineCore pid=172) INFO 10-09 11:16:47 [kv_cache_utils.py:2798] GPU KV cache size: 423,356 tokens, Maximum concurrency for 262,144 tokens per request: 1.61x
+(Worker_TP0 pid=243) INFO 10-09 11:06:00 [model_runner.py:444] Model loading took 80.76 GiB memory and 31.071082 seconds
+(Worker_TP0 pid=243) INFO 10-09 11:16:47 [gpu_worker.py:812] Available KV cache memory: 11.62 GiB
+cudagraph_capture_sizes': [1, 2, 4, 8, 16, 24, 32, 40, 48, 56, 64]
+'num_speculative_tokens': 7
+(Worker_TP0 pid=243) /usr/local/lib/python3.12/dist-packages/b12x/norm/mhc/_kernels.py:4317: UserWarning: Accessing the data pointer of FakeTensor is deprecated and will error in PyTorch 2.5. This is almost definitely a bug in your code and will cause undefined behavior with subsystems like torch.compile. Please wrap calls to tensor.data_ptr() in an opaque custom op; If all else fails, you can guard accesses to tensor.data_ptr() on isinstance(tensor, FakeTensor). (Triggered internally at /__w/pytorch/pytorch/c10/core/StorageImpl.cpp:46.)
+/usr/local/lib/python3.12/dist-packages/b12x/norm/mhc/_kernels.py:4317: UserWarning: Accessing the data pointer of FakeTensor is deprecated and will error in PyTorch 2.5. This is almost definitely a bug in your code and will cause undefined behavior with subsystems like torch.compile. Please wrap calls to tensor.data_ptr() in an opaque custom op; If all else fails, you can guard accesses to tensor.data_ptr() on isinstance(tensor, FakeTensor). (Triggered internally at /__w/pytorch/pytorch/c10/core/StorageImpl.cpp:46.)
+=== P0 STAGE 1: prefix-hit gate ===
+           content=PREFIX-OK
+  round2: wall=.357032040s prefill=89664.2 tok/s pt=32013 ct=5 finish=stop content_len=9 reasoning_len=0 vs_prev=identical
+           content=PREFIX-OK
+  round3: wall=.360790444s prefill=88730.2 tok/s pt=32013 ct=5 finish=stop content_len=9 reasoning_len=0 vs_prev=identical
+           content=PREFIX-OK
+  summary: round1=13.811351208s last=.360790444s  speedup=38.3x  cache=HIT
+  verdict: completion=OK  identical_across_rounds=yes (2 same / 0 differ)  len=9
+=== end prefix-cache HIT probe ===
+=== P0 STAGE 2: bench-ab (decode C1-C8 x3 + cold prefill), delta vs D0 ===
+decode C=6 run=1  aggregate: completion=2400tok wall=23.099s C_total=103.9 tok/s any_errors=0| acceptance: 1696 / 4949 draft tokens = 34.2% mean_accept_len=2.39|
+decode C=6 run=2  aggregate: completion=2400tok wall=24.041s C_total=99.8 tok/s any_errors=0| acceptance: 1674 / 5089 draft tokens = 32.8% mean_accept_len=2.30|
+decode C=6 run=3  aggregate: completion=2400tok wall=24.626s C_total=97.5 tok/s any_errors=0| acceptance: 1638 / 5404 draft tokens = 30.3% mean_accept_len=2.12|
+decode C=7 run=1  aggregate: completion=2800tok wall=24.395s C_total=114.8 tok/s any_errors=0| acceptance: 1963 / 5908 draft tokens = 33.2% mean_accept_len=2.32|
+decode C=7 run=2  aggregate: completion=2800tok wall=25.373s C_total=110.4 tok/s any_errors=0| acceptance: 1911 / 6258 draft tokens = 30.5% mean_accept_len=2.13|
+decode C=7 run=3  aggregate: completion=2800tok wall=25.083s C_total=111.6 tok/s any_errors=0| acceptance: 1950 / 5971 draft tokens = 32.6% mean_accept_len=2.28|
+decode C=8 run=1  aggregate: completion=3200tok wall=29.492s C_total=108.5 tok/s any_errors=0| acceptance: 2125 / 7546 draft tokens = 28.1% mean_accept_len=1.97|
+decode C=8 run=2  aggregate: completion=3200tok wall=26.201s C_total=122.1 tok/s any_errors=0| acceptance: 2250 / 6671 draft tokens = 33.7% mean_accept_len=2.36|
+decode C=8 run=3  aggregate: completion=3200tok wall=26.824s C_total=119.3 tok/s any_errors=0| acceptance: 2262 / 6678 draft tokens = 33.8% mean_accept_len=2.37|
+--- summary (median / mean of 3 runs) ---
+C      med_tok/s  mean_tok/s accept%   
+1      37.7       37.9       28.2      
+2      54.0       55.4       30.2      
+3      70.8       70.6       32.6      
+4      82.2       82.3       31.7      
+5      97.8       95.2       33.1      
+6      99.8       100.4      32.8      
+7      111.6      112.3      32.6      
+8      119.3      116.6      33.7      
+--- cold prefill (BENCH_COLD=1) ---
+prefill w=32000  prompt_tokens = 32101  wall_time = 13.239s  prefill_speed = 2424.7 tok/s (prompt_tokens / wall) 
+prefill w=131000  prompt_tokens = 131101  wall_time = 60.441s  prefill_speed = 2169.0 tok/s (prompt_tokens / wall) 
+prefill w=200000  prompt_tokens = 200101  wall_time = 98.598s  prefill_speed = 2029.4 tok/s (prompt_tokens / wall) 
+--- prefix-cache repeat check (3x identical prompt) ---
+  run1: len=12 exact=HELLO-TP2-OK
+  run2: len=12 exact=HELLO-TP2-OK
+  run3: len=12 exact=HELLO-TP2-OK
+  verdict: ok (identical=2/2, no empty responses)
+--- delta vs D0 (decode, median of 3) ---
+C      D0_t/s    this_t/s  d_tps%    D0_acc    this_acc  d_acc_pp 
+1      43.2      37.7      -12.7%    36.7      28.2      -8.5pp   
+2      58.9      54.0      -8.3%     30.0      30.2      +0.2pp   
+3      72.2      70.8      -1.9%     34.1      32.6      -1.5pp   
+4      88.9      82.2      -7.5%     33.7      31.7      -2.0pp   
+5      93.2      97.8      +4.9%     32.6      33.1      +0.5pp   
+6      100.3     99.8      -0.5%     31.9      32.8      +0.9pp   
+7      116.7     111.6     -4.4%     34.1      32.6      -1.5pp   
+8      119.9     119.3     -0.5%     34.0      33.7      -0.3pp   
+--- delta vs D0 (cold prefill tok/s) ---
+  w=32000  D0=2408.4  this=2424.7  +0.7%
+  w=131000  D0=2174.1  this=2169.0  -0.2%
+  w=200000  D0=2042.9  this=2029.4  -0.7%
+  (* d_tps% = relative tok/s change; d_acc_pp = acceptance percentage points.
+     |d| >10% tok/s or >3pp  => real;  below that => noise.)
+DONE P0 2026-10-09T19:30:09+08:00
+=== P0 STAGE 3: 261K long probe ===
+    prefill_speed  = 1925.1 tok/s (prompt_tokens / wall)
+=== P0 ALL DONE ===
+2026-10-09T19:32:25+08:00

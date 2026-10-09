@@ -55,6 +55,26 @@ is **deliberately left in place on BOTH nodes** (node0 + node1) pending a
 later user decision — do NOT clean it up as stale residue of this promotion.
 It is this backup recipe's model dependency (restore step 3).
 
+## `deepseek-tune.conf` + `.conf.base` (archived 2026-10-09)
+
+The single-knob A/B lane of the **old** mainline recipe's E0–E5 campaign
+(`docs/DEEPSEEK_TUNE_AB_2026-10-06.md`; harness `scripts/ab-setcell.sh` +
+`scripts/bench-ab-deepseek.sh`). It was a byte-copy of the old production
+`deepseek.conf` (its `.base` = the pristine E0) — after the 2026-10-09
+recipe succession its "production sibling" premise is stale, so per user
+decision (2026-10-09) it is **archived here, not deployed**:
+
+- removed from the `bin/gb10` whitelist (unknown profile → fail-safe);
+- loader ignores this dir, so neither file is a live profile;
+- its stack dir is `~/docker-stacks/anemll-dspark-vllm-gx10/` (compose
+  `docker-compose.deepseek-tune.yml`, deleted as stale on both nodes);
+- restoring it requires the full old recipe too (see `deepseek-anemll.conf`
+  above), i.e. it is part of the same backup solution.
+
+If a future mainline tune campaign is run, create a NEW lane off the
+CURRENT production recipe (`deepseek.conf`, eugr-b12x) + a fresh `.base` —
+do not resurrect these files as-is.
+
 ## `deepseek-vision-anemll.conf`
 
 Byte-identical copy of the `deepseek-vision` production recipe **as it

@@ -158,10 +158,10 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   `scripts/bench-ab-deepseek.sh` (C1..C8 ×3 medians, cold prefill, engine diag,
   auto Δ-vs-E0) + `scripts/bench-prefix-hit.sh` (warm prefix HIT/no-hit probe with a
   temperature=0 completeness verdict) on `cluster-profiles.d/deepseek-tune.conf`
-  (**NOTE**: after the 2026-10-09 succession that lane's "production sibling"
-  premise is stale — it is a byte-copy of the OLD Anemll recipe; re-base it on
-  the promoted recipe or archive it, pending a user decision, before its next
-  campaign).
+  (**archived** to `cluster-profiles.d/_backup/` per user decision 2026-10-09 —
+  after the succession it is a byte-copy of the OLD Anemll recipe, no longer a
+  "production sibling"; a future mainline campaign must branch a NEW lane off
+  the promoted recipe + a fresh `.base`).
   Measured noise floor from that campaign: **decode ≈ ±7 %, prefill ≈ ±8 %** — smaller
   deltas are not results.
 - **ComfyUI is currently deployed on Node1** as `comfyui-aeon` / Flux 2 Dev. Do not revert it
