@@ -166,15 +166,53 @@ used; not directly comparable to the E5 figure's method).
 
 **Known follow-ups (not part of this A/B):**
 
-- `deepseek-tune` is a byte-copy of the OLD production recipe; after the
-  succession its "production sibling" premise is stale — decide with the
-  user whether to re-base it on the promoted recipe or archive it (the
-  vision tune lane was archived per user decision).
+- ~~`deepseek-tune` sibling premise stale~~ → **archived** to
+  `cluster-profiles.d/_backup/` per user decision 2026-10-09 (same as the
+  vision-tune lane); a future mainline campaign branches a NEW lane off the
+  promoted recipe.
 - Quality spot-check only (same limitation every campaign recorded): no
   long-form style/factuality A/B between the official and abliterated
   checkpoints — behavioural differences are a *content* property of the
   ablit model, not of the serving recipe.
 
-## 9. P0 — production re-gate (promoted `deepseek` lane)
+## 9. P0 — production re-gate (promoted `deepseek` lane, 2026-10-09 19:06–19:32)
 
-Filled in after the promoted-lane boot; see the follow-up commit.
+Boot of the promoted profile (`gb10 use deepseek`; telemetry same config as
+D0, new profile id / compose name / cache-warm):
+
+| gate | result |
+|---|---|
+| boot | READY 12.7 min (19:06:14 → 19:18:54), `/health` 200 |
+| load format / capture / k | `b12x` (no fallback), `[1…64]`, `num_speculative_tokens: 7` |
+| KV pool | **423,356 tokens** (11.62 GiB; D0 booted 407,775 — boot-to-boot memory-profile scatter) |
+| compose-verify / smoke | PASS both ranks / OK |
+| prefix-hit | **HIT 38.3×** (13.81 s → 0.36 s), byte-identical `PREFIX-OK` |
+| 261 K long probe | **1925.1 tok/s** (E5 record 1648.2 → +16.8 %; D0 1947.1 — within ±1.2 %) |
+| cold prefill vs D0 | 32K **+0.7 %**, 131K **−0.2 %**, 200K **−0.7 %** — identical |
+
+**Decode P0 vs D0 vs README E5 record** (medians of 3):
+
+| C | E5 record | D0 | P0 | P0 vs E5 |
+|---|---|---|---|---|
+| 1 | 42.3 | 43.2 | 37.7 | −10.9 % |
+| 2 | 56.9 | 58.9 | 54.0 | −5.1 % |
+| 3 | 71.7 | 72.2 | 70.8 | −1.3 % |
+| 4 | 79.8 | 88.9 | 82.2 | +3.0 % |
+| 5 | 91.8 | 93.2 | 97.8 | +6.5 % |
+| 6 | 99.3 | 100.3 | 99.8 | +0.5 % |
+| 7 | 113.2 | 116.7 | 111.6 | −1.4 % |
+| 8 | 115.7 | 119.9 | 119.3 | +3.1 % |
+| **Σ** | **670.7** | **693.3** | **673.2** | **+0.4 % (parity)** |
+
+- acceptance P0 mean **31.9 %** (E5 31.1 → +0.8 pp; D0 33.4 → −1.5 pp,
+  inside noise).
+- Verdict: **PASS** — the promoted production lane measures at parity-or-better
+  against the README record on a second independent boot (D0 +3.4 %, P0
+  +0.4 %); prefill holds the +16 % margin; correctness gates all green.
+- Reading notes: C1 shows the largest cell delta (P0 −12.7 % vs D0) — it is
+  the single-stream, highest-variance cell and the D0↔P0 boot scatter
+  (12.7 %) exceeds the cell delta itself; the vision campaign recorded the
+  same class of first-boot scatter (~8 %). Σ and prefill, which are the
+  promotion criteria, are stable across both boots.
+
+Evidence: `docs/evidence/deepseek-b12x-recipe-ab-2026-10-09/{ab-P0.txt,p0-cycle-output.txt}`.

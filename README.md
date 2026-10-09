@@ -304,6 +304,10 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 * gate：`cluster-compose-verify` 雙 rank PASS、`gb10 smoke`、prefix-hit 正確性、3×3 完整性、
   garble soak 3/3、261K/262K 長文、`/health 200` —— 全過（過程兩個假警報：測試腳本 401、
   verbose 格式打滿預算，皆為測試面問題，證據檔留全記錄）
+* **P0 生產複驗（promoted `deepseek` 開機，19:18 READY）**：Σ **673.2 vs 記錄 670.7（+0.4%）**
+  ——第二個獨立 boot 仍持平偏正（D0 +3.4% / P0 +0.4%）；prefill vs D0 ±0.7% 一致、
+  prefix-hit **38.3×** 逐字一致、KV 423,356 tok、全 gate 綠（C1 −12.7% 為單流最高噪音格，
+  D0↔P0 boot 散佈大於該格差）。詳 `docs/DEEPSEEK_B12X_RECIPE_AB_2026-10-09.md` §9
 
 ### DeepSeek V4 Flash 0731 NVFP4 on eugr b12x (TP2) — 2026-10-08（Phase 3 完成，**現役**）
 
