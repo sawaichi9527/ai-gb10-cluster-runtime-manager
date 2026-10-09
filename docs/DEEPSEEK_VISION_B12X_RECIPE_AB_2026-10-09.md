@@ -140,8 +140,10 @@ solution; README benchmark section rewritten; candidate lane
   BOTH nodes pending a later user decision — it is the archived recipe's
   dependency (see `cluster-profiles.d/_backup/README.md`). Do not clean it
   as promotion residue.
-- The `deepseek-vision-tune` A/B lane is a byte-copy of the OLD production
-  recipe; its `.base` goes stale after promotion (archive alongside the
-  backup recipe or re-baseline).
+- The `deepseek-vision-tune` A/B lane was a byte-copy of the OLD production
+  recipe; its `.base` went stale with the promotion — **archived per user
+  decision 2026-10-09** into `cluster-profiles.d/_backup/` (whitelist removed;
+  see `_backup/README.md`). A future vision tune campaign must branch a NEW
+  lane off the promoted production recipe.
 - Upstream image digest advances with eugr nightly CI; the pinned digests
   in the promoted profile are the 2026-10-07 pair (re-pull => re-pin both).

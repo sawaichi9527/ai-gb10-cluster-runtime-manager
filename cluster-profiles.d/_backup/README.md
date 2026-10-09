@@ -46,3 +46,22 @@ The **old official model** `~/docker-stacks/models/deepseek-v4-flash-vision-exp`
 is **deliberately left in place on BOTH nodes** (node0 + node1) pending a
 later user decision — do NOT clean it up as stale residue of this promotion.
 It is this backup recipe's model dependency (restore step 3).
+
+## `deepseek-vision-tune.conf` + `.conf.base` (archived 2026-10-09)
+
+The single-knob A/B lane of the **old** recipe's 2026-10-07 tune campaign
+(V0–V5 + V-win, `docs/DEEPSEEK_VISION_TUNE_AB_2026-10-07.md`). It was a
+byte-copy of the old production `deepseek-vision.conf` (its `.base` = the
+pristine N0) — after the 2026-10-09 recipe succession its base is stale, so
+per user decision it is **archived here, not deployed**:
+
+- removed from the `bin/gb10` whitelist (unknown profile → fail-safe);
+- loader ignores this dir, so neither file is a live profile;
+- its lane artifacts (if any) live in
+  `~/docker-stacks/anemll-dspark-vllm-gx10-miaFlaver-tune/` on the nodes;
+- restoring it requires the full old recipe too (see the section above),
+  i.e. it is part of the same backup solution.
+
+If a future vision tune campaign is run, create a NEW lane off the CURRENT
+production recipe (`deepseek-vision.conf`, eugr-b12x) + a fresh `.base` —
+do not resurrect these files as-is.
