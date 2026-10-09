@@ -129,7 +129,7 @@ case "${1:-help}" in
     echo "  35b             Qwen3.6 35B-A3B (body + DFlash drafter)"
     echo "  deepseek        DeepSeek-V4-Flash-0731 (fp8 DSpark mainline, 256K)"
     echo "  deepseek-nvfp4  DeepSeek-V4-Flash-0731-NVFP4 (eugr b12x runtime, 256K)"
-    echo "  deepseek-vision  DeepSeek-V4-Flash-Vision-Exp (vLLM multimodal, 256K)"
+    echo "  deepseek-vision  DeepSeek-V4-Flash-Vision-EXP-ablit (eugr b12x, multimodal, 256K)"
     echo "  qwen38flash     Qwen3.8 Flash-Next 125B NVFP4 (MTP3, TP2+EP, 256K)"
     echo "  mimo26flash     MiMo V2.6 Flash MOPD (vLLM TP2 + DFlash, 256K)"
     echo ""
