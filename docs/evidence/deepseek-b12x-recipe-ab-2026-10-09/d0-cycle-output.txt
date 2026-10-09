@@ -1,0 +1,91 @@
+profile loaded UTF8
+=== boot deepseek-b12x (retry, fixed compilation-config) ===
+  log:  /home/eye/docker-stacks/logs/deepseek-b12x/boot-cluster.log
+  wait: gb10 wait deepseek-b12x
+  poll: gb10 status
+=== early error check (+90s) ===
+no early arg error -> full wait
+2026-10-09 15:10:56 deepseek-b12x: waiting for background boot to complete...
+2026-10-09 15:23:46 deepseek-b12x: READY
+2026-10-09 15:23:45 [boot-cluster] profile=deepseek-b12x READY
+health=200
+[sudo] eye 的密碼： [sudo] eye 的密碼： [sudo] eye 的密碼： PASS cluster-node1 (compose spec == profile spec)
+compose-verify: OK — profile=deepseek-b12x compose parity holds on both ranks
+usage: {'prompt_tokens': 95, 'total_tokens': 127, 'completion_tokens': 32, 'prompt_tokens_details': None, 'completion_tokens_details': {'reasoning_tokens': 22}}
+smoke DONE
+=== boot diagnostics ===
+load_format': 'b12x'
+(Worker_TP0 pid=513) INFO 10-09 07:10:49 [model_runner.py:444] Model loading took 80.76 GiB memory and 30.610518 seconds
+(Worker_TP0 pid=513) INFO 10-09 07:21:37 [gpu_worker.py:812] Available KV cache memory: 11.33 GiB
+cudagraph_capture_sizes': [1, 2, 4, 8, 16, 24, 32, 40, 48, 56, 64]
+'num_speculative_tokens': 7
+(Worker_TP0 pid=513) /usr/local/lib/python3.12/dist-packages/b12x/norm/mhc/_kernels.py:4317: UserWarning: Accessing the data pointer of FakeTensor is deprecated and will error in PyTorch 2.5. This is almost definitely a bug in your code and will cause undefined behavior with subsystems like torch.compile. Please wrap calls to tensor.data_ptr() in an opaque custom op; If all else fails, you can guard accesses to tensor.data_ptr() on isinstance(tensor, FakeTensor). (Triggered internally at /__w/pytorch/pytorch/c10/core/StorageImpl.cpp:46.)
+/usr/local/lib/python3.12/dist-packages/b12x/norm/mhc/_kernels.py:4317: UserWarning: Accessing the data pointer of FakeTensor is deprecated and will error in PyTorch 2.5. This is almost definitely a bug in your code and will cause undefined behavior with subsystems like torch.compile. Please wrap calls to tensor.data_ptr() in an opaque custom op; If all else fails, you can guard accesses to tensor.data_ptr() on isinstance(tensor, FakeTensor). (Triggered internally at /__w/pytorch/pytorch/c10/core/StorageImpl.cpp:46.)
+=== STAGE 1: prefix-hit correctness gate (hotfix-class) ===
+--- prefix-cache HIT probe (words=32000, rounds=3, temp=0, no nonce) ---
+  round1: wall=13.602224940s prefill=2353.5 tok/s pt=32013 ct=5 finish=stop content_len=9 reasoning_len=0 vs_prev=n/a
+           content=PREFIX-OK
+  round2: wall=.349944864s prefill=91480.1 tok/s pt=32013 ct=5 finish=stop content_len=9 reasoning_len=0 vs_prev=identical
+           content=PREFIX-OK
+  round3: wall=.353628556s prefill=90527.2 tok/s pt=32013 ct=5 finish=stop content_len=9 reasoning_len=0 vs_prev=identical
+           content=PREFIX-OK
+  summary: round1=13.602224940s last=.353628556s  speedup=38.5x  cache=HIT
+  verdict: completion=OK  identical_across_rounds=yes (2 same / 0 differ)  len=9
+=== end prefix-cache HIT probe ===
+=== STAGE 2: bench-ab D0 ===
+--- decode fixed-400 (BENCH_IGNORE_EOS=1), 3 runs each, C=1..8 ---
+decode C=1 run=1  aggregate: completion=400tok wall=8.678s C_total=46.1 tok/s any_errors=0| acceptance: 291 / 791 draft tokens = 36.7% mean_accept_len=2.57|
+decode C=1 run=2  aggregate: completion=400tok wall=9.452s C_total=42.3 tok/s any_errors=0| acceptance: 282 / 868 draft tokens = 32.4% mean_accept_len=2.27|
+decode C=1 run=3  aggregate: completion=400tok wall=9.251s C_total=43.2 tok/s any_errors=0| acceptance: 291 / 791 draft tokens = 36.7% mean_accept_len=2.57|
+decode C=2 run=1  aggregate: completion=800tok wall=14.502s C_total=55.2 tok/s any_errors=0| acceptance: 529 / 1897 draft tokens = 27.8% mean_accept_len=1.95|
+decode C=2 run=2  aggregate: completion=800tok wall=13.585s C_total=58.9 tok/s any_errors=0| acceptance: 542 / 1806 draft tokens = 30.0% mean_accept_len=2.10|
+decode C=2 run=3  aggregate: completion=800tok wall=12.792s C_total=62.5 tok/s any_errors=0| acceptance: 569 / 1645 draft tokens = 34.5% mean_accept_len=2.42|
+decode C=3 run=1  aggregate: completion=1200tok wall=17.476s C_total=68.7 tok/s any_errors=0| acceptance: 823 / 2667 draft tokens = 30.8% mean_accept_len=2.16|
+decode C=3 run=2  aggregate: completion=1200tok wall=16.623s C_total=72.2 tok/s any_errors=0| acceptance: 854 / 2422 draft tokens = 35.2% mean_accept_len=2.46|
+decode C=3 run=3  aggregate: completion=1200tok wall=15.680s C_total=76.5 tok/s any_errors=0| acceptance: 847 / 2478 draft tokens = 34.1% mean_accept_len=2.39|
+decode C=4 run=1  aggregate: completion=1600tok wall=19.936s C_total=80.3 tok/s any_errors=0| acceptance: 1107 / 3472 draft tokens = 31.8% mean_accept_len=2.23|
+decode C=4 run=2  aggregate: completion=1600tok wall=17.999s C_total=88.9 tok/s any_errors=0| acceptance: 1123 / 3332 draft tokens = 33.7% mean_accept_len=2.35|
+decode C=4 run=3  aggregate: completion=1600tok wall=17.910s C_total=89.3 tok/s any_errors=0| acceptance: 1150 / 3241 draft tokens = 35.4% mean_accept_len=2.48|
+decode C=5 run=1  aggregate: completion=2000tok wall=23.589s C_total=84.8 tok/s any_errors=0| acceptance: 1357 / 4543 draft tokens = 29.8% mean_accept_len=2.09|
+decode C=5 run=2  aggregate: completion=2000tok wall=21.469s C_total=93.2 tok/s any_errors=0| acceptance: 1397 / 4277 draft tokens = 32.6% mean_accept_len=2.28|
+decode C=5 run=3  aggregate: completion=2000tok wall=20.636s C_total=96.9 tok/s any_errors=0| acceptance: 1404 / 4193 draft tokens = 33.4% mean_accept_len=2.34|
+decode C=6 run=1  aggregate: completion=2400tok wall=24.617s C_total=97.5 tok/s any_errors=0| acceptance: 1667 / 5229 draft tokens = 31.8% mean_accept_len=2.23|
+decode C=6 run=2  aggregate: completion=2400tok wall=23.201s C_total=103.4 tok/s any_errors=0| acceptance: 1670 / 5159 draft tokens = 32.3% mean_accept_len=2.26|
+decode C=6 run=3  aggregate: completion=2400tok wall=23.924s C_total=100.3 tok/s any_errors=0| acceptance: 1661 / 5201 draft tokens = 31.9% mean_accept_len=2.23|
+decode C=7 run=1  aggregate: completion=2800tok wall=23.998s C_total=116.7 tok/s any_errors=0| acceptance: 1995 / 5761 draft tokens = 34.6% mean_accept_len=2.42|
+decode C=7 run=2  aggregate: completion=2800tok wall=23.783s C_total=117.7 tok/s any_errors=0| acceptance: 1982 / 5796 draft tokens = 34.1% mean_accept_len=2.39|
+decode C=7 run=3  aggregate: completion=2800tok wall=26.007s C_total=107.7 tok/s any_errors=0| acceptance: 1888 / 6447 draft tokens = 29.2% mean_accept_len=2.04|
+decode C=8 run=1  aggregate: completion=3200tok wall=26.682s C_total=119.9 tok/s any_errors=0| acceptance: 2260 / 6629 draft tokens = 34.0% mean_accept_len=2.38|
+decode C=8 run=2  aggregate: completion=3200tok wall=27.870s C_total=114.8 tok/s any_errors=0| acceptance: 2210 / 6979 draft tokens = 31.6% mean_accept_len=2.21|
+decode C=8 run=3  aggregate: completion=3200tok wall=25.795s C_total=124.1 tok/s any_errors=0| acceptance: 2269 / 6629 draft tokens = 34.2% mean_accept_len=2.39|
+--- summary (median / mean of 3 runs) ---
+C      med_tok/s  mean_tok/s accept%   
+1      43.2       43.9       36.7      
+2      58.9       58.9       30.0      
+3      72.2       72.5       34.1      
+4      88.9       86.2       33.7      
+5      93.2       91.6       32.6      
+6      100.3      100.4      31.9      
+7      116.7      114.0      34.1      
+8      119.9      119.6      34.0      
+--- cold prefill (BENCH_COLD=1) ---
+prefill w=32000  prompt_tokens = 32101  wall_time = 13.329s  prefill_speed = 2408.4 tok/s (prompt_tokens / wall) 
+prefill w=131000  prompt_tokens = 131101  wall_time = 60.301s  prefill_speed = 2174.1 tok/s (prompt_tokens / wall) 
+prefill w=200000  prompt_tokens = 200101  wall_time = 97.945s  prefill_speed = 2042.9 tok/s (prompt_tokens / wall) 
+--- prefix-cache repeat check (3x identical prompt) ---
+  run1: len=12 exact=HELLO-TP2-OK
+  run2: len=12 exact=HELLO-TP2-OK
+  run3: len=12 exact=HELLO-TP2-OK
+  verdict: ok (identical=2/2, no empty responses)
+DONE D0 2026-10-09T15:34:48+08:00
+=== STAGE 3: bench-ctx long probes ===
+##### w=131000 #####
+    prefill_speed  = 2189.7 tok/s (prompt_tokens / wall)
+##### w=200000 #####
+    prefill_speed  = 2051.5 tok/s (prompt_tokens / wall)
+##### w=245000 #####
+    prefill_speed  = 1972.7 tok/s (prompt_tokens / wall)
+##### w=261000 #####
+    prefill_speed  = 1947.1 tok/s (prompt_tokens / wall)
+=== D0 ALL DONE ===
+2026-10-09T15:41:44+08:00

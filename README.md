@@ -70,7 +70,7 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 | 27B cluster (TP2) | 同上 | `2026-09-18-v0.29.0-omni` | `http://192.168.23.215:1234/v1` | deployed（09-19 實測） |
 | 35B single (TP1) | `qwen3.6-35b-a3b-heretic-nvfp4` + DFlash n=6 | `2026-09-18-v0.29.0-omni` | `:1234/v1` | deployed（09-19 實測） |
 | 35B cluster (TP2) | 同上 | `2026-09-18-v0.29.0-omni` | `http://192.168.23.215:1234/v1` | deployed（09-19 實測） |
-| DeepSeek V4 Flash cluster (TP2) | `deepseek-v4-flash-0731-official` + DSpark n=7 | `anemll/dspark-vllm-gx10:0.1.1` | `http://192.168.23.215:1234/v1` | deployed（10-05 由 mimo26flash 切回；**10-07 E5 promote 實測**；10-08 讓位給 `deepseek-nvfp4` 待命） |
+| DeepSeek V4 Flash cluster (TP2) | `deepseek-v4-flash-0731-dspark-ablit` + DSpark n=7 | `eugr/spark-vllm-b12x:latest`（**10-09 配方繼承**；舊 Anemll 配方封存 `_backup/`） | `http://192.168.23.215:1234/v1` | deployed（10-09 對決勝出：decode **+3.4%**、prefill +16~18%、accept +2.3pp、無需 hotfix；舊官方模型保留備援） |
 | DeepSeek V4 Flash **0731 NVFP4** cluster (TP2) | `DeepSeek-V4-Flash-0731-NVFP4`（MoE routed experts NVFP4，~172 GB／48 shards）+ DSpark n=5（in-checkpoint `mtp.*`，draft MXFP4 hotfix） | `eugr/spark-vllm-b12x:latest`（**2026-10-06** nightly，雙節點 digest pin） | `http://192.168.23.215:1234/v1` | **← 現役（2026-10-08 Phase 3 完成）**：C8 129.9 tok/s、accept 41–50%、KV 344,195 tok、smoke `HELLO-TP2-OK` |
 | DeepSeek V4 Flash **Vision-Exp** cluster (TP2) | `deepseek-v4-flash-vision-exp-ablit` + DSpark n=6 (multimodal) | `eugr/spark-vllm-b12x:latest`（**10-09 配方繼承**；舊 Anemll 配方封存 `_backup/`） | `http://192.168.23.215:1234/v1` | deployed（10-09 對決勝出：decode 持平、prefill +9~14%） |
 | Qwen3.8 Flash-Next **125B** cluster (TP2+EP) | `qwen3.8-flash-next-nvfp4`（ModelOpt NVFP4）+ 內建 MTP n=3 | `vllm/vllm-openai:qwen38-flash-next` | `http://192.168.23.215:1234/v1` | deployed（09-29 重新驗證）：GMU 0.80／prefix caching ON／determinism 預設 ON |
@@ -82,6 +82,8 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 > **先不恢復主線**，`gb10 use deepseek` 隨時切回——TP2 各 lane **互斥**，同一時間只有一條
 > 在線，切換由 `gb10 use` 自動拆）。其他列的 `deployed`
 > 表示**已部署並實測過**，非同時運行。
+> **2026-10-09**：mainline `deepseek` 完成 **eugr-b12x 配方繼承**（對決全勝，見下），
+> `gb10 use deepseek` 即 promoted 主線；`deepseek-nvfp4` / `deepseek-vision` 仍部署可切。
 
 ### 27B v0.29.0-omni (bench-c C1-C8, MAX_TOKENS=2048; 245k cold prefill) — 2026-09-19
 
@@ -188,8 +190,13 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 > → **17.87s → 0.35s（50.9×）**，三輪輸出位元組一致（`PREFIX-OK`）、無
 > truncation/garble——舊配方 `dspark-swa-prefix` hotfix 防的退化類別在此 fork 未重現。
 
-### DeepSeek V4 Flash 0731 mainline (TP2) — 2026-10-06/07（E5 promote 後）
+### DeepSeek V4 Flash 0731 mainline (TP2) — 2026-10-06/07（E5 promote 後；**舊配方記錄**）
 
+> **⚠ 配方繼承（2026-10-09）**：本區是 **Anemll + 官方模型**配方的 benchmark 記錄，
+> 該配方已封存為備用方案（`cluster-profiles.d/_backup/deepseek-anemll.conf`）。
+> 現役 `deepseek.conf` 已轉 **eugr b12x + Dspark-Ablit**，對決基準就是本區
+> E5/PROD 欄 → 新記錄見下一區「mainline on eugr b12x — 2026-10-09」。
+>
 > `cluster-profiles.d/deepseek.conf`：官方 `deepseek-v4-flash-0731-official` fp8 checkpoint +
 > `anemll/dspark-vllm-gx10:0.1.1`（舊 Vision 配方同 image；vision 已於 10-09 轉 eugr b12x），DSpark n=7 **probabilistic**、
 > 256K / 8-way、**prefix caching ON**（2026-10-06 E5 promote；見下）。
@@ -259,6 +266,44 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 > * 為什麼 prefix caching 必須配 hotfix：沒有 `hotfix-vllm-dspark-swa-prefix.py` 時，
 >   cache hit 會讓 DSpark draft 的 128-token sliding window 沒有前綴，
 >   verifier 接受**截斷**答案 —— 所以 `CMD_WRAPPER` 是 fail-closed（套不上就不起服）
+
+### DeepSeek V4 Flash 0731 mainline on eugr b12x (TP2) — 2026-10-09（**配方繼承，現役**）
+
+> `cluster-profiles.d/deepseek.conf`：drowzeys `keys-…Dspark-Abliterated-Anchored-Tensors`
+> （`models/deepseek-v4-flash-0731-dspark-ablit`，166.9 GB / 48 shards；26 個 body `wo_b` 張量改寫，
+> **MTP/draft 與官方逐位元相同**，Anchor manifest + HF 48 shard sha256 雙重驗證）+
+> **`eugr/spark-vllm-b12x:latest`**（`recipes/deepseek-v4-flash-0731.yaml` 為配方基準、雙節點 digest pin）。
+> 舊 Anemll + 官方模型配方**封存 `_backup/deepseek-anemll.conf`**（備用方案，含
+> `patches/dspark-vision/` SWA-prefix hotfix 依賴）；完整報告
+> `docs/DEEPSEEK_B12X_RECIPE_AB_2026-10-09.md`、證據
+> `docs/evidence/deepseek-b12x-recipe-ab-2026-10-09/`。
+>
+> 與舊配方差異：KV **fp8**（`nvfp4_ds_mla` 此 image 結構性不可行）、capture **64**（公式
+> `seqs×(k+1)=8×8`，上游 48 是配他們 k=5）、batched 8192、GMU 0.85、**k=7 保留**（README 基準同 k）、
+> **prefix caching ON 但無 hotfix**（eugr fork 未重現 SWA-prefix bug，prefix-hit gate 實證）。
+
+**decode（D0 2026-10-09，同 harness 中位×3，Δ vs 上一區 E5 記錄）**
+
+| C | E5 記錄（舊配方） | **D0（新配方）** | Δ |
+|---|---|---|---|
+| 1 | 42.3 | **43.2** | +2.1 % |
+| 2 | 56.9 | **58.9** | +3.5 % |
+| 3 | 71.7 | **72.2** | +0.7 % |
+| 4 | 79.8 | **88.9** | +11.4 % |
+| 5 | 91.8 | **93.2** | +1.5 % |
+| 6 | 99.3 | **100.3** | +1.0 % |
+| 7 | 113.2 | **116.7** | +3.1 % |
+| 8 | 115.7 | **119.9** | +3.6 % |
+| **Σ** | **670.7** | **693.3** | **+3.4 %（8/8 格全正）** |
+
+* acceptance：per-cell median 30.0–36.7 %，均值 **33.4 %** vs 31.1 %（**+2.3 pp**）
+* cold prefill：32K **2408.4**（+35 %，該格本為結構性噪音）／131K **2174.1**（+16.3 %）／
+  200K **2042.9**（+16.9 %）／261K **1947.1**（記錄 1648.2，**+18.1 %**）／262K 近硬限 1951.7 過
+* 暖前綴 probe：**HIT 38.5×**（13.60 s → 0.35 s），3 輪 `PREFIX-OK` 逐字一致（舊配方 7.6× 為不同探針形態，不可直接比）
+* KV pool **407,775 tok**（舊配方 `nvfp4_ds_mla` 405,179）；boot 12.8 min READY、`--load-format b12x` 無 fallback
+* gate：`cluster-compose-verify` 雙 rank PASS、`gb10 smoke`、prefix-hit 正確性、3×3 完整性、
+  garble soak 3/3、261K/262K 長文、`/health 200` —— 全過（過程兩個假警報：測試腳本 401、
+  verbose 格式打滿預算，皆為測試面問題，證據檔留全記錄）
 
 ### DeepSeek V4 Flash 0731 NVFP4 on eugr b12x (TP2) — 2026-10-08（Phase 3 完成，**現役**）
 

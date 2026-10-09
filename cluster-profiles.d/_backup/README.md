@@ -4,6 +4,57 @@ The loader (`cluster-common.sh: list_cluster_profiles`) only scans
 `cluster-profiles.d/*.conf` at the top level, so nothing in this
 directory is a live profile.
 
+## `deepseek-anemll.conf`
+
+Byte-identical copy of the `deepseek` **mainline production recipe as
+it was until 2026-10-09** (SHA256
+`3147b4e99e6b040f2318b865666132f79d4ed72f9f475db0f0c48eaee78f0562`):
+
+- image `ghcr.io/anemll/dspark-vllm-gx10:0.1.1`
+  (digest `sha256:a83948492cf13df455170fb42885f5ef4db54fefe0feff0f841ecbff464ac9d8`)
+- official checkpoint `models/deepseek-v4-flash-0731-official`
+  (pinned revision `9e165c30e27…`)
+- DSpark k=7 probabilistic + prefix caching ON via the fail-closed
+  `hotfix-vllm-dspark-swa-prefix.py` startup wrapper (from
+  `patches/dspark-vision/` — kept in-repo as part of this backup
+  solution; this recipe uses only that one file of the directory)
+- `SYNC_DIRS` stages `patches/dspark-vision` to
+  `${HOME}/docker-stacks/anemll-dspark-vllm-gx10/patches` on both
+  nodes at boot; stack dir `anemll-dspark-vllm-gx10`,
+  compose `docker-compose.deepseek.yml`
+- its E5 tune history is `docs/DEEPSEEK_TUNE_AB_2026-10-06.md`
+
+Superseded by the promoted eugr-b12x recipe after the succession A/B
+(`docs/DEEPSEEK_B12X_RECIPE_AB_2026-10-09.md`): decode Σ +3.4%,
+prefill +16..18%, acceptance +2.3pp, prefix-hit PASS without hotfix.
+
+### Restore (rollback to the Anemll recipe)
+
+```sh
+# 1. put the recipe back
+cp cluster-profiles.d/_backup/deepseek-anemll.conf \
+   cluster-profiles.d/deepseek.conf
+# 2. confirm the pinned Anemll image still exists on both nodes
+#    (docker images ghcr.io/anemll/dspark-vllm-gx10) — if it was pruned,
+#    re-pull on node0 and byte-transfer to node1 over CX7 first, then
+#    verify IMG_SHA256.
+# 3. confirm models/deepseek-v4-flash-0731-official exists on both nodes.
+# 4. boot: gb10 use deepseek
+#    (SYNC_DIRS re-stages the hotfix dir automatically; the fail-closed
+#    wrapper aborts the start if the patch cannot be applied.)
+```
+
+`patches/dspark-vision/` must stay in the repo while this backup exists
+— it is the recipe's runtime dependency (shared with the
+`deepseek-vision-anemll` backup below).
+
+### Model retention (user decision 2026-10-09)
+
+The **old official model** `~/docker-stacks/models/deepseek-v4-flash-0731-official`
+is **deliberately left in place on BOTH nodes** (node0 + node1) pending a
+later user decision — do NOT clean it up as stale residue of this promotion.
+It is this backup recipe's model dependency (restore step 3).
+
 ## `deepseek-vision-anemll.conf`
 
 Byte-identical copy of the `deepseek-vision` production recipe **as it

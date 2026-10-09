@@ -45,6 +45,25 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   `_backup/README.md`. **The old official model `models/deepseek-v4-flash-vision-exp`
   stays on BOTH nodes pending a user decision — do not delete it as promotion
   residue.**
+- **deepseek mainline recipe succession (2026-10-09).** `deepseek.conf` now runs
+  `eugr/spark-vllm-b12x:latest` + `models/deepseek-v4-flash-0731-dspark-ablit`
+  (drowzeys `keys-…-Dspark-Abliterated-Anchored-Tensors`; 26 body `wo_b` tensors
+  edited, **MTP/draft byte-official** → b12x loader contract holds). Promoted from
+  the `deepseek-b12x` candidate lane after the full-recipe A/B beat the README E5
+  record: decode Σ **693.3 vs 670.7 (+3.4 %, 8/8 cells positive)**, prefill
+  +16..18 % (261K 1947 vs 1648), acceptance 33.4 vs 31.1 % (+2.3 pp), prefix-hit
+  **38.5× PASS with NO hotfix** (the SWA-prefix bug does NOT reproduce in the
+  eugr fork), soak 3×3 + garble 3/3 + 262K near-limit all PASS; evidence
+  `docs/DEEPSEEK_B12X_RECIPE_AB_2026-10-09.md` +
+  `docs/evidence/deepseek-b12x-recipe-ab-2026-10-09/`. Deviations from the
+  upstream 0731 recipe: `CUDAGRAPH_CAPTURE=64` (formula `seqs*(k+1)` with the
+  kept **k=7**) and k=7 itself (upstream ships 5; README baseline is k=7).
+  The old Anemll recipe is a **backup solution only**: byte-identical conf at
+  `cluster-profiles.d/_backup/deepseek-anemll.conf` (SHA256 `3147b4e9…`) with its
+  SWA-prefix hotfix dependency in `patches/dspark-vision/` (kept in-repo); restore
+  steps in `_backup/README.md`. **The old official model
+  `models/deepseek-v4-flash-0731-official` stays on BOTH nodes pending a user
+  decision — do not delete it as promotion residue.**
 - **Caches are per-lane and never shared**: `~/.cache/vllm-<profile>` (cluster-only) or
   `~/.cache/vllm-<profile>-{cluster,single}`. The cluster `AUTOTUNE_CACHE_REL` in each
   conf points the per-boot FlashInfer reset at the lane's own root. **Logs are unified**
@@ -101,9 +120,12 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
 - **DeepSeek is cluster-only.** The legacy single-node `runtimes.d/deepseek.conf`
   placeholder was **retired 2026-09-05**, and `gb10-single list` no longer shows
   `deepseek`. On the TP2 cluster, `cluster-profiles.d/deepseek.conf` is **mainline
-  (PLACEHOLDER=false since 2026-09-07)**: official deepseek-ai fp8 checkpoint +
-  public Anemll runtime `ghcr.io/anemll/dspark-vllm-gx10:0.1.1`, weights at the shared
-  pool `~/docker-stacks/models` — `gb10 use deepseek` is a real launch, not a placeholder.
+  (PLACEHOLDER=false since 2026-09-07)**; since the **2026-10-09 recipe
+  succession** it runs `eugr/spark-vllm-b12x:latest` + the dspark-ablit 0731
+  checkpoint (see the succession bullet) — previously official fp8 checkpoint +
+  public Anemll runtime `ghcr.io/anemll/dspark-vllm-gx10:0.1.1`. Weights at the
+  shared pool `~/docker-stacks/models` — `gb10 use deepseek` is a real launch,
+  not a placeholder.
 - **Node1 doesn't host the repo.** Only Node0. Node1 needs image + model dirs + sudo docker.
 - **Cold start** for TP2 is ~7-15 min (weight load + FlashInfer autotune + torch.compile);
   `cluster-up`/`gb10 use` waits for `/health` 200 and reports READY.
@@ -111,15 +133,19 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   `[REDACTED:entropy:42].md` for rationale + the pre-requisites
   (vLLM #53479/#52244/#50457/#50897/#53420/#53426) to check before a new image re-enables it.
   **This 27B rule does NOT apply to `deepseek`** — see the next bullet.
-- **DeepSeek mainline runs E5 since 2026-10-06** (same image, profile-side only;
-  evidence `docs/DEEPSEEK_TUNE_AB_2026-10-06.md`). `cluster-profiles.d/deepseek.conf`
-  has `draft_sample_method=probabilistic` (was greedy) **and prefix caching ON**, and
-  prefix caching there is **not safe without its hotfix**: `CMD_WRAPPER` runs
+- **DeepSeek mainline ran E5 on the Anemll image since 2026-10-06 — superseded by
+  the 2026-10-09 recipe succession above; this paragraph now documents the BACKUP
+  recipe in `cluster-profiles.d/_backup/deepseek-anemll.conf`** (history +
+  evidence `docs/DEEPSEEK_TUNE_AB_2026-10-06.md`). The archived conf has
+  `draft_sample_method=probabilistic` (was greedy) **and prefix caching ON**, and
+  in THAT recipe prefix caching is **not safe without its hotfix**: `CMD_WRAPPER` runs
   `patches/dspark-vision/hotfix-vllm-dspark-swa-prefix.py` at container start (fail-closed),
   the read-only dir is mounted from `${STACK_DIR}/patches`, and `SYNC_DIRS` stages it on
   **both** nodes (node1 has no repo). Without the hotfix a prefix-cache hit leaves the
   DSpark draft's 128-token sliding window unpopulated and the verifier accepts a
-  **truncated** answer. Measured vs the pre-promotion config: decode C1..C8 median sum
+  **truncated** answer. (The promoted eugr-b12x recipe needs no such hotfix — its
+  prefix-hit gate passed 38.5× with byte-identical completions.) Measured on the
+  Anemll recipe vs its pre-promotion config: decode C1..C8 median sum
   594.2 → **670.7** tok/s (**+12.9 %**, 7/8 cells ≥+10 %), acceptance 26.9 → **31.1 %**
   (**+4.5 pp, 8/8 positive**), warm-prefix prefill **7.6×** (the tune-lane E5 run measured
   655.5 / +10.3 % / 32.1 % / 8.5× — same ballpark), cold prefill/boot/memory unchanged.
@@ -131,7 +157,11 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   Repeatable harness: `scripts/ab-setcell.sh` (single-knob cell apply) +
   `scripts/bench-ab-deepseek.sh` (C1..C8 ×3 medians, cold prefill, engine diag,
   auto Δ-vs-E0) + `scripts/bench-prefix-hit.sh` (warm prefix HIT/no-hit probe with a
-  temperature=0 completeness verdict) on `cluster-profiles.d/deepseek-tune.conf`.
+  temperature=0 completeness verdict) on `cluster-profiles.d/deepseek-tune.conf`
+  (**NOTE**: after the 2026-10-09 succession that lane's "production sibling"
+  premise is stale — it is a byte-copy of the OLD Anemll recipe; re-base it on
+  the promoted recipe or archive it, pending a user decision, before its next
+  campaign).
   Measured noise floor from that campaign: **decode ≈ ±7 %, prefill ≈ ±8 %** — smaller
   deltas are not results.
 - **ComfyUI is currently deployed on Node1** as `comfyui-aeon` / Flux 2 Dev. Do not revert it
@@ -145,7 +175,8 @@ The TP2 profile layer is **data-driven** (see `docs/TP2_PROFILE_REFACTOR_VALIDAT
 cluster-profiles.d/
   27b.conf           # deployed + live-validated (world_size=2, maxlen 262144)
   35b.conf           # deployed + live-validated (world_size=2, maxlen 262144)
-  deepseek.conf      # mainline (onboarded 2026-09-07; dspark-vllm-gx10:0.1.1, pool weights)
+  deepseek.conf      # mainline (onboarded 2026-09-07; recipe succession 2026-10-09:
+                     # eugr b12x + dspark-ablit; old Anemll recipe in _backup/)
   deepseek-vision.conf  # Vision-EXP-ablit on eugr b12x (2026-10-09 recipe succession;
                         # native vision, no hotfixes; old Anemll recipe in _backup/)
   qwen38flash.conf   # Qwen3.8 Flash-Next 125B NVFP4 TP2+EP (2026-09-20); official

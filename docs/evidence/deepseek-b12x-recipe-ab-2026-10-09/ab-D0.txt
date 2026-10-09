@@ -1,0 +1,106 @@
+=== D0 start 2026-10-09T15:24:04+08:00  profile=deepseek-b12x ===
+--- engine diag (deepseek-b12x) ---
+  'cudagraph_capture_sizes': [1, 2, 4, 8, 16, 24, 32, 40, 48, 56, 64]
+  'max_cudagraph_capture_size': 64
+  (Worker_TP0 pid=513) INFO 10-09 07:10:49 [model_runner.py:444] Model loading took 80.76 GiB memory and 30.610518 seconds
+  (Worker_TP0 pid=513) INFO 10-09 07:21:31 [model_runner.py:1251] Graph capturing finished in 3 secs, took 1.02 GiB
+  (Worker_TP0 pid=513) INFO 10-09 07:21:37 [gpu_worker.py:812] Available KV cache memory: 11.33 GiB
+  (Worker_TP0 pid=513) INFO 10-09 07:23:34 [model_runner.py:1251] Graph capturing finished in 5 secs, took 0.92 GiB
+  cfg block_size': 256
+  cfg draft_sample_method': 'probabilistic'
+  cfg enable_prefix_caching': True
+  cfg enable_prefix_caching=True
+  cfg max_num_seqs': 8
+  cfg num_speculative_tokens': 7
+  argv --block-size 256
+  argv --max-cudagraph-capture-size 64
+  argv --reasoning-parser deepseek_v4
+  argv --served-model-name aeon
+  argv --speculative-config {"method":"dspark","num_speculative_tokens":7,"draft_sample_method":"probabilistic","attention_backend":"B12X"}
+  argv --enable-prefix-caching
+  env VLLM_USE_BREAKABLE_CUDAGRAPH=0
+  breakable_cudagraph=auto-enable warning ABSENT (=> inductor ON)
+  jit_spike_lines=1
+--- decode fixed-400 (BENCH_IGNORE_EOS=1), 3 runs each, C=1..8 ---
+decode C=1 run=1  aggregate: completion=400tok wall=8.678s C_total=46.1 tok/s any_errors=0| acceptance: 291 / 791 draft tokens = 36.7% mean_accept_len=2.57|
+decode C=1 run=2  aggregate: completion=400tok wall=9.452s C_total=42.3 tok/s any_errors=0| acceptance: 282 / 868 draft tokens = 32.4% mean_accept_len=2.27|
+decode C=1 run=3  aggregate: completion=400tok wall=9.251s C_total=43.2 tok/s any_errors=0| acceptance: 291 / 791 draft tokens = 36.7% mean_accept_len=2.57|
+decode C=2 run=1  aggregate: completion=800tok wall=14.502s C_total=55.2 tok/s any_errors=0| acceptance: 529 / 1897 draft tokens = 27.8% mean_accept_len=1.95|
+decode C=2 run=2  aggregate: completion=800tok wall=13.585s C_total=58.9 tok/s any_errors=0| acceptance: 542 / 1806 draft tokens = 30.0% mean_accept_len=2.10|
+decode C=2 run=3  aggregate: completion=800tok wall=12.792s C_total=62.5 tok/s any_errors=0| acceptance: 569 / 1645 draft tokens = 34.5% mean_accept_len=2.42|
+decode C=3 run=1  aggregate: completion=1200tok wall=17.476s C_total=68.7 tok/s any_errors=0| acceptance: 823 / 2667 draft tokens = 30.8% mean_accept_len=2.16|
+decode C=3 run=2  aggregate: completion=1200tok wall=16.623s C_total=72.2 tok/s any_errors=0| acceptance: 854 / 2422 draft tokens = 35.2% mean_accept_len=2.46|
+decode C=3 run=3  aggregate: completion=1200tok wall=15.680s C_total=76.5 tok/s any_errors=0| acceptance: 847 / 2478 draft tokens = 34.1% mean_accept_len=2.39|
+decode C=4 run=1  aggregate: completion=1600tok wall=19.936s C_total=80.3 tok/s any_errors=0| acceptance: 1107 / 3472 draft tokens = 31.8% mean_accept_len=2.23|
+decode C=4 run=2  aggregate: completion=1600tok wall=17.999s C_total=88.9 tok/s any_errors=0| acceptance: 1123 / 3332 draft tokens = 33.7% mean_accept_len=2.35|
+decode C=4 run=3  aggregate: completion=1600tok wall=17.910s C_total=89.3 tok/s any_errors=0| acceptance: 1150 / 3241 draft tokens = 35.4% mean_accept_len=2.48|
+decode C=5 run=1  aggregate: completion=2000tok wall=23.589s C_total=84.8 tok/s any_errors=0| acceptance: 1357 / 4543 draft tokens = 29.8% mean_accept_len=2.09|
+decode C=5 run=2  aggregate: completion=2000tok wall=21.469s C_total=93.2 tok/s any_errors=0| acceptance: 1397 / 4277 draft tokens = 32.6% mean_accept_len=2.28|
+decode C=5 run=3  aggregate: completion=2000tok wall=20.636s C_total=96.9 tok/s any_errors=0| acceptance: 1404 / 4193 draft tokens = 33.4% mean_accept_len=2.34|
+decode C=6 run=1  aggregate: completion=2400tok wall=24.617s C_total=97.5 tok/s any_errors=0| acceptance: 1667 / 5229 draft tokens = 31.8% mean_accept_len=2.23|
+decode C=6 run=2  aggregate: completion=2400tok wall=23.201s C_total=103.4 tok/s any_errors=0| acceptance: 1670 / 5159 draft tokens = 32.3% mean_accept_len=2.26|
+decode C=6 run=3  aggregate: completion=2400tok wall=23.924s C_total=100.3 tok/s any_errors=0| acceptance: 1661 / 5201 draft tokens = 31.9% mean_accept_len=2.23|
+decode C=7 run=1  aggregate: completion=2800tok wall=23.998s C_total=116.7 tok/s any_errors=0| acceptance: 1995 / 5761 draft tokens = 34.6% mean_accept_len=2.42|
+decode C=7 run=2  aggregate: completion=2800tok wall=23.783s C_total=117.7 tok/s any_errors=0| acceptance: 1982 / 5796 draft tokens = 34.1% mean_accept_len=2.39|
+decode C=7 run=3  aggregate: completion=2800tok wall=26.007s C_total=107.7 tok/s any_errors=0| acceptance: 1888 / 6447 draft tokens = 29.2% mean_accept_len=2.04|
+decode C=8 run=1  aggregate: completion=3200tok wall=26.682s C_total=119.9 tok/s any_errors=0| acceptance: 2260 / 6629 draft tokens = 34.0% mean_accept_len=2.38|
+decode C=8 run=2  aggregate: completion=3200tok wall=27.870s C_total=114.8 tok/s any_errors=0| acceptance: 2210 / 6979 draft tokens = 31.6% mean_accept_len=2.21|
+decode C=8 run=3  aggregate: completion=3200tok wall=25.795s C_total=124.1 tok/s any_errors=0| acceptance: 2269 / 6629 draft tokens = 34.2% mean_accept_len=2.39|
+--- summary (median / mean of 3 runs) ---
+C      med_tok/s  mean_tok/s accept%   
+1      43.2       43.9       36.7      
+2      58.9       58.9       30.0      
+3      72.2       72.5       34.1      
+4      88.9       86.2       33.7      
+5      93.2       91.6       32.6      
+6      100.3      100.4      31.9      
+7      116.7      114.0      34.1      
+8      119.9      119.6      34.0      
+--- cold prefill (BENCH_COLD=1) ---
+prefill w=32000  prompt_tokens = 32101  wall_time = 13.329s  prefill_speed = 2408.4 tok/s (prompt_tokens / wall) 
+prefill w=131000  prompt_tokens = 131101  wall_time = 60.301s  prefill_speed = 2174.1 tok/s (prompt_tokens / wall) 
+prefill w=200000  prompt_tokens = 200101  wall_time = 97.945s  prefill_speed = 2042.9 tok/s (prompt_tokens / wall) 
+--- prefix-cache repeat check (3x identical prompt) ---
+  run1: len=12 exact=HELLO-TP2-OK
+  run2: len=12 exact=HELLO-TP2-OK
+  run3: len=12 exact=HELLO-TP2-OK
+  verdict: ok (identical=2/2, no empty responses)
+DONE D0 2026-10-09T15:34:48+08:00
+=== STAGE 4: 262K near hard limit (E5 precedent: 262021 accepted <=262144) ===
+    prefill_speed  = 1951.7 tok/s (prompt_tokens / wall)
+=== STAGE 5+6+7: garble soak x3 + 3x3 completeness + health ===
+--- garble soak x3 (temp=0, max_tokens=400, thinking:false) ---
+  garble r1: API ERROR HTTP 401
+  garble r2: API ERROR HTTP 401
+  garble r3: API ERROR HTTP 401
+  garble verdict: 0/3
+--- 3x3 short-prompt completeness (3 prompts x 3 runs) ---
+  [Reply with exactly: HELLO-TP2-OK...] expect='HELLO-TP2-OK': runs_ok=0/3 finish=['ERR', 'ERR', 'ERR'] identical=False -> FAIL
+  [What is the capital of France? Reply with just t...] expect='Paris': runs_ok=0/3 finish=['ERR', 'ERR', 'ERR'] identical=False -> FAIL
+  [Count from 1 to 5 separated by commas....] expect='1, 2, 3, 4, 5': runs_ok=0/3 finish=['ERR', 'ERR', 'ERR'] identical=False -> FAIL
+  completeness verdict: 0/3 prompts
+  health=200
+=== soak ALL DONE ===
+2026-10-09T15:52:29+08:00
+=== STAGE 5+6+7: garble soak x3 + 3x3 completeness + health ===
+--- garble soak x3 (temp=0, max_tokens=400, thinking:false) ---
+  garble r1: finish=length content_len=980 reasoning_len=0 uniq_ratio=0.05 primes=4/10 -> FAIL
+  garble r2: finish=length content_len=951 reasoning_len=0 uniq_ratio=0.05 primes=10/10 -> FAIL
+  garble r3: finish=length content_len=996 reasoning_len=0 uniq_ratio=0.05 primes=6/10 -> FAIL
+  garble verdict: 0/3
+--- 3x3 short-prompt completeness (3 prompts x 3 runs) ---
+  [Reply with exactly: HELLO-TP2-OK...] expect='HELLO-TP2-OK': runs_ok=3/3 finish=['stop', 'stop', 'stop'] identical=True -> PASS
+  [What is the capital of France? Reply with just t...] expect='Paris': runs_ok=3/3 finish=['stop', 'stop', 'stop'] identical=True -> PASS
+  [Count from 1 to 5 separated by commas....] expect='1, 2, 3, 4, 5': runs_ok=3/3 finish=['stop', 'stop', 'stop'] identical=True -> PASS
+  completeness verdict: 3/3 prompts
+  health=200
+=== soak ALL DONE ===
+2026-10-09T15:53:36+08:00
+--- garble soak v2 x3 (pinned list format, temp=0, max_tokens=400, thinking:false) ---
+  garble-v2 r1: finish=stop content_len=48 reasoning_len=0 uniq_ratio=0.19 primes=10/10 extras=[] -> PASS
+    content: 101, 103, 107, 109, 113, 127, 131, 137, 139, 149
+  garble-v2 r2: finish=stop content_len=48 reasoning_len=0 uniq_ratio=0.19 primes=10/10 extras=[] -> PASS
+    content: 101, 103, 107, 109, 113, 127, 131, 137, 139, 149
+  garble-v2 r3: finish=stop content_len=48 reasoning_len=0 uniq_ratio=0.19 primes=10/10 extras=[] -> PASS
+    content: 101, 103, 107, 109, 113, 127, 131, 137, 139, 149
+  garble-v2 verdict: 3/3
