@@ -6,8 +6,8 @@ against the benchmark record annotated in `README.md` for the production
 `deepseek-vision` lane (Anemll `dspark-vllm-gx10:0.1.1` + official
 `deepseek-v4-flash-vision-exp`). If the candidate is **>= record (parity or
 better)**, the production profile inherits the new recipe; the old recipe
-(including `patches/dspark-vision/`) is archived in-repo as a BACKUP
-solution, not a deployed lane.
+(including its `patches/dspark-vision/`) is archived self-contained under
+the repo-root `_overdue_recipe/` as a BACKUP solution, not a deployed lane.
 
 ## Candidate lane
 
@@ -127,7 +127,8 @@ mm table as within-class noise except the cold/warm flag caveat above.
 
 Recommended promotion (pending user confirmation): `deepseek-vision.conf`
 inherits this recipe at the B1/B2 config (`CUDAGRAPH_CAPTURE=56`); the
-Anemll recipe + `patches/dspark-vision/` are archived in-repo as a backup
+Anemll recipe (conf + compose + `patches/dspark-vision/` +
+`recipe_README.md`) is archived under `_overdue_recipe/` as a backup
 solution; README benchmark section rewritten; candidate lane
 `deepseek-vision-b12x` retired or kept as history.
 
@@ -138,12 +139,16 @@ solution; README benchmark section rewritten; candidate lane
 - Model retention (user decision 2026-10-09): the OLD official model dir
   `~/docker-stacks/models/deepseek-v4-flash-vision-exp` stays in place on
   BOTH nodes pending a later user decision — it is the archived recipe's
-  dependency (see `cluster-profiles.d/_backup/README.md`). Do not clean it
+  dependency (see
+  `_overdue_recipe/deepseek-vision_anemll-dspark-vllm-gx10-011_20261009/recipe_README.md`).
+  Do not clean it
   as promotion residue.
 - The `deepseek-vision-tune` A/B lane was a byte-copy of the OLD production
   recipe; its `.base` went stale with the promotion — **archived per user
-  decision 2026-10-09** into `cluster-profiles.d/_backup/` (whitelist removed;
-  see `_backup/README.md`). A future vision tune campaign must branch a NEW
+  decision 2026-10-09** into
+  `_overdue_recipe/deepseek-vision_anemll-dspark-vllm-gx10-011_20261009/`
+  (whitelist removed; see its `recipe_README.md`). A future vision tune
+  campaign must branch a NEW
   lane off the promoted production recipe.
 - Upstream image digest advances with eugr nightly CI; the pinned digests
   in the promoted profile are the 2026-10-07 pair (re-pull => re-pin both).

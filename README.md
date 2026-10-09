@@ -70,9 +70,9 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 | 27B cluster (TP2) | 同上 | `2026-09-18-v0.29.0-omni` | `http://192.168.23.215:1234/v1` | deployed（09-19 實測） |
 | 35B single (TP1) | `qwen3.6-35b-a3b-heretic-nvfp4` + DFlash n=6 | `2026-09-18-v0.29.0-omni` | `:1234/v1` | deployed（09-19 實測） |
 | 35B cluster (TP2) | 同上 | `2026-09-18-v0.29.0-omni` | `http://192.168.23.215:1234/v1` | deployed（09-19 實測） |
-| DeepSeek V4 Flash cluster (TP2) | `deepseek-v4-flash-0731-dspark-ablit` + DSpark n=7 | `eugr/spark-vllm-b12x:latest`（**10-09 配方繼承**；舊 Anemll 配方封存 `_backup/`） | `http://192.168.23.215:1234/v1` | deployed（10-09 對決勝出：decode **+3.4%**、prefill +16~18%、accept +2.3pp、無需 hotfix；舊官方模型保留備援） |
+| DeepSeek V4 Flash cluster (TP2) | `deepseek-v4-flash-0731-dspark-ablit` + DSpark n=7 | `eugr/spark-vllm-b12x:latest`（**10-09 配方繼承**；舊 Anemll 配方封存 `_overdue_recipe/`） | `http://192.168.23.215:1234/v1` | deployed（10-09 對決勝出：decode **+3.4%**、prefill +16~18%、accept +2.3pp、無需 hotfix；舊官方模型保留備援） |
 | DeepSeek V4 Flash **0731 NVFP4** cluster (TP2) | `DeepSeek-V4-Flash-0731-NVFP4`（MoE routed experts NVFP4，~172 GB／48 shards）+ DSpark n=5（in-checkpoint `mtp.*`，draft MXFP4 hotfix） | `eugr/spark-vllm-b12x:latest`（**2026-10-06** nightly，雙節點 digest pin） | `http://192.168.23.215:1234/v1` | **← 現役（2026-10-08 Phase 3 完成）**：C8 129.9 tok/s、accept 41–50%、KV 344,195 tok、smoke `HELLO-TP2-OK` |
-| DeepSeek V4 Flash **Vision-Exp** cluster (TP2) | `deepseek-v4-flash-vision-exp-ablit` + DSpark n=6 (multimodal) | `eugr/spark-vllm-b12x:latest`（**10-09 配方繼承**；舊 Anemll 配方封存 `_backup/`） | `http://192.168.23.215:1234/v1` | deployed（10-09 對決勝出：decode 持平、prefill +9~14%） |
+| DeepSeek V4 Flash **Vision-Exp** cluster (TP2) | `deepseek-v4-flash-vision-exp-ablit` + DSpark n=6 (multimodal) | `eugr/spark-vllm-b12x:latest`（**10-09 配方繼承**；舊 Anemll 配方封存 `_overdue_recipe/`） | `http://192.168.23.215:1234/v1` | deployed（10-09 對決勝出：decode 持平、prefill +9~14%） |
 | Qwen3.8 Flash-Next **125B** cluster (TP2+EP) | `qwen3.8-flash-next-nvfp4`（ModelOpt NVFP4）+ 內建 MTP n=3 | `vllm/vllm-openai:qwen38-flash-next` | `http://192.168.23.215:1234/v1` | deployed（09-29 重新驗證）：GMU 0.80／prefix caching ON／determinism 預設 ON |
 | MiMo V2.6 Flash **MOPD** cluster (TP2) | `mimo-v2.6-flash-mopd`（官方 MXFP4 QAT）+ DFlash2 n=7 | `tonyd2wild/vllm-glm53-flash:sm121-v11-dflash2` | `http://192.168.23.215:1234/v1` | deployed（10-03 上線；**10-05 定案 MXFP4**，NVFP4 A/B + cliff 探測見下） |
 
@@ -134,10 +134,11 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 > 兩 profile 互斥切換（`gb10 use deepseek` ↔ `gb10 use deepseek-vision`）。
 > KV pool **413,967 tokens**（舊配方 nvfp4_ds_mla 381,364，**反而更大**）。
 >
-> **舊 Anemll 配方封存為備用方案**（非實時佈署）：
-> `cluster-profiles.d/_backup/deepseek-vision-anemll.conf`（byte-identical）
-> + `patches/dspark-vision/`（原地保留，含 `NOTICE.md`）；還原步驟見
-> `cluster-profiles.d/_backup/README.md`。對決全紀錄：
+> **舊 Anemll 配方封存為備用方案**（非實時佈署）：自帶式封存
+> `_overdue_recipe/deepseek-vision_anemll-dspark-vllm-gx10-011_20261009/`
+> —— byte-identical conf + compose + `patches/dspark-vision/`（含 `NOTICE.md`，
+> 還原時複製回 repo 根 `patches/`）+ `recipe_README.md`（歷史 benchmark 與還原
+> 步驟）。對決全紀錄：
 > `docs/DEEPSEEK_VISION_B12X_RECIPE_AB_2026-10-09.md`（證據
 > `docs/evidence/vision-b12x-recipe-ab-2026-10-09/`）。
 >
@@ -193,7 +194,7 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 ### DeepSeek V4 Flash 0731 mainline (TP2) — 2026-10-06/07（E5 promote 後；**舊配方記錄**）
 
 > **⚠ 配方繼承（2026-10-09）**：本區是 **Anemll + 官方模型**配方的 benchmark 記錄，
-> 該配方已封存為備用方案（`cluster-profiles.d/_backup/deepseek-anemll.conf`）。
+> 該配方已封存為備用方案（`_overdue_recipe/deepseek_anemll-dspark-vllm-gx10-011_20261009/`）。
 > 現役 `deepseek.conf` 已轉 **eugr b12x + Dspark-Ablit**，對決基準就是本區
 > E5/PROD 欄 → 新記錄見下一區「mainline on eugr b12x — 2026-10-09」。
 >
@@ -273,8 +274,9 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 > （`models/deepseek-v4-flash-0731-dspark-ablit`，166.9 GB / 48 shards；26 個 body `wo_b` 張量改寫，
 > **MTP/draft 與官方逐位元相同**，Anchor manifest + HF 48 shard sha256 雙重驗證）+
 > **`eugr/spark-vllm-b12x:latest`**（`recipes/deepseek-v4-flash-0731.yaml` 為配方基準、雙節點 digest pin）。
-> 舊 Anemll + 官方模型配方**封存 `_backup/deepseek-anemll.conf`**（備用方案，含
-> `patches/dspark-vision/` SWA-prefix hotfix 依賴）；完整報告
+> 舊 Anemll + 官方模型配方**封存 `_overdue_recipe/deepseek_anemll-dspark-vllm-gx10-011_20261009/`**
+> （備用方案；conf + compose + `patches/dspark-vision/` SWA-prefix hotfix 依賴 +
+> `recipe_README.md` 自帶）；完整報告
 > `docs/DEEPSEEK_B12X_RECIPE_AB_2026-10-09.md`、證據
 > `docs/evidence/deepseek-b12x-recipe-ab-2026-10-09/`。
 >
@@ -652,8 +654,8 @@ cluster-profiles.d/
   35b.conf          # deployed + live-validated (world_size=2, maxlen 262144)
   deepseek.conf     # deployed + live-validated (fp8 DSpark mainline, 256k ctx)
   deepseek-vision.conf  # deployed + live-validated (Vision-EXP-ablit on eugr b12x —
-                        # 2026-10-09 recipe succession; old Anemll recipe archived in
-                        # cluster-profiles.d/_backup/ + patches/dspark-vision/)
+                        # 2026-10-09 recipe succession; old Anemll recipe archived
+                        # self-contained in repo _overdue_recipe/)
   qwen38flash.conf  # deployed + live-validated (Qwen3.8 Flash-Next 125B NVFP4 TP2+EP,
                     # cluster-only; see its section for the 2026-09-29 realignment)
   mimo26flash.conf  # deployed + live-validated (MiMo V2.6 Flash MOPD MXFP4 + DFlash2,
@@ -748,6 +750,8 @@ runtimes.d/     *.conf single-node runtime definitions
 cluster-profiles.d/  data-driven TP2 profile registry (active ownership by cluster-common.sh)
 state/          last-runtime marker files (gitignored, empty = normal)
 docs/           deployment notes, ADRs, restructure + active handoffs
+_overdue_recipe/   retired recipe archives (conf + compose + patches +
+                   recipe_README; images/models NOT included; never loaded)
 cluster.env.example cluster/site config template (NEVER commit real values)
 
 ~/docker-stacks/    node-local deploy artifacts (NOT in this repo):
@@ -756,7 +760,7 @@ cluster.env.example cluster/site config template (NEVER commit real values)
                     eugr-spark-vllm-b12x (deepseek-nvfp4)
                     eugr-spark-vllm-b12x-vision (deepseek-vision, since 10-09;
                       the old anemll-dspark-vllm-gx10-miaFlaver is retired —
-                      recipe archived in cluster-profiles.d/_backup/)
+                      recipe archived in repo _overdue_recipe/)
                     mia-vllm-openai-qwen38flashNext (qwen38flash)
                     tonyd2wild-vllm-mimo26flash (mimo26flash)
     docker-compose.<profile>.yml            (cluster-only lanes, materialized)

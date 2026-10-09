@@ -41,7 +41,7 @@ gb10 - DGX Spark GB10 2-node cluster (TP2) helper
   gb10 start <profile>        # same as use (cluster profiles are exclusive)
   # A/B evaluation only (NOT services): deepseek-nvfp4-tune
   #   (deepseek-vision-tune + deepseek-tune archived to
-  #    cluster-profiles.d/_backup/ 2026-10-09)
+  #    repo _overdue_recipe/ 2026-10-09)
   #   accepted by use/start, but excluded from `gb10 list` service output
   gb10 stop                   # stop & remove both cluster containers
   gb10 restart [profile]      # down then background up

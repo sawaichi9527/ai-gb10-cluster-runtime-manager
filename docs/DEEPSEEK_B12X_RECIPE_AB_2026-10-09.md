@@ -2,8 +2,9 @@
 
 **Verdict: PASSED → promoted.** `cluster-profiles.d/deepseek.conf` now runs
 the eugr-b12x + Dspark-Ablit recipe; the old Anemll recipe is archived
-byte-identical at `cluster-profiles.d/_backup/deepseek-anemll.conf` as an
-in-repo backup solution.
+byte-identical at `_overdue_recipe/deepseek_anemll-dspark-vllm-gx10-011_20261009/`
+(conf + compose + patches + `recipe_README.md`) as an in-repo backup
+solution.
 
 Candidate lane: `deepseek-b12x` (retired after promotion).
 Evidence: `docs/evidence/deepseek-b12x-recipe-ab-2026-10-09/{ab-D0.txt,d0-cycle-output.txt}`.
@@ -147,12 +148,15 @@ used; not directly comparable to the E5 figure's method).
    (`PROFILE_ID=deepseek`, stack `eugr-spark-vllm-b12x-deepseek`,
    compose `docker-compose.deepseek.yml`, cache
    `~/.cache/vllm-deepseek-b12x` — the same root the A/B boots used).
-2. Old recipe archived byte-identical:
-   `cluster-profiles.d/_backup/deepseek-anemll.conf`
-   (SHA256 `3147b4e9…`); restore steps + **model-retention note (the old
-   official checkpoint stays on BOTH nodes pending a user decision)**
-   in `_backup/README.md`. `patches/dspark-vision/` stays in-repo — the
-   backup recipe's runtime dependency (shared with the vision backup).
+2. Old recipe archived byte-identical as a self-contained bundle at
+   `_overdue_recipe/deepseek_anemll-dspark-vllm-gx10-011_20261009/`
+   (`deepseek-anemll.conf` SHA256 `3147b4e9…` + rendered compose +
+   `patches/dspark-vision/` + `recipe_README.md`); restore steps +
+   **model-retention note (the old official checkpoint stays on BOTH
+   nodes pending a user decision)** in that `recipe_README.md`.
+   `patches/dspark-vision/` moved into the bundle (one copy per retired
+   recipe's archive; restore copies it back to the repo root — the conf's
+   `SYNC_DIRS` resolves `${REPO_DIR}/patches/dspark-vision`).
 3. Candidate lane `deepseek-b12x.conf` deleted; `bin/gb10` whitelist
    reverted to `deepseek-tune deepseek-nvfp4-tune`.
 4. Stale composes removed on both nodes:
@@ -167,7 +171,8 @@ used; not directly comparable to the E5 figure's method).
 **Known follow-ups (not part of this A/B):**
 
 - ~~`deepseek-tune` sibling premise stale~~ → **archived** to
-  `cluster-profiles.d/_backup/` per user decision 2026-10-09 (same as the
+  `_overdue_recipe/deepseek_anemll-dspark-vllm-gx10-011_20261009/` per user
+  decision 2026-10-09 (same as the
   vision-tune lane); a future mainline campaign branches a NEW lane off the
   promoted recipe.
 - Quality spot-check only (same limitation every campaign recorded): no

@@ -40,9 +40,12 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   (upstream vision recipe, native vision — NO `CMD_WRAPPER`/`SYNC_DIRS`/patches;
   promoted knob `CUDAGRAPH_CAPTURE=56`; evidence
   `docs/DEEPSEEK_VISION_B12X_RECIPE_AB_2026-10-09.md`). The old Anemll recipe is a
-  **backup solution only**: byte-identical conf in `cluster-profiles.d/_backup/` +
-  `patches/dspark-vision/` kept in-repo (loader ignores `_backup/`); restore steps in
-  `_backup/README.md`. **The old official model `models/deepseek-v4-flash-vision-exp`
+  **backup solution only**: self-contained archive at
+  `_overdue_recipe/deepseek-vision_anemll-dspark-vllm-gx10-011_20261009/`
+  (byte-identical conf + rendered compose + `patches/dspark-vision/` +
+  `recipe_README.md`; migrated from `cluster-profiles.d/_backup/` 2026-10-09 — the
+  repo-root dir is never scanned by the loader); restore steps in that
+  `recipe_README.md`. **The old official model `models/deepseek-v4-flash-vision-exp`
   stays on BOTH nodes pending a user decision — do not delete it as promotion
   residue.**
 - **deepseek mainline recipe succession (2026-10-09).** `deepseek.conf` now runs
@@ -58,10 +61,12 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   `docs/evidence/deepseek-b12x-recipe-ab-2026-10-09/`. Deviations from the
   upstream 0731 recipe: `CUDAGRAPH_CAPTURE=64` (formula `seqs*(k+1)` with the
   kept **k=7**) and k=7 itself (upstream ships 5; README baseline is k=7).
-  The old Anemll recipe is a **backup solution only**: byte-identical conf at
-  `cluster-profiles.d/_backup/deepseek-anemll.conf` (SHA256 `3147b4e9…`) with its
-  SWA-prefix hotfix dependency in `patches/dspark-vision/` (kept in-repo); restore
-  steps in `_backup/README.md`. **The old official model
+  The old Anemll recipe is a **backup solution only**: self-contained archive at
+  `_overdue_recipe/deepseek_anemll-dspark-vllm-gx10-011_20261009/` — byte-identical
+  `deepseek-anemll.conf` (SHA256 `3147b4e9…`) + rendered compose + its SWA-prefix
+  hotfix dependency `patches/dspark-vision/` + `recipe_README.md` (migrated from
+  `cluster-profiles.d/_backup/` 2026-10-09); restore steps in that `recipe_README.md`.
+  **The old official model
   `models/deepseek-v4-flash-0731-official` stays on BOTH nodes pending a user
   decision — do not delete it as promotion residue.**
 - **Caches are per-lane and never shared**: `~/.cache/vllm-<profile>` (cluster-only) or
@@ -135,7 +140,7 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   **This 27B rule does NOT apply to `deepseek`** — see the next bullet.
 - **DeepSeek mainline ran E5 on the Anemll image since 2026-10-06 — superseded by
   the 2026-10-09 recipe succession above; this paragraph now documents the BACKUP
-  recipe in `cluster-profiles.d/_backup/deepseek-anemll.conf`** (history +
+  recipe in `_overdue_recipe/deepseek_anemll-dspark-vllm-gx10-011_20261009/deepseek-anemll.conf`** (history +
   evidence `docs/DEEPSEEK_TUNE_AB_2026-10-06.md`). The archived conf has
   `draft_sample_method=probabilistic` (was greedy) **and prefix caching ON**, and
   in THAT recipe prefix caching is **not safe without its hotfix**: `CMD_WRAPPER` runs
@@ -158,7 +163,8 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   `scripts/bench-ab-deepseek.sh` (C1..C8 ×3 medians, cold prefill, engine diag,
   auto Δ-vs-E0) + `scripts/bench-prefix-hit.sh` (warm prefix HIT/no-hit probe with a
   temperature=0 completeness verdict) on `cluster-profiles.d/deepseek-tune.conf`
-  (**archived** to `cluster-profiles.d/_backup/` per user decision 2026-10-09 —
+  (**archived** to `_overdue_recipe/deepseek_anemll-dspark-vllm-gx10-011_20261009/`
+  per user decision 2026-10-09 —
   after the succession it is a byte-copy of the OLD Anemll recipe, no longer a
   "production sibling"; a future mainline campaign must branch a NEW lane off
   the promoted recipe + a fresh `.base`).
@@ -176,9 +182,9 @@ cluster-profiles.d/
   27b.conf           # deployed + live-validated (world_size=2, maxlen 262144)
   35b.conf           # deployed + live-validated (world_size=2, maxlen 262144)
   deepseek.conf      # mainline (onboarded 2026-09-07; recipe succession 2026-10-09:
-                     # eugr b12x + dspark-ablit; old Anemll recipe in _backup/)
+                     # eugr b12x + dspark-ablit; old Anemll recipe in _overdue_recipe/)
   deepseek-vision.conf  # Vision-EXP-ablit on eugr b12x (2026-10-09 recipe succession;
-                        # native vision, no hotfixes; old Anemll recipe in _backup/)
+                        # native vision, no hotfixes; old Anemll recipe in _overdue_recipe/)
   qwen38flash.conf   # Qwen3.8 Flash-Next 125B NVFP4 TP2+EP (2026-09-20); official
                      # vllm/vllm-openai:qwen38-flash-next + vendored MiaAI patchers
   deepseek-nvfp4.conf   # DeepSeek-V4-Flash-0731-NVFP4 on eugr/spark-vllm-b12x (built
@@ -217,6 +223,15 @@ Key rules:
   whose stack/model hasn't landed must be `PLACEHOLDER=true`, not a broken path.
 - Keep `cluster-profiles.d/*.conf` in sync with what's actually deployable as a TP2 profile;
   a profile whose image/model hasn't landed must be `PLACEHOLDER=true`.
+- **Retired recipes live in repo-root `_overdue_recipe/<profile>_<image+tag>_<yyyymmdd>/`**
+  (user decision 2026-10-09; replaced `cluster-profiles.d/_backup/`). Each dir is a
+  self-contained bundle: the byte-identical archived conf (+ tune `.base`), the compose
+  rendered from it (API key placeholder `<REDACTED:from-cluster.env>`), a copy of
+  `patches/dspark-vision/`, and a `recipe_README.md` carrying the recipe's historical
+  benchmark record + restore steps. **Docker images and model weights are NOT uploaded
+  there** — pins/paths are recorded instead. The loader only scans
+  `cluster-profiles.d/*.conf`, so this repo-root dir is never live; restoring a recipe
+  means copying its conf (and `patches/dspark-vision/`) back to their repo paths first.
 - `comfyui` is the current Node1 Flux 2 Dev runtime. Old `comfyui-personal`/`comfyui-work`
   split is retired — do not resurrect it unless a future design explicitly requires it.
 - Scripts are LF, `#!/usr/bin/env bash`, `set -Eeuo pipefail`. No Windows CRLF.
