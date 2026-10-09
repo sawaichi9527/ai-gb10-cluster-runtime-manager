@@ -26,13 +26,25 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
 - **Compose = source of truth; CLI = convenience layer.** Day-to-day ops go through
   `gb10`/`gb10-single`; compose files under `~/docker-stacks/` are the deploy contract.
 - **Unified AEON stack dir (2026-09-13; filenames updated 2026-09-20)**: since 27b and 35b both run the v0.29.0-omni image, their composes/models/patches live under one dir `~/docker-stacks/aeon-vllm-omni/` (`docker-compose-27b-{cluster,single}.yml` + `docker-compose-35b-{cluster,single}.yml` + `models/` + `flash_attn_029_patched.py`). `aeon-vllm-reasoning-eos/` is retired.
-- **Node-local layout (2026-09-20).** Every runtime's node-side artifacts live under
-  `~/docker-stacks/<stack>/`, the stack named after the image source: `aeon-vllm-omni`
-  (27b/35b), `anemll-dspark-vllm-gx10` (deepseek), `anemll-dspark-vllm-gx10-miaFlaver`
-  (deepseek-vision), `mia-vllm-openai-qwen38flashNext` (qwen38flash). A stack dir holds
+- **Node-local layout (2026-09-20; vision updated 2026-10-09).** Every runtime's
+  node-side artifacts live under `~/docker-stacks/<stack>/`, the stack named after
+  the image source: `aeon-vllm-omni` (27b/35b), `anemll-dspark-vllm-gx10` (deepseek),
+  `eugr-spark-vllm-b12x` (deepseek-nvfp4), `eugr-spark-vllm-b12x-vision`
+  (deepseek-vision, since 2026-10-09; the retired `anemll-dspark-vllm-gx10-miaFlaver`
+  is history), `mia-vllm-openai-qwen38flashNext` (qwen38flash). A stack dir holds
   the materialized compose, `patches/` (SYNC_DIRS staging), etc. **Nothing deploys at
   the `~/` root.** Lanes that run BOTH cluster and single (27b/35b) suffix the compose
   `-cluster`/`-single`; cluster-only lanes use `docker-compose.<profile>.yml`.
+- **deepseek-vision recipe succession (2026-10-09).** `deepseek-vision.conf` now runs
+  `eugr/spark-vllm-b12x:latest` + `models/deepseek-v4-flash-vision-exp-ablit`
+  (upstream vision recipe, native vision — NO `CMD_WRAPPER`/`SYNC_DIRS`/patches;
+  promoted knob `CUDAGRAPH_CAPTURE=56`; evidence
+  `docs/DEEPSEEK_VISION_B12X_RECIPE_AB_2026-10-09.md`). The old Anemll recipe is a
+  **backup solution only**: byte-identical conf in `cluster-profiles.d/_backup/` +
+  `patches/dspark-vision/` kept in-repo (loader ignores `_backup/`); restore steps in
+  `_backup/README.md`. **The old official model `models/deepseek-v4-flash-vision-exp`
+  stays on BOTH nodes pending a user decision — do not delete it as promotion
+  residue.**
 - **Caches are per-lane and never shared**: `~/.cache/vllm-<profile>` (cluster-only) or
   `~/.cache/vllm-<profile>-{cluster,single}`. The cluster `AUTOTUNE_CACHE_REL` in each
   conf points the per-boot FlashInfer reset at the lane's own root. **Logs are unified**
@@ -134,7 +146,8 @@ cluster-profiles.d/
   27b.conf           # deployed + live-validated (world_size=2, maxlen 262144)
   35b.conf           # deployed + live-validated (world_size=2, maxlen 262144)
   deepseek.conf      # mainline (onboarded 2026-09-07; dspark-vllm-gx10:0.1.1, pool weights)
-  deepseek-vision.conf  # Vision-Exp (2026-09-20); SAME image as deepseek + CMD_WRAPPER hotfixes
+  deepseek-vision.conf  # Vision-EXP-ablit on eugr b12x (2026-10-09 recipe succession;
+                        # native vision, no hotfixes; old Anemll recipe in _backup/)
   qwen38flash.conf   # Qwen3.8 Flash-Next 125B NVFP4 TP2+EP (2026-09-20); official
                      # vllm/vllm-openai:qwen38-flash-next + vendored MiaAI patchers
   deepseek-nvfp4.conf   # DeepSeek-V4-Flash-0731-NVFP4 on eugr/spark-vllm-b12x (built
