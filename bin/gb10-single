@@ -17,8 +17,12 @@
 #   gb10-single logs {node0|node1} [runtime]
 #   gb10-single doctor
 #
-# Runtimes: 27b, 35b, comfyui, minimaxh3 (all deployed). qwen38flash /
-# glm53flash were removed 2026-09-20: neither can run single-node.
+# Runtimes: 27b, 35b, comfyui, comfyui-jdaln, minimaxh3 (all deployed).
+# qwen38flash / glm53flash were removed 2026-09-20: neither can run
+# single-node.  comfyui-jdaln (2026-10-12) is a SECOND ComfyUI lane
+# (jdaln/ComfyUI-DGX-Spark-Docker-opinionated, self-built image) alongside
+# the original comfyui (comfyui-aeon / Flux 2 Dev, pulled image); both are
+# GROUP=image exclusive so they never run at the same time.
 # =====================================================================
 set -Eeuo pipefail
 
@@ -50,7 +54,7 @@ gb10-single - DGX Spark GB10 single-node runtime manager
   gb10-single doctor
 
 Runtimes (runtimes.d/*.conf):
-  27b 35b comfyui minimaxh3   deployed
+  27b 35b comfyui comfyui-jdaln minimaxh3   deployed
 
 Boot is backgrounded by default: `use/start` returns immediately,
 boot continues in the background.  Poll with `gb10-single status`,

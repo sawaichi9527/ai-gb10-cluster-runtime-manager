@@ -714,6 +714,7 @@ Runtimes (`runtimes.d/*`):
 | `27b.conf` | 27b | llm (exclusive) | deployed (MTP) |
 | `35b.conf` | 35b | llm (exclusive) | deployed (DFlash) |
 | `comfyui.conf` | comfyui | image | deployed (Node1, Flux 2 Dev) |
+| `comfyui-jdaln.conf` | comfyui-jdaln | image (exclusive) | deployed (Node1, jdaln opinionated multi-workflow; self-built image) |
 | `minimaxh3.conf` | minimaxh3 | video (exclusive) | deployed (FL2VA) |
 
 `use` on an exclusive runtime frees every OTHER active exclusive runtime on that
@@ -763,6 +764,11 @@ cluster.env.example cluster/site config template (NEVER commit real values)
                       recipe archived in repo _overdue_recipe/)
                     mia-vllm-openai-qwen38flashNext (qwen38flash)
                     tonyd2wild-vllm-mimo26flash (mimo26flash)
+                    comfyui-aeon (comfyui / Flux 2 Dev)
+                    comfyui-dgx-spark (comfyui-jdaln, since 2026-10-12; git
+                      clone of jdaln/ComfyUI-DGX-Spark-Docker-opinionated —
+                      self-built image via `docker compose build`, wheels in
+                      Git LFS; host needs ~/.local/bin/git-lfs to clone/pull)
     docker-compose.<profile>.yml            (cluster-only lanes, materialized)
     docker-compose-<profile>-cluster.yml    (lanes that also run single: 27b/35b)
     docker-compose-<profile>-single.yml
