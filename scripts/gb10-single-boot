@@ -149,6 +149,12 @@ echo "$(date '+%F %T') [boot-single] starting ${RUNTIME_ID} on ${NODE}..."
 compose_run "$NODE" up -d
 
 # --- wait for health ---
+# _ready is the ONLY thing that may write the READY file.  The while condition
+# itself can end the loop when TIMEOUT elapses during `sleep 10`, so a plain
+# `break`-then-fall-through used to mark READY on a health timeout (seen
+# 2026-10-12: comfyui-jdaln reported READY while :8188 never listened).  The
+# in-loop timeout check is unreachable in that race, hence the explicit flag.
+_ready=0
 if [[ -n "$HEALTH_URL" ]]; then
   echo "Waiting for ${RUNTIME_ID} on ${NODE}..."
   _begin=$SECONDS
@@ -156,20 +162,21 @@ if [[ -n "$HEALTH_URL" ]]; then
     if [[ "$NODE" == "node0" ]]; then
       if curl -fsS --connect-timeout 2 --max-time 5 "$HEALTH_URL" >/dev/null 2>&1; then
         echo "$(date '+%F %T') ${RUNTIME_ID}: READY"
+        _ready=1
         break
       fi
       _st="$(docker inspect -f 'status={{.State.Status}} restart={{.RestartCount}}' "$CONTAINER" 2>/dev/null || echo missing)"
     else
       if n1_remote "curl -fsS -m 5 '$HEALTH_URL' >/dev/null 2>&1"; then
         echo "$(date '+%F %T') ${RUNTIME_ID}: READY"
+        _ready=1
         break
       fi
       _st="$(n1_remote "docker inspect -f 'status={{.State.Status}} restart={{.RestartCount}}' '$CONTAINER' 2>/dev/null" || echo missing)"
     fi
     if ((SECONDS - _begin >= TIMEOUT)); then
       echo "$(date '+%F %T') ${RUNTIME_ID}: loading... ${_st} (TIMEOUT)"
-      echo "ERROR: ${RUNTIME_ID} health timeout (${TIMEOUT}s)" >&2
-      exit 1
+      break
     fi
     echo "$(date '+%F %T') ${RUNTIME_ID}: loading... ${_st}"
     [[ "$_st" == status=running* ]] || {
@@ -178,6 +185,11 @@ if [[ -n "$HEALTH_URL" ]]; then
     }
     sleep 10
   done
+  if (( _ready == 0 )); then
+    echo "$(date '+%F %T') ${RUNTIME_ID}: loading... ${_st:-missing} (TIMEOUT)" >&2
+    echo "ERROR: ${RUNTIME_ID} health timeout (${TIMEOUT}s)" >&2
+    exit 1
+  fi
 fi
 
 # --- mark ready ---
