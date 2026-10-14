@@ -21,8 +21,11 @@
 > `status=success`, 204.5 s → `MiniMax_H3_verify_00001_.mp4` (valid MP4, 935,097 B).
 > Record: `docs/COMFYUI_JDALN_DEPLOYMENT_2026-10-14.md`.
 >
-> **Not retired:** `~/docker-stacks/minimax-h3-sglang/` — a separate, never-promoted
-> 2026-09-04 SGLang experiment (2 images ≈ 105 GB, no repo conf). It was left untouched.
+> **Since removed (2026-10-14, follow-up):** `~/docker-stacks/minimax-h3-sglang/` — a
+> separate, never-promoted 2026-09-04 SGLang experiment (no repo conf, never a lane).
+> Initially left untouched, then deleted the same day on operator instruction:
+> dir 56 GB + 2 images (45.8 GB + 59.2 GB), both rc=0. Its `FAILURE_ANALYSIS.md`
+> stop-loss record was preserved verbatim in `handoff.md` before deletion.
 >
 > **What was lost:** the OpenAI-compatible API endpoint on `:8000`. Scripted/batch/CI
 > callers lose that route; interactive use goes through the ComfyUI UI instead. The

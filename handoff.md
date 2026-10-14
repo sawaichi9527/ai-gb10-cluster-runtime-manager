@@ -3,7 +3,7 @@
 > 本檔是本機中繼 checkout 的交接摘要。主要開發在 **node0**（`~/workspace/ai-gb10-cluster-runtime-manager`，branch **`main`**；2026-09-29 實測 node0 為 `main`／upstream `origin/main`、工作區乾淨 —— 舊文件寫的 `keystone` 已於 `496c9b1` 併入 main、**非**現役 checkout）＋ Forgejo `829522`；本機僅作中繼存取，修改前先確認是否應改在 node0。
 > 建立：2026-09-18；更新：**2026-09-20**（DeepSeek V4 Flash **Vision-Exp** lane 上線：同一顆 Anemll image + 啟動 wrapper；bench-c / bench-ctx / bench-mm 實測；`cluster-up` 新增 `SYNC_DIRS` 自動同步 patch 目錄；**vision 開 prefix caching + `dspark-swa-prefix` hotfix**、長上下文邊界 261K/262144、圖片高併發 C=8/16；本檔納入版控並同步三方）；**2026-09-29** 上游查核（Anemll 無新 image/tag、MiaAI-Lab main 未動且 23 檔 byte 全同）→ 見「定期檢討追蹤」；**2026-09-29（後續）** qwen38flash 對齊上游 `2c86a1d0`（GMU 0.80／prefix caching ON／block-drop backport／index share）並完成冷啟驗證（READY、KV 29.88 GiB、無回歸）→ 見「qwen38flash 對齊上游 + 冷啟驗證」；**2026-09-29（後續之二）** DeepSeek-V4.1-Flash **EXL3 2×GB10 選型查核**（取得兩顆可下載 arm64 image 的 digest、證實 sfxnz image 未發佈、TP=2 對 3.5bpw 不可行、各線 benchmark 與 NVIDIA 論壇口碑）→ **本輪不新增 lane**（維持 `deepseek-vision` 為 2-Spark 多模態），詳見 `docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md`；**2026-09-30** 上游再查核（deepseek 與 deepseek-vision 的 **image／配方／官方權重皆無更新** → 兩 lane 現行設定即為最新、無需變更，含首度補查官方權重 commit 比較，見 `docs/DEEPSEEK_UPSTREAM_REVERIFY_2026-09-30.md`）；**2026-09-30（續）** 27b／35b 上游再查核（兩 lane 共用的 `ghcr.io/aeon-7/aeon-vllm-ultimate` 最新 dated tag 仍 `2026-09-18-v0.29.0-omni`＝現行 pin、digest 不變；27B/35B 四個 HF 來源 body/drafter 最後 commit 為 09-18／08-19／07-15／06-28，**皆無 09-19 後更新** → 無需變更，見 `docs/QWEN_27B_35B_UPSTREAM_REVERIFY_2026-09-30.md`）；**2026-10-03** `mimo26flash` lane 上線（MiMo V2.6 Flash MOPD，TP2 vLLM+DFlash，見同名章節）；**2026-10-05** `mimo26flash` NVFP4 變體 A/B + DFlash cliff 探測（兩變體皆過）→ **定案 MXFP4**、延後調優 C/D/E 註記於 docs §7、**服務切回 `deepseek`**、README 同步 → 見「2026-10-05」章節；**2026-10-07** DeepSeek **V4 Flash Vision** 同 image 調優 A/B（V0–V5 + V-win，獨立 `deepseek-vision-tune` lane）→ **只升一個旋鈕 `--long-prefill-token-threshold 1024→0`（V3）**，`deepseek.conf` 全程未動、生產 gate 全過；記錄 production lane boot 散佈 8.1% 無法驗證 2.7% 效應、cold prefill 32K 判為噪聲、garble soak `thinking:true` false alarm → 見「2026-10-07 — DeepSeek V4 Flash Vision」章節；**2026-10-07（續）** `deepseek-nvfp4` lane **建置**（NVIDIA NVFP4 0731 checkpoint + `eugr/spark-vllm-b12x`，Phase 1–2：下載/傳輸 + profile/白名單/文件，**Phase 3 開機另排**）→ 見「2026-10-07 — deepseek-nvfp4 lane 建置」章節；**2026-10-08（續）** `deepseek-nvfp4` **Phase 3 完成**（boot ×4：seccomp/safetensors 兩個啟動修復 → DSpark acceptance 垃圾 draft 根因＝共享 NVFP4 quant dict 把原生 MXFP4 draft 建成 ModelOptNvFp4（上游 #49133 closed）→ `hotfix-dspark-draft-mxfp4` 容器啟動補丁 → **全 gate PASS**：acceptance 2%→**27%**（temp0，pos0 0.629）／**49–59%**（temp0.7）、單流 16→**33.6 tok/s**、prefix-hit 44.8×、garble 3/3、compose-verify 過）→ 見同章節「Phase 3」；**2026-10-08（三）** C1–C8 完整併發 benchmark（47.1→**129.9 tok/s**、**2.76×**、accept 41–50% 全程不崩）+ `bench-c.sh` metrics scrape auth 修正（`/metrics` 401）、**NVFP4 KV（`nvfp4_ds_mla`）A/B 負結果**（三重硬閘、回退 fp8）→ README「已部署服務」正式列入 `deepseek-nvfp4`（**現役**）+ benchmark 區塊重寫，tag **`v1.5.0`** → 見 Phase 3 第 6/7 項與「版本標記」
 > **2026-10-14**：**`comfyui-jdaln` 上線（Node1 唯一 ComfyUI runtime）** —— clone `ef7a677b`、建置 144 s、`:8188` 200、ComfyUI 0.38.0、2812 node types；過程中修掉 **17.5 h 掛死**（404 的 `ComfyUI-VDN-H3` clone 卡 credential prompt）與 **`gb10-single-boot` 假 READY**（commit `537c64e`），並依使用者裁定**裁剪 asset 範圍**（allowlist 置空：預設 93 GiB + workflow-asset 階段 +174 GiB 起跳 → 只保留 `z-image-turbo-core`，`use`→READY 46 秒）。詳見 `docs/COMFYUI_JDALN_DEPLOYMENT_2026-10-14.md`。
-> **2026-10-14（續）**：**兩條 Node1 runtime 同日退役**（使用者裁定）—— ① `comfyui`／aeon：HF token 先搬至 `~/docker-stacks/config/hf_token` 再刪 stack（71 GB）+ image（26.7 GB），flux2 權重**無備份**；② `minimaxh3`：**先驗證後拆** —— jdaln 的原生 MiniMax H3 節點跑通 i2v（`prompt_id d91692b7`、`status=success`、204.5 s、產出合法 MP4）才拆 stack（135 GB）+ image（32 GB）+ 輸出目錄；repo 側 `git rm` 兩個 conf 與 `src/minimax-h3/`（48 檔）。**`minimax-h3-sglang` 未動**（2 image ≈105 GB，是 09-04 失敗實驗封存、從非 lane）。兩者合計磁碟 `used 2.1T→1.9T`、`avail 1.5T→1.7T`、59%→53%。詳見 `docs/COMFYUI_JDALN_DEPLOYMENT_2026-10-14.md` §11–§12。
+> **2026-10-14（續）**：**兩條 Node1 runtime 同日退役**（使用者裁定）—— ① `comfyui`／aeon：HF token 先搬至 `~/docker-stacks/config/hf_token` 再刪 stack（71 GB）+ image（26.7 GB），flux2 權重**無備份**；② `minimaxh3`：**先驗證後拆** —— jdaln 的原生 MiniMax H3 節點跑通 i2v（`prompt_id d91692b7`、`status=success`、204.5 s、產出合法 MP4）才拆 stack（135 GB）+ image（32 GB）+ 輸出目錄；repo 側 `git rm` 兩個 conf 與 `src/minimax-h3/`（45 檔）；③ **同日稍後追加：`minimax-h3-sglang` 也一併清除**（依使用者追加指示）—— 目錄 **56 GB**（全在 `models/quantized`）+ 2 個 image **≈105 GB**，各 `Untagged`+`Deleted` rc=0，image 總數 11→9；其 `FAILURE_ANALYSIS.md` 內容已於刪除前擷取、留存於下方「`FAILURE_ANALYSIS.md` 原文留存」。三者合計磁碟 `used 2.1T→1.8T`、`avail 1.5T→1.8T`、59%→51%。詳見 `docs/COMFYUI_JDALN_DEPLOYMENT_2026-10-14.md` §11–§12。
 > **2026-10-09**：`deepseek-vision` **配方繼承（promote）**——對決 `eugr/spark-vllm-b12x:latest` + `deepseek-v4-flash-vision-exp-ablit`（候選 lane `deepseek-vision-b12x`，B0/B1/B2 三 boot）vs README 舊配方記錄：decode Σ 535.3/545.9 vs 538.1（−0.5%/+1.4%，持平）、prefill 131K–261K 全欄 **+9~14%**、accept +1pp、prefix-hit 正確性 gate **無需任何 hotfix 即過**（HIT 50.9×、輸出位元組一致）→ 條件成立。**唯一升版旋鈕 `CUDAGRAPH_CAPTURE 48→56`**（上游 verbatim 48 於 C7/C8 掉 capture range，Σ −6%）。新 `deepseek-vision.conf` 已改寫（原生 vision、無 `CMD_WRAPPER`/`SYNC_DIRS`）；舊 Anemll 配方 byte-identical 封存於 `_overdue_recipe/deepseek-vision_anemll-dspark-vllm-gx10-011_20261009/`（conf+compose+patches+`recipe_README.md` 自帶、含還原步驟）；**舊官方模型 `models/deepseek-v4-flash-vision-exp` 依使用者決定兩節點暫留、後續再議**。詳見 `docs/DEEPSEEK_VISION_B12X_RECIPE_AB_2026-10-09.md`。另依使用者決定，舊配方的 A/B lane `deepseek-vision-tune{,.conf.base}` 同日**歸檔**至同一 `_overdue_recipe/` 目錄（白名單移除；未來 vision 調優需從新配方另立 lane）。
 > **2026-10-09（續）**：`deepseek`（mainline）**配方繼承（promote）**——對決 `eugr/spark-vllm-b12x:latest` + `deepseek-v4-flash-0731-dspark-ablit`（drowzeys Anchored-Tensors；候選 lane `deepseek-b12x`，D0 單 boot）vs README E5 記錄：decode Σ **693.3 vs 670.7（+3.4%，8/8 格全正）**、prefill 131K–261K **+16~18%**、accept **+2.3pp（33.4%）**、prefix-hit 正確性 gate **無需任何 hotfix 即過**（HIT 38.5×、輸出逐字一致）、soak（3×3 完整性、garble 3/3、262K 近硬限、health 200）全過 → 條件成立。配方差異：KV fp8（nvfp4_ds_mla 此 image 不可行）、**capture 64**（公式 8×(k+1) 配保留的 k=7；上游 48 是配 k=5）、batched 8192、GMU 0.85、無 `CMD_WRAPPER`/`SYNC_DIRS`/patches。新 `deepseek.conf` 已改寫；舊 Anemll 配方 byte-identical 封存於 `_overdue_recipe/deepseek_anemll-dspark-vllm-gx10-011_20261009/`（`deepseek-anemll.conf` SHA256 `3147b4e9…` + compose + patches + `recipe_README.md` 自帶、含還原步驟）；**舊官方模型 `models/deepseek-v4-flash-0731-official` 依使用者裁定兩節點暫留、後續再議**。候選 lane `deepseek-b12x.conf` 已刪、白名單還原。過程記錄：profile 寫入 `COMPILATION_JSON` 轉義反斜線導致 boot arg 錯誤（修正＋harness 加 90s 早錯檢查）；soak 兩個假警報（腳本未 source `cluster-common.sh` 致 401；verbose 列舉格式打滿 400 tok 預算——皆非模型回歸）。詳見 `docs/DEEPSEEK_B12X_RECIPE_AB_2026-10-09.md`。另依使用者決定，舊配方的 A/B lane `deepseek-tune{,.conf.base}` 同日**歸檔**至同一 `_overdue_recipe/` 目錄（白名單移除；未來 mainline 調優需從新配方另立 lane）。
 > **2026-10-09（續二）**：**退役配方歸檔結構整併**——依使用者決定新設 repo 根目錄 `_overdue_recipe/`，子目錄命名 `<profile>_<image+tag>_<yyyymmdd>/`：`deepseek_anemll-dspark-vllm-gx10-011_20261009/` 與 `deepseek-vision_anemll-dspark-vllm-gx10-011_20261009/`。每個子目錄自帶：封存 conf（byte-identical，含 tune `.conf.base`）、**由封存 conf 現場重新渲染的 compose yml**（`--api-key` 已脫敏為 `<REDACTED:from-cluster.env>` placeholder，實 key 仍在 `~/docker-stacks/config/cluster.env`）、`patches/dspark-vision/` 副本（17 patch + `vision_exp/` + `NOTICE.md`；原 repo 根 `patches/dspark-vision/` 已移入兩份封存，**還原時須複製回 repo 根**——封存 conf 的 `SYNC_DIRS` 解析 `${REPO_DIR}/patches/dspark-vision`）、**`recipe_README.md`（該配方歷史 benchmark 記錄 + 退役對決 + 還原步驟 + 模型保留註記）**、頂層 `_overdue_recipe/README.md`（命名慣例/Inventory/還原總綱/封存 SHA256 表）。**Docker image 與模型檔不上傳**（digest pin 與模型路徑記錄於說明檔）。原 `cluster-profiles.d/_backup/` 全數移入後撤銷（loader 只掃 `cluster-profiles.d/*.conf`，新目錄在 repo 根永遠非 live）；AGENTS／README／兩份 A/B doc／現役 conf header／`bin/gb10` 註解的 `_backup/` 引用同步改寫。
@@ -62,7 +62,7 @@ node0 對 node1 的連線（由 node0 發起）走 CX7 區網：`ssh -i ~/.ssh/i
   - `comfyui-jdaln` = `jdaln/ComfyUI-DGX-Spark-Docker-opinionated`（**2026-10-14 上線**，`GROUP=image`+`MODE=exclusive`，見下方同名章節）。
   - `comfyui`（aeon / Flux 2 Dev）**已於同日退役**（stack + image 刪除、conf 移除），不再是 rollback。
     **不要**回退到更早的 `comfyui-personal`/`comfyui-work` 分拆。
-- **`minimaxh3` 已於 2026-10-14 退役**：vLLM-API lane（`:8000`、OpenAI-compatible）的 stack（135 GB）與 image（32 GB）已刪，`runtimes.d/minimaxh3.conf` 與 `src/minimax-h3/` 已移除。MiniMax H3 圖生影片改由 `comfyui-jdaln` 的原生節點（`:8188`）提供，**拆之前已 render 驗證**。兄弟目錄 `~/docker-stacks/minimax-h3-sglang/`（2 image ≈105 GB）**未動** —— 它是 2026-09-04 的失敗實驗封存、從未是 lane。
+- **`minimaxh3` 已於 2026-10-14 退役**：vLLM-API lane（`:8000`、OpenAI-compatible）的 stack（135 GB）與 image（32 GB）已刪，`runtimes.d/minimaxh3.conf` 與 `src/minimax-h3/` 已移除。MiniMax H3 圖生影片改由 `comfyui-jdaln` 的原生節點（`:8188`）提供，**拆之前已 render 驗證**。兄弟目錄 `~/docker-stacks/minimax-h3-sglang/`（目錄 56 GB + 2 image ≈105 GB）**同日稍後也已清除** —— 它是 2026-09-04 的失敗實驗封存、從未是 lane；`FAILURE_ANALYSIS.md` 內容已擷取留存於下方退役章節。現在 `~/docker-stacks/` 底下已無任何 `sglang` 痕跡。
 - **刪 root 擁有的節點目錄不要用 `rm -rf`**：容器以 root 建立的子樹，`eye` 無父目錄寫入權 → `rm` 只會印「拒絕不符權限的操作」然後「成功」結束。改用 `docker run --rm -v <dir>:/t … sh -c 'rm -rf /t/*'`（在 namespace 裡就是 root，免 sudo）。同理，`bash -c "rm …; echo DONE > f"` 的 `DONE` **不算成功證據**（`;` 一定會寫），要 `rc=$?; echo $rc > f` 分開記。SSH `has timed out` 既可能代表遠端已完成、也可能代表被殺 → 重送前先查狀態。
 - **`comfyui-jdaln` 的上游 healthcheck 是假陽性**（`curl ... || pgrep -af 'curl .* models/...'` 會匹配到 healthcheck 自己的 `sh -c` 指令列 → 永遠 `healthy`）。**可信閘門是 gb10-single 對 `:8188/` 的 loopback curl**，不要看 `docker ps` 的 health。
 - **`comfyui-jdaln` 資產範圍已裁剪**（2026-10-14）：`.env` 的 `COMFY_CUSTOM_NODE_EXAMPLE_WORKFLOWS_ALLOWLIST` 置空 + `docker-compose.yml:49` 預設值改 `${VAR-}` + `UPDATE_DEPS=false`。**要恢復 workflow gallery 就把 pack 名單寫回 `.env` 並把 `UPDATE_DEPS` 改回 `true`**；下載是冪等的（`download_if_missing` 跳過已存在檔）。
@@ -140,9 +140,34 @@ node0 對 node1 的連線（由 node0 發起）走 CX7 區網：`ssh -i ~/.ssh/i
   `minimax-h3-sglang/` 重複？」→ 查證結果是**三種不同層**（vLLM API `:8000` / SGLang 死實驗 /
   ComfyUI `:8188`），**介面不同、權重量化也不同**（原始 HF 分片 64 GB / NVFP4 12.5 GB /
   int8-convrot 20.9 GB），功能重疊但非替代品。仍依使用者裁定退役。
-- **`minimax-h3-sglang` 從頭到尾不是 lane**：`archive_sglang_experiment_2026-09-04/` 內有
-  `FAILURE_ANALYSIS.md`、`compose.*.failed.yaml`、`launch.*.failed.sh`，最後活動 09-04，
-  repo 無任何 conf 引用 → **本次未動**。
+- **`minimax-h3-sglang` 從頭到尾不是 lane**，**且已於同日稍後依使用者指示一併清除**：
+  `archive_sglang_experiment_2026-09-04/` 內有 `FAILURE_ANALYSIS.md`、
+  `compose.*.failed.yaml`、`launch.*.failed.sh`，最後活動 09-04，repo 無任何 conf 引用。
+  - **刪除範圍**：目錄 `~/docker-stacks/minimax-h3-sglang/` **56 G**（全部在
+    `models/quantized`）+ 2 個 image **105 GB**（`429ac2d-cu134-ffmpeg` 45.8 GB、
+    `429ac2d-nvfp4` 59.2 GB，各 `Untagged`+`Deleted` rc=0）。image 總數 11→9。
+  - **為何可安全刪**：`qwen3vl_32b_minimax_h3_nvfp4_awq`(15 GiB)、
+    `minimax_h3_video_vae_fp16`(4.9 GiB)、`minimax_h3_audio_vae_fp32`(578 MiB)
+    三個 **jdaln 已有同檔**（在 `ComfyData/models/`，不同路徑）；其餘
+    `.sglang.safetensors`／`.upstream.safetensors`／`.corrupt` 三個各 12 GiB
+    是 SGLang 專用轉檔格式，只對已死的 runtime 有用（其中一個本身已損壞）。
+  - **`.cache` 是 root 擁有** → 沿用容器內 `rm`，`rc=[0 0]`。
+  - **刪除前先把 `FAILURE_ANALYSIS.md` 內容存進本檔**（見緊接的下一則「
+    原文留存」），因為刪了就沒了。
+- **`FAILURE_ANALYSIS.md` 原文留存（2026-09-04 stop-loss，刪除前擷取）**：
+  > **Status: STOP-LOSS TRIGGERED (user decision). Experiment archived, NOT deleted.**
+  > **Verified wins**: 上游 `MiniMax_H3_FL2VA_pruned_nvfp4.safetensors` byte-complete +
+  > SHA256 `6ab7f0c4…9976f` (12528636865 B)；其 65-byte non-safetensors `L2P_bypass`
+  > trailer（在 header tensor data 之外）會讓 strict `safe_open` 拒絕 → 清除後的
+  > `.sglang.safetensors` = `truncate -s 12528636800`、`cmp -n` PASS、checksum
+  > `9d49beb6`（記錄於 `SHA256SUMS.txt`）；transformer NVFP4 載入成功（`group_size=16`、
+  > 274 excluded、12.87 GB）；text_encoder NVFP4-AWQ 載入成功（350 comfy_nvfp4 linear）。
+  > **Failure (blocker)**: boot 走到 `audio_vae` → `ComponentCheckpointUnsupportedError`：
+  > `audio_vae` 使用自訂 Diffusers 類別，無法吃 weights-only override
+  > （`vae_loader.py:512`）。在允許規則內**無解**（不得移除/修改 override、無
+  > `--component-paths.audio_vae` 開關、不能打 loader patch、無 nightly、不重建 image）。
+  > **Retry path (future)**: 改用已淨化的 `.sglang.safetensors` 並重新量化，讓所有元件
+  > 皆用標準 safetensors layout；或提供 loader 相容的 weights-only `audio_vae` override。
 - **驗證閘門（使用者選「先跑一次 i2v 驗證」）**：jdaln 的 MiniMax 從未被 render 過
   （先前只測 z-image），所以先用**內建 blueprint 的原始接線**（把
   `ComfyUI/blueprints/Image to Video (MiniMax H3).json` 的 litegraph subgraph 展開）
@@ -159,7 +184,7 @@ node0 對 node1 的連線（由 node0 發起）走 CX7 區網：`ssh -i ~/.ssh/i
 - **刪除**：stack 135 G（64 G 權重 + 73 G HF cache + 1.6 G `.git`）、
   image `minimax-h3-dgx-spark:sm121-fp8` 32 GB、`~/Downloads/minimax-h3-output` 19 M
   （使用者：「一起刪」；其 `storage/*` 是 root 擁有 → 容器回退）、
-  `runtimes.d/minimaxh3.conf`、`src/minimax-h3/`（48 檔）。
+  `runtimes.d/minimaxh3.conf`、`src/minimax-h3/`（45 檔）。
   **共享池 `~/docker-stacks/models/`（453 G）查證不含 minimax** → 拆它不影響他者。
 - **失去的**：`:8000` 的 OpenAI-compatible API endpoint（腳本/批量/CI 路徑）。
   要用得改走 `:8188` 的 ComfyUI `/prompt` API；權重可依

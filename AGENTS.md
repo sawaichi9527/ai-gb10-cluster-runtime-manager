@@ -184,9 +184,16 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   **only after** jdaln's native ComfyUI MiniMax H3 nodes were render-verified end-to-end
   (i2v `prompt_id d91692b7`, `status=success`, 204.5 s → `MiniMax_H3_verify_00001_.mp4`;
   record in `docs/COMFYUI_JDALN_DEPLOYMENT_2026-10-14.md`). `runtimes.d/minimaxh3.conf`
-  and `src/minimax-h3/` are gone. **Not touched:** the sibling
-  `~/docker-stacks/minimax-h3-sglang/` archive (2 images ≈ 105 GB) — it is still an
-  abandoned 2026-09-04 experiment with no repo conf, never a lane.
+  and `src/minimax-h3/` are gone. The sibling `~/docker-stacks/minimax-h3-sglang/`
+  was **also removed 2026-10-14** on a follow-up operator instruction: dir 56 GB
+  (all of it `models/quantized`) + 2 images ≈ 105 GB, both `Untagged`+`Deleted`
+  rc=0, image count 11→9. It was a never-promoted 2026-09-04 SGLang experiment
+  with no repo conf, never a lane; three of its weights duplicated what
+  `comfyui-jdaln` already had, the rest were SGLang-only conversions (one already
+  `.corrupt`). Its `FAILURE_ANALYSIS.md` — the stop-loss record (`audio_vae`
+  custom Diffusers class → `ComponentCheckpointUnsupportedError`, not fixable
+  within the allowed rules) — was preserved verbatim in `handoff.md` before
+  deletion. Nothing under `~/docker-stacks/` matches `sglang` anymore.
 
 ## TP2 profile refactor (completed 2026-09-05)
 

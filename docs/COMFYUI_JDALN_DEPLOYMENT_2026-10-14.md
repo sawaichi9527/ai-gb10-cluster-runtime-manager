@@ -405,12 +405,26 @@ So the retirement was blocked on a real render:
 | `~/Downloads/minimax-h3-output/` | 19 M | operator: "一起刪"; `storage/*` was root-owned → container fallback |
 | image `minimax-h3-dgx-spark:sm121-fp8` | **32 GB** | `Untagged` + `Deleted`, rc 0 |
 | `runtimes.d/minimaxh3.conf` | — | `git rm` |
-| `src/minimax-h3/` | — | `git rm -r` (48 files, incl. the in-flight `launch-download.sh` token edit — moot once retired) |
+| `src/minimax-h3/` | — | `git rm -r` (45 files, incl. the in-flight `launch-download.sh` token edit — moot once retired) |
 
 **Not deleted:** `~/docker-stacks/models/` (shared 453 G pool) — verified to contain **no**
 minimax copy, so nothing outside the lane depended on these weights.
-**Not deleted:** `minimax-h3-sglang` images (45.8 GB + 59.2 GB) — out of the operator's
-chosen scope, and it is a separate abandoned experiment rather than a lane.
+
+**Deleted later the same day (follow-up operator instruction, 2026-10-14):**
+`minimax-h3-sglang` — originally out of scope for the lane retirement, then cleared on
+request. Dir `~/docker-stacks/minimax-h3-sglang/` **56 GB** (entirely
+`models/quantized`) + images `429ac2d-cu134-ffmpeg` (45.8 GB) and `429ac2d-nvfp4`
+(59.2 GB), each `Untagged` + `Deleted` rc=0; node1 image count 11 → 9, no
+`sglang` path remains under `~/docker-stacks/`. Safe because three of its weights
+(`qwen3vl_32b_minimax_h3_nvfp4_awq` 15 GiB, `minimax_h3_video_vae_fp16` 4.9 GiB,
+`minimax_h3_audio_vae_fp32` 578 MiB) are duplicated inside `comfyui-jdaln`'s
+`ComfyData/models/`, while the other three (`.sglang` / `.upstream` / `.corrupt`,
+12 GiB each) were SGLang-only conversions of a checkpoint jdaln does not use.
+`.cache` was root-owned → container `rm`, `rc=[0 0]`.
+Its `FAILURE_ANALYSIS.md` (the 2026-09-04 stop-loss record: sanitization verified,
+but `audio_vae`'s custom Diffusers class blocks a weights-only override →
+`ComponentCheckpointUnsupportedError`, unfixable within the allowed rules) was
+preserved verbatim in `handoff.md` **before** deletion.
 
 Disk: `used 2.1T → 1.9T`, `avail 1.5T → 1.7T`, `59% → 53%` (both retirements combined).
 
