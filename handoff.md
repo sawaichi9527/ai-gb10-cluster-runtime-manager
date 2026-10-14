@@ -1338,6 +1338,71 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
   `~/Downloads/output/` 在鏡像範圍外，故兩節點的實際產出**不互相同步**（刻意設計，
   產物可重新產生）。
 
+### 2026-10-14（續） — `gb10-single status`／`list` 無參數改列兩節點 + 修 node1 `null` 狀態：session close Validation evidence
+
+- **範圍**：本輪 3 個 commit（`984ce74`、`d9fb74a`、`bf60c62`）。`git diff --stat
+  dc67e40..bf60c62` 只含 **`README.md`（4 行）與 `bin/gb10-single`（43 行）**，
+  `runtimes.d/`、`cluster-profiles.d/`、`scripts/` **零改動** ⇒ 只動 CLI dispatch
+  與兩處 helper，**不需重啟任何 lane，runtime 面 N/A**。
+- **起因**：使用者執行 `gb10-single status` 看到 `comfyui-jdaln … inactive`，以為
+  node1 服務停了。實際上該指令不帶參數時預設查 **node0**（原 `node="${2:-node0}"`），
+  而 node0 是**刻意不開機的被動鏡像** —— 輸出標題列 `===== node0 =====` 即為證據；
+  node1 直查為 `comfyui | Up 2 hours (healthy)`、`:8188 → 200`。
+- **改動 1（`984ce74`、`bf60c62`）**：`status` 與 `list` 無參數都改列**兩個節點**
+  （node0 → 空行 → node1）；帶明確節點維持原行為 —— 其中 `list` 顯式單節點仍
+  **不印 header**，只有無參數分支走 `show_status` 取得標題（兩張表堆在一起才讀得懂）；
+  非法節點仍 `ERROR: unknown node` rc=1。改列兩節點**順帶暴露既有 bug**：node1 區段
+  所有不在跑的 lane 顯示 `null` 而非 `inactive`。
+- **根因（`null`，`d9fb74a`）** —— node0 實測四項證據：
+  1. `docker inspect <missing>` **不是輸出空的**：stdout 實測 **3 bytes**
+     （`raw docker inspect stdout bytes: 3`），內容為 `[]`，錯誤走 stderr
+  2. `echo -n '[]' | jq -r '.[0].State.Status'` → **`null`**
+  3. node0 分支 `docker inspect -f '{{.State.Status}}' || echo ""` → 空字串 →
+     `state_of` 正確判 `inactive`；node1 分支
+     `docker inspect … | jq -r '$jqf'` **無兜底** → `null`
+  4. node1 對該容器實測 `error: no such object: aeon-vllm-27b`（確實不存在）
+
+  而 `state_of` 原判準只擋空字串與 `<no value>`，`null` 非空 → 被當成有效狀態印出。
+  **修法兩層**（任一單獨存在都太脆）：① `inspect_q` node1 分支改
+  `jq -r '($jqf) // empty'`（同時覆蓋 compose-project label 與 `.[0]` 預設分支）
+  ② `state_of` 連 `null` 也判 `inactive`，讓未來未加兜底的呼叫者仍安全。
+- **結構與內容檢查**（node0 實測，全部 PASS）：
+  1. `status` 無參數：2 個節點標題、`null` **0** 處、inactive **4**、running **2**、
+     READY **2**（4 個 inactive = node0 的 35b + comfyui-jdaln、node1 的 27b + 35b，
+     與兩節點實際容器吻合）
+  2. `status node0`／`status node1` 各只出 1 個標題；`status bogus` → **rc=1**；
+     `out of sync` 警告（僅 stderr）= **0**
+  3. `list` 無參數：2 標題、`null` **0**、資料列 **6**、running 2、inactive 4；
+     `list bogus` → **rc=1**
+  4. `list node0`／`list node1` **header 數 = 0**（顯式單節點維持原無標題輸出）
+  5. `bash -n` OK、CR **0**、mode `100755` 保留；`check-git-sync --block` **rc=0**
+  6. 四端一致：local = origin = github = node0 = **`bf60c62`**（node0 ff-only、
+     tree clean、部署測試檔已捨棄後歸位）
+- **過程中兩次假結果（已修正，以修正後為準）**：
+  1. `git pull … 2>&1 | tail -3` 之後取 `$?` 抓到的是 **`tail` 的返回碼**，誤報
+     `pull rc=0`；實際 pull **失敗**（`請在合併前提交或貯存您的修改。正在終止`），
+     node0 卡在 `dc67e40` 且帶著直接部署的測試檔。已先核對**三個 sha256 完全相同**
+     （本地檔／node0 部署檔／`d9fb74a` git blob 皆 `c3ee8706…`）確認捨棄零損失，
+     再 `git checkout --` 後 pull，**REAL pull rc=0**。
+  2. 檢查 `out of sync` 警告用 `2>&1 >/dev/null | grep` 得 0 卻標 PASS —— 該警告實際
+     走 **stdout**，被 `>/dev/null` 丟掉才 grep 不到。改為只撈 stderr 後，樹乾淨時
+     確實 0。
+  （另：`list` 與 `status` 顯式單節點輸出的 diff rc=1 **不是失敗** —— 差異正是刻意
+  引入的節點標題。）
+- **統計：Pass 20 項 / Fail 0 / Skip 0**（`status` 面 10 + `list` 面 10；CLI-only ⇒
+  Runtime = N/A，lane 全程未重啟）。
+- **Test environment**：本機 Windows + pwsh 7.4.6 + git 2.56.0.windows.1；node0
+  `192.168.23.215`（Posh-SSH + `Set-SCPItem` 部署測試檔）；node1 `10.0.101.102`
+  （僅用來驗證真實容器與 `:8188`）。
+- **Artifacts**：commits `984ce74`（status 兩節點）、`d9fb74a`（null 修正）、
+  `bf60c62`（list 兩節點）；根因證據取自 node0 的 `docker inspect` stdout bytes、
+  `[] | jq` 輸出，與 node1 的 `no such object` 回應。
+- **尚未驗證／不在本輪範圍**：`doctor`／`logs`／`wait` 等其他子命令的無參數行為
+  （未改，維持原樣）；在 node1 端直接執行 `gb10-single` —— 本 CLI 設計為**在 node0
+  執行、以 SSH 遠端查詢 node1**，node1 不 host repo checkout，故不適用；輸出格式若
+  被外部工具解析需另行確認（repo 內**無任何**呼叫者解析，唯一內部呼叫 `poll:` 已
+  帶明確節點）。
+
 ### qwen38flash 對齊上游 + 冷啟驗證（2026-09-29）
 
 觸發：上游 `MiaAI-Lab/Qwen3.8-Flash-Next-Dual-DGX-Sparks` 的 `main` 已前進到 **`2c86a1d0`**
