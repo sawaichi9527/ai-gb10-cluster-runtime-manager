@@ -1287,6 +1287,57 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
   rollback）；Release／歸檔 README 的 GitHub UI 顯示效果；封存 compose 為參考產物、
   不直接部署（`cluster-up` 每次啟動由 conf 重渲染，屬設計行為）。
 
+### 2026-10-14 — `comfyui-jdaln` 上線 + 退休 2 lane + 輸出目錄改到 `~/Downloads/output/` + v1.7.0 版號：session close Validation evidence
+
+- **範圍**：本 session（10-12～10-14）產出 v1.6.0 之後的全部 9 個 commit
+  （`6ead700`…`32e79c4`），其中 `72716a8`／`c377edc` 動了 `runtimes.d/`、`537c64e`
+  動了 `scripts/gb10-single-boot`。**本收尾輪**則只含 2 個 commit —— `a80ae2c`
+  （版本記錄）與本記錄，`git show --stat` 證實兩者**各只含 `handoff.md`**
+  （33 insertions／2 deletions）⇒ 收尾輪 **docs-only ⇒ Runtime test = N/A**。
+  runtime 行為證據為本 session 前段已驗、本輪未再觸碰的：node1 `comfyui-jdaln`
+  `:8188` → 200 且 `health=healthy`、掛載換新後容器內 `touch` 寫入成功、node0 鏡像
+  三計數一致 + >2 GB 權重 sha256 一致、`runtimes.d` 只增 1 刪 2（`A comfyui-jdaln.conf`／
+  `D comfyui.conf`／`D minimaxh3.conf`）。
+- **結構與內容檢查**（pwsh 7.4.6 腳本逐項執行，2026-10-14 14:53 +08:00，27 項）：
+  1. **worktree／文件完整性**：`git status` → clean（0 entry）、`git diff --stat` → 空；
+     三份文件 code fence 全為偶數（`handoff.md` 4／`AGENTS.md` 2／
+     `docs/COMFYUI_JDALN_DEPLOYMENT_2026-10-14.md` 18）、**CR 位元組皆 0**
+     → Pass×3
+  2. **tag**：`git for-each-ref refs/tags/v1.7.0` → `objecttype=tag`（**annotated**）；
+     `git rev-parse 'v1.7.0^{commit}'` →
+     `32e79c45f25ab64cdbe4377ab2fe9369237bcaa5`；message 首行
+     `v1.7.0 (2026-10-14) - minor`、含 `9 commits since v1.6.0 (84f343c):` 與
+     `-> minor bump` 判級句；`git rev-list --count v1.6.0..32e79c4` = **9**
+     （與宣告相符）；message **CR=0** → Pass×7
+  3. **四端一致**：local／`origin/main`／`github/main` 皆 `a80ae2c`；node0 經
+     Posh-SSH 實測 `git rev-parse HEAD origin/main` 亦 `a80ae2c`、
+     `git tag | wc -l` = **13**（由 12 增 1）、`status --porcelain | wc -l` = 0、
+     `git pull --ff-only` rc=0、`git fetch --tags --force` 顯示 `[新標籤] v1.7.0`；
+     `git ls-remote --tags` 兩個 remote 皆見 `v1.7.0` → Pass×3
+  4. **GitHub Release**：憑證走本機 GCM `git credential fill`（LF-only 請求檔 +
+     `cmd /c`，**憑證未寫入任何檔案**）。`GET /repos/…/releases` → v1.7.0 恰好
+     **1 個**（無重複）；`id=412399294`、`name=v1.7.0`、`draft=false`、
+     `prerelease=false`、`target_commitish=main`、`published_at=2026-10-14T06:25:13Z`；
+     **Release body 與 tag 訊息逐字相同（皆 3009 字元、CR=0）**；歷前 8 個 Release
+     （v1.3.1…v1.6.0）id 未變 → Pass×9
+  5. **handoff 內容到位**：L15 指標已改指 `v1.7.0`（`32e79c4`）、
+     版本標記 bullet L1176、Release id L1204、tag 現況清單 L1207 → Pass×4
+  6. **repo gate**：`scripts/check-git-sync.sh --block` → **rc=0** → Pass
+  - 註：初版驗證腳本 L15 的 regex 漏了粗體 `**` 而誤報 1 FAIL，修正 pattern 後重跑
+    **27/27** —— 是檢查本身的 bug，文件無誤，故未改動 handoff 內容。
+- **統計：Pass 27 / Fail 0 / Skip 0**（收尾輪 docs-only ⇒ Runtime = N/A）。
+- **Test environment**：本機 Windows + pwsh 7.4.6 + git 2.56.0.windows.1；node0
+  `192.168.23.215`（Posh-SSH）；GitHub REST API（`X-GitHub-Api-Version: 2022-11-28`）。
+- **Artifacts**：tag message（`git show v1.7.0`，tag object `30d677a2`）、Release
+  <https://github.com/sawaichi9527/ai-gb10-cluster-runtime-manager/releases/tag/v1.7.0>、
+  commits `32e79c4`（tag 所在）／`a80ae2c`（版本記錄）／本記錄 commit。
+- **尚未驗證／不在本輪範圍**：Release body 的 GitHub UI 顯示效果；真正的 failover
+  演練（`gb10 stop` → `gb10-single use comfyui-jdaln node0`）**仍未測** —— node0 維持
+  **被動鏡像刻意未開機**（會與同顆 GB10 上的 27b TP2 爭用），此限制已同時寫入
+  `AGENTS.md` 與 `docs/COMFYUI_JDALN_DEPLOYMENT_2026-10-14.md` §13.4／§14.5；
+  `~/Downloads/output/` 在鏡像範圍外，故兩節點的實際產出**不互相同步**（刻意設計，
+  產物可重新產生）。
+
 ### qwen38flash 對齊上游 + 冷啟驗證（2026-09-29）
 
 觸發：上游 `MiaAI-Lab/Qwen3.8-Flash-Next-Dual-DGX-Sparks` 的 `main` 已前進到 **`2c86a1d0`**
