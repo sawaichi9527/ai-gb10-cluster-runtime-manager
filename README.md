@@ -697,7 +697,7 @@ archived one was an AEON-image experiment and is not being revived.
 ## Single-node CLI — `gb10-single`
 
 ```bash
-gb10-single list [node0|node1]
+gb10-single list [node0|node1]                # no node = BOTH nodes
 gb10-single use {node0|node1} <runtime>     # exclusive switch
 gb10-single start {node0|node1} <runtime>   # start
 gb10-single stop {node0|node1} [runtime]

@@ -6,7 +6,7 @@
 # node. Node0 runs locally; node1 is reached over ssh (same key as the
 # TP2 cluster). Definitions live in ../runtimes.d/*.conf.
 #
-#   gb10-single list
+#   gb10-single list [node0|node1]   # no node = both nodes
 #   gb10-single use {node0|node1} <runtime>       # exclusive switch (background)
 #   gb10-single start {node0|node1} <runtime>     # start add-on/exclusive (background)
 #   gb10-single stop  {node0|node1} [runtime]     # stop (kills background boot if active)
@@ -44,7 +44,7 @@ usage(){
 cat <<'HELP'
 gb10-single - DGX Spark GB10 single-node runtime manager
 
-  gb10-single list
+  gb10-single list [node0|node1]              # omit the node to see BOTH
   gb10-single use {node0|node1} <runtime>      # exclusive switch
   gb10-single start {node0|node1} <runtime>    # start add-on/exclusive
   gb10-single stop {node0|node1} [runtime]     # stop (kills background boot)
@@ -449,8 +449,17 @@ ensure_tp2_down(){
 cmd="${1:-help}"
 case "$cmd" in
   list)
-    node="${2:-node0}"; node_is_valid "$node" || die "unknown node: $node"
-    show_list "$node"
+    if [[ -z "${2:-}" ]]; then
+      # Same default as `status`: defaulting silently to node0 hid node1.
+      # Two tables need the node headers to stay readable, so go through
+      # show_status rather than show_list here.
+      show_status node0
+      echo
+      show_status node1
+    else
+      node="$2"; node_is_valid "$node" || die "unknown node: $node"
+      show_list "$node"
+    fi
     ;;
   status)
     "${SCRIPTS}/check-git-sync.sh" --warn
