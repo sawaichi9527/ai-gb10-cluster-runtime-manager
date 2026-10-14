@@ -713,20 +713,27 @@ Runtimes (`runtimes.d/*`):
 |---|---|---|---|
 | `27b.conf` | 27b | llm (exclusive) | deployed (MTP) |
 | `35b.conf` | 35b | llm (exclusive) | deployed (DFlash) |
-| `comfyui.conf` | comfyui | image | deployed (Node1, Flux 2 Dev) |
 | `comfyui-jdaln.conf` | comfyui-jdaln | image (exclusive) | deployed (Node1, jdaln opinionated multi-workflow; self-built image) |
-| `minimaxh3.conf` | minimaxh3 | video (exclusive) | deployed (FL2VA) |
+
+Retired 2026-10-14: `comfyui.conf` (comfyui-aeon / Flux 2 Dev) and `minimaxh3.conf`
+(MiniMax H3 vLLM-API lane) — both stacks and images deleted from Node1, see `handoff.md`.
 
 `use` on an exclusive runtime frees every OTHER active exclusive runtime on that
-node across groups (e.g. starting `minimaxh3` on node1 also stops a running
-`comfyui` there) and auto-tears down an active TP2 cluster first (做法 B).
+node across groups (e.g. starting `comfyui-jdaln` on node1 also stops a running
+`27b` there) and auto-tears down an active TP2 cluster first (做法 B).
 Placeholders print "not deployed yet"; they are CLI skeletons until models/versions land.
 
-### ComfyUI: two independent lanes on Node1
+### ComfyUI on Node1 — single lane since 2026-10-14
 
-`comfyui` (aeon / Flux 2 Dev) and `comfyui-jdaln` (jdaln opinionated) both live on Node1,
-both `GROUP=image` + `MODE=exclusive` → `use` switches between them and frees the other;
-port 8188 cannot collide. Full record: `docs/COMFYUI_JDALN_DEPLOYMENT_2026-10-14.md`.
+`comfyui-jdaln` (jdaln opinionated, self-built image, `GROUP=image` + `MODE=exclusive`) is
+the **only** ComfyUI runtime. Full record: `docs/COMFYUI_JDALN_DEPLOYMENT_2026-10-14.md`.
+
+The predecessor `comfyui` lane (`comfyui-aeon` / Flux 2 Dev) was **retired 2026-10-14**:
+stack `~/docker-stacks/comfyui-aeon/` (~71 GB) and image
+`ghcr.io/aeon-7/comfyui-aeon-spark:slim` (26.7 GB) deleted. Its HF token was relocated to
+`~/docker-stacks/config/hf_token` (mode 600) *before* deletion so `minimax-h3`'s downloader
+could keep reading it. The flux2 weights it served are **not mirrored anywhere** — deleted
+files are listed in `handoff.md`.
 
 - **Its upstream healthcheck is a false positive** (`curl … || pgrep -af 'curl .* models/…'`
   matches the healthcheck's own `sh -c` command line → always `healthy`). The authoritative
@@ -785,7 +792,6 @@ cluster.env.example cluster/site config template (NEVER commit real values)
                       recipe archived in repo _overdue_recipe/)
                     mia-vllm-openai-qwen38flashNext (qwen38flash)
                     tonyd2wild-vllm-mimo26flash (mimo26flash)
-                    comfyui-aeon (comfyui / Flux 2 Dev)
                     comfyui-dgx-spark/ComfyUI-DGX-Spark-Docker-opinionated
                       (comfyui-jdaln, since 2026-10-12, live 2026-10-14; git
                        clone of jdaln/ComfyUI-DGX-Spark-Docker-opinionated —
@@ -813,7 +819,7 @@ cluster.env.example cluster/site config template (NEVER commit real values)
 
 - **`state/last-runtime`** — 由 `bin/gb10-single` 寫入／讀取（`STATE=${REPO_DIR}/state`）。
   - **寫入**：`use`／`start` 成功啟動一個單機 runtime 後，寫入 `node/runtime_ID`
-    （例如 `node1/minimaxh3`），記住「這個 node 上次選了哪個 runtime」。
+    （例如 `node1/comfyui-jdaln`），記住「這個 node 上次選了哪個 runtime」。
   - **讀取**：後續 `use`／`start` 在某台 node 上未指定 runtime 時，以此作為上次選擇的
     回退依據（`awk -F/ '{print $2}'` 拆出 runtime ID）；若無此檔，則視為「該 node
     沒有 active 或 previous runtime」並提示。
@@ -831,5 +837,5 @@ cluster.env.example cluster/site config template (NEVER commit real values)
 
 **所以如果你檢查時發現 `state/` 是空目錄：那不是沒用的架構，而是正常的初始／乾淨
 狀態**，只是還沒觸發過任何寫入動作（或某台 node 從未成功 `use`／`start` 過）。只要
-`gb10 use 27b`、`gb10-single use node1 minimaxh3` 這類動作真正跑過一次，對應的標記檔
+`gb10 use 27b`、`gb10-single use node1 comfyui-jdaln` 這類動作真正跑過一次，對應的標記檔
 就會出現；之後記得它是執行期產物即可。

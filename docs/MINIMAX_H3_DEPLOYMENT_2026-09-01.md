@@ -1,5 +1,34 @@
 # MiniMax H3 (FL2VA) Deployment — Node1 Single-Node
 
+> ## ⚠️ RETIRED 2026-10-14 — this document is HISTORY
+>
+> The `minimaxh3` runtime was retired on 2026-10-14 by operator decision. Everything
+> below describes the lane as it existed while live; the artefacts it names are gone:
+>
+> | was | now |
+> |---|---|
+> | `runtimes.d/minimaxh3.conf` | **deleted** |
+> | `src/minimax-h3/` (vendored reference source) | **deleted** |
+> | Node1 stack `~/docker-stacks/minimax-h3/` (135 GB: 64 GB weights + 73 GB HF cache) | **deleted** |
+> | image `minimax-h3-dgx-spark:sm121-fp8` (32 GB) | **untagged + deleted** |
+> | `~/Downloads/minimax-h3-output/` (19 MB, generated .mp4) | **deleted** |
+> | Node0 failover mirror (§ decision 3) | superseded — remove any replica you kept |
+>
+> **Why:** `comfyui-jdaln` covers MiniMax H3 image-to-video natively
+> (`comfy_extras.nodes_minimax_h3` + `ComfyUI-MiniMaxH3-Easy`, 39 local node types on
+> port `:8188`), using its own int8-convrot weights. The replacement was
+> **render-verified end-to-end before** this lane was dismantled: `prompt_id d91692b7`,
+> `status=success`, 204.5 s → `MiniMax_H3_verify_00001_.mp4` (valid MP4, 935,097 B).
+> Record: `docs/COMFYUI_JDALN_DEPLOYMENT_2026-10-14.md`.
+>
+> **Not retired:** `~/docker-stacks/minimax-h3-sglang/` — a separate, never-promoted
+> 2026-09-04 SGLang experiment (2 images ≈ 105 GB, no repo conf). It was left untouched.
+>
+> **What was lost:** the OpenAI-compatible API endpoint on `:8000`. Scripted/batch/CI
+> callers lose that route; interactive use goes through the ComfyUI UI instead. The
+> weights are re-downloadable from HF (`joeynyc/MiniMax-H3-DGX-Spark` recipe, §2/§3)
+> but that is a multi-hour fetch at the measured ~5–7 MB/s.
+
 **Date:** 2026-09-01
 **Runtime:** `minimaxh3` (`runtimes.d/minimaxh3.conf`, GROUP=video, MODE=exclusive)
 **Host:** Node1 (spark-8095, 192.168.23.216) — single-node vLLM-Omni FP8 (no TP2/shared storage with Node0)

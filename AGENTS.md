@@ -117,9 +117,10 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   (llm vs image vs video). `use` switches *within a group*; `start` on an exclusive runtime behaves
   like `use`. This mirrors the legacy behavior — don't rearchitect without a reason.
 - **User-approved exception (2026-09-01, MiniMax H3)**: an exclusive `use` frees every OTHER
-  active *exclusive* runtime on the same node **across groups** (minimaxh3 `video` vs comfyui
-  `image`). Placeholders stay untouched and TP2 is handled by `ensure_tp2_down`, never the
-  exclusive stop loop.
+  active *exclusive* runtime on the same node **across groups** (originally minimaxh3 `video`
+  vs comfyui `image`; both retired 2026-10-14, so the live instance is `comfyui-jdaln` `image`
+  vs `27b`/`35b` `llm`). Placeholders stay untouched and TP2 is handled by
+  `ensure_tp2_down`, never the exclusive stop loop.
 - **Secrets**: `~/docker-stacks/config/{cluster,standalone}.env`, `~/docker-stacks/*/.env`,
   keys — never commit. `.gitignore` covers `config/cluster.env`, `state/last-runtime`, logs.
 - **DeepSeek is cluster-only.** The legacy single-node `runtimes.d/deepseek.conf`
@@ -170,8 +171,22 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   the promoted recipe + a fresh `.base`).
   Measured noise floor from that campaign: **decode ≈ ±7 %, prefill ≈ ±8 %** — smaller
   deltas are not results.
-- **ComfyUI is currently deployed on Node1** as `comfyui-aeon` / Flux 2 Dev. Do not revert it
-  to the old `comfyui-personal` / `comfyui-work` split.
+- **ComfyUI on Node1 = `comfyui-jdaln` only (since 2026-10-14).** It runs
+  `jdaln/ComfyUI-DGX-Spark-Docker-opinionated` (self-built image, ComfyUI 0.38.0,
+  2812 node types) under `~/docker-stacks/comfyui-dgx-spark/`, UI at `:8188`.
+  The legacy `comfyui` lane (`comfyui-aeon` / Flux 2 Dev) was **retired 2026-10-14** —
+  stack (~71 GB) + image (26.7 GB) deleted from Node1, `runtimes.d/comfyui.conf` removed.
+  Do not resurrect it, and do not bring back the older `comfyui-personal` / `comfyui-work`
+  split. Its HF token now lives at `~/docker-stacks/config/hf_token` (mode 600).
+- **`minimaxh3` retired 2026-10-14.** The vLLM-API MiniMax H3 lane (`:8000`,
+  OpenAI-compatible, stack `~/docker-stacks/minimax-h3/` 135 GB + image
+  `minimax-h3-dgx-spark:sm121-fp8` 32 GB + `~/Downloads/minimax-h3-output`) was deleted
+  **only after** jdaln's native ComfyUI MiniMax H3 nodes were render-verified end-to-end
+  (i2v `prompt_id d91692b7`, `status=success`, 204.5 s → `MiniMax_H3_verify_00001_.mp4`;
+  record in `docs/COMFYUI_JDALN_DEPLOYMENT_2026-10-14.md`). `runtimes.d/minimaxh3.conf`
+  and `src/minimax-h3/` are gone. **Not touched:** the sibling
+  `~/docker-stacks/minimax-h3-sglang/` archive (2 images ≈ 105 GB) — it is still an
+  abandoned 2026-09-04 experiment with no repo conf, never a lane.
 
 ## TP2 profile refactor (completed 2026-09-05)
 
@@ -232,8 +247,10 @@ Key rules:
   there** — pins/paths are recorded instead. The loader only scans
   `cluster-profiles.d/*.conf`, so this repo-root dir is never live; restoring a recipe
   means copying its conf (and `patches/dspark-vision/`) back to their repo paths first.
-- `comfyui` is the current Node1 Flux 2 Dev runtime. Old `comfyui-personal`/`comfyui-work`
-  split is retired — do not resurrect it unless a future design explicitly requires it.
+- `comfyui-jdaln` is the current (and only) Node1 ComfyUI runtime since 2026-10-14.
+  Both older ComfyUI identities are retired: `comfyui`/aeon/Flux 2 Dev was dismantled
+  2026-10-14 (see its bullet above), and the `comfyui-personal`/`comfyui-work` split is
+  retired — do not resurrect either unless a future design explicitly requires it.
 - Scripts are LF, `#!/usr/bin/env bash`, `set -Eeuo pipefail`. No Windows CRLF.
 - **TP2 FlashInfer autotune cache must be reset before every boot.** It is rank-keyed
   (the persisted `file_key` embeds `tp_rank`/`ep_rank`/`cluster_rank`) and vLLM only

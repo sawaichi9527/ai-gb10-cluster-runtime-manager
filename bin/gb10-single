@@ -17,12 +17,14 @@
 #   gb10-single logs {node0|node1} [runtime]
 #   gb10-single doctor
 #
-# Runtimes: 27b, 35b, comfyui, comfyui-jdaln, minimaxh3 (all deployed).
+# Runtimes: 27b, 35b, comfyui-jdaln (all deployed).
 # qwen38flash / glm53flash were removed 2026-09-20: neither can run
-# single-node.  comfyui-jdaln (2026-10-12) is a SECOND ComfyUI lane
-# (jdaln/ComfyUI-DGX-Spark-Docker-opinionated, self-built image) alongside
-# the original comfyui (comfyui-aeon / Flux 2 Dev, pulled image); both are
-# GROUP=image exclusive so they never run at the same time.
+# single-node.  comfyui-jdaln (2026-10-12, live 2026-10-14) is the ONLY
+# ComfyUI lane: jdaln/ComfyUI-DGX-Spark-Docker-opinionated, self-built image,
+# GROUP=image exclusive.  Two predecessors were retired 2026-10-14 (see
+# handoff.md): comfyui (comfyui-aeon / Flux 2 Dev) and minimaxh3 (the
+# MiniMax H3 vLLM-API lane on :8000 — jdaln's native ComfyUI MiniMax H3
+# nodes now cover image-to-video, render-verified the same day).
 # =====================================================================
 set -Eeuo pipefail
 
@@ -54,7 +56,7 @@ gb10-single - DGX Spark GB10 single-node runtime manager
   gb10-single doctor
 
 Runtimes (runtimes.d/*.conf):
-  27b 35b comfyui comfyui-jdaln minimaxh3   deployed
+  27b 35b comfyui-jdaln   deployed
 
 Boot is backgrounded by default: `use/start` returns immediately,
 boot continues in the background.  Poll with `gb10-single status`,
@@ -360,7 +362,7 @@ stop_file(){
 
 # stop_group_except — stop every OTHER active EXCLUSIVE runtime on the node.
 # An exclusive runtime monopolises the node, so `use` also frees runtimes in
-# OTHER groups (e.g. minimaxh3 video vs comfyui image). Placeholders and the
+# OTHER groups (e.g. comfyui-jdaln image vs 27b llm). Placeholders and the
 # target itself are skipped. TP2 is torn down by ensure_tp2_down, never here.
 stop_group_except(){
   local node="$1" target="$2" id f

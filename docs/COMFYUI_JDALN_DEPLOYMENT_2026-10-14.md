@@ -262,8 +262,11 @@ it is dead weight, not a functional gap. Left as-is (upstream pin, not our regre
 
 ## 9. Operational notes
 
-- **Exclusive pair:** `comfyui` (aeon/Flux2) and `comfyui-jdaln` are both `GROUP=image`.
-  `use` stops the other; port 8188 cannot collide.
+- **Exclusive pair:** ~~`comfyui` (aeon/Flux2)~~ + `comfyui-jdaln` were both `GROUP=image`,
+  so `use` stopped the other and port 8188 could not collide. **Since 2026-10-14 only
+  `comfyui-jdaln` exists** — `comfyui` was retired (§11) — so the pair no longer applies;
+  `MODE=exclusive` + `GROUP=image` are kept so future image lanes stay isolated from
+  `27b`/`35b` (`llm`).
 - **Upstream healthcheck is a false positive** — `curl ... || pgrep -af 'curl .* models/...'`
   matches the healthcheck's *own* `sh -c` command line, so `pgrep` finds itself and the
   container always reports `healthy`. **The authoritative gate is gb10-single's loopback
@@ -285,3 +288,136 @@ it is dead weight, not a functional gap. Left as-is (upstream pin, not our regre
 | `537c64e` | `fix(gb10-single-boot): never mark READY on a health timeout` (+14/−2) |
 
 Pushed to both remotes, pulled on node0, `check-git-sync --block` = SYNC_OK.
+
+---
+
+## 11. Retirement of `comfyui` (comfyui-aeon / Flux 2 Dev) — 2026-10-14
+
+Operator decision: **"不要複製 flux2, 直接退役移除 Comfy-aeon 相關檔案"**. Executed the
+same day, after `comfyui-jdaln` had been deployed and render-verified.
+
+### 11.1 Order of operations (the HF token had to move FIRST)
+
+1. **HF token relocated before anything was deleted.** It lived at
+   `~/docker-stacks/comfyui-aeon/workspace/.cache/huggingface/token` — i.e. *inside the
+   tree about to be destroyed*, and it was still the live credential for
+   `src/minimax-h3/launch-download.sh`. Moved to
+   `~/docker-stacks/config/hf_token` (mode `600`, 37 B, sha256 prefix
+   `7f871a56841c699c`); `launch-download.sh`'s `TOKEN_FILE` was repointed to
+   `${HF_TOKEN_FILE:-$HOME/docker-stacks/config/hf_token}` on both the repo copy and the
+   deployed copy on node1.
+2. Image `ghcr.io/aeon-7/comfyui-aeon-spark:slim` removed (26.7 GB).
+3. Stack `~/docker-stacks/comfyui-aeon/` removed (~71 GB).
+4. Residual `grep -rn comfyui-aeon ~/docker-stacks` → clean.
+
+### 11.2 Deleting it took THREE attempts — and produced two false-success signals
+
+Worth recording because both are reusable traps:
+
+- **`rm -rf` silently leaves root-owned subtrees.** The container had created
+  `workspace/` contents as `root:root`, so `eye` had no write permission on the parent
+  directories and could not unlink them: `rm: 拒絕不符權限的操作`. 1949 files survived the
+  first pass. Fix: delete *inside* a container (`docker run --rm -v <dir>:/t …`), where you
+  are root in the namespace — no `sudo` password needed (the operator is in `docker`).
+- **A `DONE` marker written with `;` is worthless.** `bash -c "rm -rf …; echo DONE > file"`
+  writes `DONE` regardless of `rm`'s exit status, so it reported success over a tree that
+  was never deleted. The retry captured the real codes instead (`echo "$rc" > file`, two
+  separate files) and returned `[0 0]`.
+- **SSH timeouts do not mean failure.** Several `Invoke-SSHCommand` calls returned
+  `has timed out` while the remote had already completed — and conversely, a timeout can
+  also kill the remote mid-`rm`. Always *verify state* (`dir gone?`, `image in
+  docker images?`, `token sha256`) before re-sending an idempotency-sensitive script.
+
+### 11.3 Irreversibly deleted flux2 weights (not mirrored anywhere)
+
+| file | size |
+|---|---|
+| `flux2_dev_fp8mixed.safetensors` | 34 GiB |
+| `mistral_3_small_flux2_bf16.safetensors` | 34 GiB |
+| `Flux2TurboComfyv2.safetensors` | 2.6 GiB |
+| `flux2-vae.safetensors` | 321 MiB |
+| `full_encoder_small_decoder.safetensors` | 238 MiB |
+| 4 × KJNodes intrinsic LoRAs | 4 × 6.2 MiB |
+
+`comfyui-jdaln` carries **zero** flux2 weights, so nothing was migrated — re-obtaining
+these means re-downloading from HF.
+
+### 11.4 Repo changes
+
+`git rm runtimes.d/comfyui.conf`; `README.md` (runtime table, cross-group example,
+"two independent lanes" section → single lane, `Layout` stack list); `AGENTS.md`
+(ComfyUI bullet rewritten); `bin/gb10-single` header + `usage` runtime list + the
+`stop_group_except` comment.
+
+---
+
+## 12. Retirement of `minimaxh3` — 2026-10-14
+
+Operator decision, in answer to *"comfyui-dgx-spark 範本裡也有 MiniMax H3 圖生影片，是不是與
+`minimax-h3/`、`minimax-h3-sglang/` 重複？"*.
+
+### 12.1 Why it is not a duplicate, and why it was retired anyway
+
+The three MiniMax things on Node1 were **three different layers**, so the honest answer to
+"重複嗎" was *capability overlaps, interface does not*:
+
+| | `minimaxh3` (lane) | `minimax-h3-sglang` | `comfyui-jdaln` |
+|---|---|---|---|
+| engine | vLLM (`vllm/vllm-omni:minimax-h3`) | SGLang `v0.5.18-cu130` | ComfyUI 0.38.0 native + packs |
+| interface | OpenAI-compatible API `:8000` | (never promoted) | node graph + UI `:8188` |
+| weights | original HF shards ≈ 64 GB | NVFP4 `pruned_nvfp4` 12.5 GB | `pruned_int8_convrot` 20.9 GB |
+| state | live lane until 2026-10-14 | **already dead** — `archive_sglang_experiment_2026-09-04/` holds `FAILURE_ANALYSIS.md`, `compose.*.failed.yaml`, `launch.*.failed.sh`; last touched 2026-09-04, never referenced by any conf | live |
+
+Three different quantizations → not interchangeable; two different interfaces → scripted
+callers and interactive users were served separately. Despite that, the operator chose to
+**retire the lane**: interactive i2v is the actual use case, and jdaln covers it.
+
+### 12.2 Verification gate (operator chose "先跑一次 i2v 驗證")
+
+Nothing had ever exercised jdaln's MiniMax path — only `z-image` had been render-tested.
+So the retirement was blocked on a real render:
+
+- Graph built from the **native blueprint's own wiring**
+  (`ComfyUI/blueprints/Image to Video (MiniMax H3).json`, expanded out of its litegraph
+  subgraph), *not* hand-invented — which is why the result contains **no**
+  `MiniMaxH3SigmaShift`, **no** `MiniMaxH3AddGuide` and **no** `EmptyMiniMaxH3LatentAV`:
+  `MiniMaxH3ImageToVideo` produces both `positive` and `LATENT`, and `first_frame` does the
+  anchoring. Defaults are no-LoRA + 20 steps (the blueprint's `PrimitiveBoolean` is `false`).
+- Submitted as API-format 15-node graph → `node_errors: {}`.
+- `prompt_id d91692b7-5ca7-4e3e-a2b9-8cb5d2c717d5` → `status=success`,
+  `completed=True`, **204.52 s**.
+- Output `ComfyData/output/video/MiniMax_H3_verify_00001_.mp4`, 935,097 B, magic
+  `\0\0\0 ftyp isom` (valid MP4).
+- Server log confirmed all four pieces loaded: `MiniMaxH3TEModel_` 14956 MB,
+  `MiniMaxH3VideoVAE` 4965 MB, `MiniMaxH3` 19995 MB (`model_type FLOW_AV`),
+  `MiniMaxH3AudioVAE` 312 MB; native ops incl. `nvfp4, convrot_w4a4, int8_tensorwise`.
+
+**Known gap:** `minimax_h3_ref2va` was never downloaded (cut by the §7 asset trim), so
+`MiniMaxH3ReferenceToVideo` and the *Reference to Video* template still do not run.
+`ImageToVideo` / `TextToVideo` are fine. Of jdaln's 51 MiniMax node types, 39 are local and
+12 are cloud API nodes (`ComfyCloudMiniMaxH3*`, `MinimaxHailuo*`) that call remote services.
+
+### 12.3 What was deleted
+
+| target | size | note |
+|---|---|---|
+| `~/docker-stacks/minimax-h3/` | **135 G** | 64 G weights + 73 G HF cache + 1.6 G `.git`; `MINIMAX_H3_MODEL_DIR` pointed *inside* it → no external dependents |
+| `~/Downloads/minimax-h3-output/` | 19 M | operator: "一起刪"; `storage/*` was root-owned → container fallback |
+| image `minimax-h3-dgx-spark:sm121-fp8` | **32 GB** | `Untagged` + `Deleted`, rc 0 |
+| `runtimes.d/minimaxh3.conf` | — | `git rm` |
+| `src/minimax-h3/` | — | `git rm -r` (48 files, incl. the in-flight `launch-download.sh` token edit — moot once retired) |
+
+**Not deleted:** `~/docker-stacks/models/` (shared 453 G pool) — verified to contain **no**
+minimax copy, so nothing outside the lane depended on these weights.
+**Not deleted:** `minimax-h3-sglang` images (45.8 GB + 59.2 GB) — out of the operator's
+chosen scope, and it is a separate abandoned experiment rather than a lane.
+
+Disk: `used 2.1T → 1.9T`, `avail 1.5T → 1.7T`, `59% → 53%` (both retirements combined).
+
+### 12.4 What was lost
+
+The OpenAI-compatible **API endpoint on `:8000`** (with `H3_API_KEY`, `network_mode: host`,
+batch/scripted access) no longer exists. Any automated caller must move to the ComfyUI
+`/prompt` API on `:8188`. Weights are re-downloadable via the recipe in
+`docs/MINIMAX_H3_DEPLOYMENT_2026-09-01.md` but that is a multi-hour fetch at the measured
+~5–7 MB/s.

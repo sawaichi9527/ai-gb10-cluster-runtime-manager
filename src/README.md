@@ -3,19 +3,17 @@
 Sources pinned beside this repo. `runtimes.d/*.conf` reference deployment
 targets; `src/` holds upstream source checked in for provenance/pinning.
 
-## minimax-h3/
+**Currently empty of vendored sources.**
 
-MiniMax H3 (FL2VA) reference implementation, used by the single-node **video**
-runtime (`gb10-single use/start node1 minimaxh3`; `MODE=exclusive`,
-`GROUP=video`, deployed on Node1 via compose under `~/docker-stacks/minimax-h3/`).
+The only entry ever placed here was `minimax-h3/` (the MiniMax H3 FL2VA
+reference implementation backing `runtimes.d/minimaxh3.conf`). The `minimaxh3`
+runtime was **retired 2026-10-14** and the directory was removed with it —
+Node1's stack `~/docker-stacks/minimax-h3/` (135 GB) and image
+`minimax-h3-dgx-spark:sm121-fp8` (32 GB) are gone too. MiniMax H3
+image-to-video is now served by `comfyui-jdaln`'s native ComfyUI nodes
+(`comfy_extras.nodes_minimax_h3` + `ComfyUI-MiniMaxH3-Easy`), which were
+render-verified before the lane was dismantled.
 
-Upstream layout:
-
-- `Dockerfile`, `compose.yaml`, `Makefile`
-- `start-fp8.sh`, `launch-download.sh`, `verify-h3-download.py`, `fp8-quant.json`
-- `scripts/`, `patches/`, `tests/`, `docs/`
-- `CHANGELOG.md`, `CITATION.cff`, `CONTRIBUTING.md`, `README.md`, `SECURITY.md`
-- Licensing: `LICENSE`, `MODEL-LICENSE.md`, `NOTICE`
-
-Active deployment configuration / stack pin: `runtimes.d/minimaxh3.conf` and
-Node1 `~/docker-stacks/minimax-h3/`.
+Keep this directory for future vendored sources: when a runtime needs a pinned
+upstream tree for provenance, add `<name>/` here **and** a matching
+`runtimes.d/<name>.conf`.

@@ -1,5 +1,30 @@
 # ComfyUI (Flux 2 Dev) Deployment — Node1 Dedicated
 
+> ## ⚠️ RETIRED 2026-10-14 — this document is HISTORY
+>
+> The `comfyui` runtime (`comfyui-aeon` / Flux 2 Dev) was retired on 2026-10-14 by
+> operator decision ("不要複製 flux2, 直接退役移除 Comfy-aeon 相關檔案"). The artefacts
+> below no longer exist:
+>
+> | was | now |
+> |---|---|
+> | `runtimes.d/comfyui.conf` | **deleted** |
+> | Node1 stack `~/docker-stacks/comfyui-aeon/` (~71 GB) | **deleted** |
+> | image `ghcr.io/aeon-7/comfyui-aeon-spark:slim` (26.7 GB) | **untagged + deleted** |
+> | container `comfyui-spark` | removed earlier by the exclusive `use` switch |
+> | `workspace/.cache/huggingface/token` | **relocated first** to `~/docker-stacks/config/hf_token` (mode 600) |
+>
+> **Successor:** `comfyui-jdaln` (`jdaln/ComfyUI-DGX-Spark-Docker-opinionated`,
+> `runtimes.d/comfyui-jdaln.conf`) is now Node1's only ComfyUI, also on `:8188`.
+> It carries **zero** flux2 weights — nothing was migrated, so the flux2 model files
+> listed in §3 are **gone with no mirror** (`flux2_dev_fp8mixed` 34 GiB,
+> `mistral_3_small_flux2_bf16` 34 GiB, `Flux2TurboComfyv2` 2.6 GiB, `flux2-vae` 321 MiB,
+> `full_encoder_small_decoder` 238 MiB, 4 × KJNodes intrinsic LoRA).
+> Record: `docs/COMFYUI_JDALN_DEPLOYMENT_2026-10-14.md` §11.
+>
+> Note this doc's §1 image name (`ghcr.io/aeon-7/aeon-spark:slim`) differs from §2's
+> (`comfyui-aeon:slim`) — both refer to the same retired lane.
+
 **Date:** 2026-08-31
 **Runtime:** `comfyui` (`runtimes.d/comfyui.conf`, GROUP=image, MODE=exclusive)
 **Host:** Node1 (spark-8095, 192.168.23.216) — dedicated, no shared storage with Node0
