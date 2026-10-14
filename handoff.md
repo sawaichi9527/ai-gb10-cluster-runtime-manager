@@ -12,7 +12,7 @@
 
 ## 目前狀態（本機 checkout）
 
-- 分支：`main`，HEAD = 本檔所在的 commit（`git log -1`）；最新正式版本 tag = **`v1.6.0`**（`84f343c`；`v1.5.0`→`3201363`、`v1.4.1`→`cc76cbd`、`v1.4.0`→`6aff00d`、`v1.3.4`→`a92d2bc`、`v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、`v1.3.3`→`9bb2006`）。早期：2026-09-20 session 共 22 個 commit `a1cba34`…`79a79cb`，其後為本檔的 sync commit。live lane = **`deepseek-nvfp4`**（**2026-10-08** Phase 3 完成上線，README/handoff 詳載；主線 `deepseek` 待命 —— 使用者裁定「先不恢復」，`gb10 use deepseek` 隨時切回；`mimo26flash` 自 10-03 上線做 NVFP4 A/B + cliff 探測，**權重定案 MXFP4** 待命，見 `docs/…2026-10-03.md` §11）
+- 分支：`main`，HEAD = 本檔所在的 commit（`git log -1`）；最新正式版本 tag = **`v1.7.0`**（`32e79c4`；`v1.6.0`→`84f343c`、`v1.5.0`→`3201363`、`v1.4.1`→`cc76cbd`、`v1.4.0`→`6aff00d`、`v1.3.4`→`a92d2bc`、`v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、`v1.3.3`→`9bb2006`）。早期：2026-09-20 session 共 22 個 commit `a1cba34`…`79a79cb`，其後為本檔的 sync commit。live lane = **`deepseek-nvfp4`**（**2026-10-08** Phase 3 完成上線，README/handoff 詳載；主線 `deepseek` 待命 —— 使用者裁定「先不恢復」，`gb10 use deepseek` 隨時切回；`mimo26flash` 自 10-03 上線做 NVFP4 A/B + cliff 探測，**權重定案 MXFP4** 待命，見 `docs/…2026-10-03.md` §11）
 - 同步狀態：**本機＝Forgejo（origin，`829522`）＝GitHub（`sawaichi9527`）＝node0 已 pull**（四方同一 commit；node0 live lane = **`deepseek`**（10-05 切回）；`mimo26flash` 定案 **MXFP4**、一鍵可切回）
 - `handoff.md` 已納版控（`37bee4c` 起；本次更新亦將 commit）
 - `.gitignore` 已覆蓋 `config/cluster.env`、`state/last-runtime`、logs、`*.bak-*`
@@ -1173,10 +1173,41 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
   → **minor**。annotated tag 打於 `84f343c`（本記錄 commit 之前，比照歷版慣例）。
   **GitHub Release 已建**（`id 407909226`，比照歷版；以 API + 本機 GCM 憑證，
   **未寫入任何檔案**）。
+- **`v1.7.0`（2026-10-14，新增 lane + 退休 2 lane + boot 修正 — minor bump）**：`32e79c4`
+  —— 自 v1.6.0 起 **9 個 commit**（`6ead700`…`32e79c4`）—— ① **新增 service lane
+  `comfyui-jdaln`**（`72716a8`）：jdaln opinionated ComfyUI（自建 image、ComfyUI
+  0.38.0、2812 node types）落 Node1 `:8188`、`GROUP=image MODE=exclusive`、stack
+  `~/docker-stacks/comfyui-dgx-spark/`；`docs/COMFYUI_JDALN_DEPLOYMENT_2026-10-14.md`
+  完整記錄，**MiniMax H3 i2v 作為退休前驗證關卡**實測過（`prompt_id d91692b7`、
+  `status=success`、204.5 s → 935,097 B mp4），HF token 移至 `config/hf_token`（600）。
+  ② **退休 2 lane**（`c377edc`，使用者 2026-10-14 裁定）：`comfyui`（comfyui-aeon /
+  Flux 2 Dev，stack ~71 GB + image 26.7 GB 已刪）與 `minimaxh3`（`:8000` vLLM-API，
+  stack 135 GB + image 32 GB + 輸出目錄已刪），repo 側 conf 與所有引用一併重寫；從未
+  promote 的 `minimax-h3-sglang` 同伴（56 GB + 2 image）一併移除，其
+  `FAILURE_ANALYSIS.md` **逐字保留在本檔**（`f989cb0`）。③ **Node0 失效切換鏡像 +
+  殘留清理**（`3a98fb6`）：以 CX7（`10.0.101.101↔10.0.101.102`）rsync 建立 jdaln 鏡像，
+  並清掉 Node0 上兩個退休 runtime 的殘留 **~204 GB**；驗證 114,316 檔 / 16,298 目錄 /
+  6 symlink 兩端完全一致、>2 GB 權重 sha256 一致、非 `eye` 條目 0、image diff-ID 鏈跨
+  overlay2（Node0）／containerd（Node1）一致 —— **被動鏡像、刻意未在 Node0 開機**
+  （會與同顆 GB10 上的 27b TP2 爭用）。④ **`fix(gb10-single-boot)` health timeout
+  誤報 READY**（`537c64e`）：等待圈在 `sleep 10` 期間 TIMEOUT 到期時，`while` 條件直接
+  結束圈、圈內逾時檢查變不可達，於是 `mark ready` 照樣執行卻從未探測 `HEALTH_URL`；
+  2026-10-12 於 node1/comfyui-jdaln 實測 —— `TIMEOUT=14400` 於 21:52:21 到期、
+  21:52:30 卻記 READY、`:8188` 從未監聽。⑤ **輸出目錄改到 `~/Downloads/output/`**
+  （`32e79c4`）：掛載位於**上游 git 追蹤**的 compose，而 `gb10-single-boot` 明確傳 `-f`
+  （`docker-compose.override.yml` 不會被載入），故改動做成**保留預設值**的參數
+  `${COMFY_OUTPUT_DIR:-../ComfyData/output}`、值放 gitignored `.env`，兩節點
+  compose+`.env` sha256 一致；兩份部署測試產物自兩節點 `ComfyData/output/` 清除。
+  ⑥ 其餘 2 個 commit（`6ead700`、`241b8b9`）為 v1.6.0 的 tag／Release／session-close 記錄。
+  判級：**新增 service lane**（v1.4.0／v1.5.0 慣例）＋ boot 腳本正確性修正 —— 非「同
+  image 調優」（v1.4.1 的 patch 判準）→ **minor**。annotated tag 打於 `32e79c4`
+  （本記錄 commit 之前，比照歷版慣例）。**GitHub Release 已建**（`id 412399294`，
+  比照歷版；以 API + 本機 GCM 憑證，**未寫入任何檔案**，body 與 tag 訊息**逐字相同**
+  3009 字元、LF）。
 - **tag 現況**：`v1.0.0`→`496c9b1`、`v1.1.0`→`71ccf20`、`v1.2.0`→`ffd02ea`、
   `v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、`v1.3.3`→`9bb2006`、
   `v1.3.4`→`a92d2bc`、`v1.4.0`→`6aff00d`、`v1.4.1`→`cc76cbd`、`v1.5.0`→`3201363`、
-  **`v1.6.0`→`84f343c`**。
+  `v1.6.0`→`84f343c`、**`v1.7.0`→`32e79c4`**。
 
 ### 2026-10-08 — README 發布 + v1.5.0 版號：session close Validation evidence
 
