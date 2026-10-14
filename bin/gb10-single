@@ -233,7 +233,10 @@ inspect_q(){
       '{{index .Config.Labels "com.docker.compose.project"}}') jqf='.[0].Config.Labels["com.docker.compose.project"]' ;;
       *) jqf='.[0]' ;;
     esac
-    n1 "docker inspect '$cname' 2>/dev/null | jq -r '$jqf'"
+    # `docker inspect` on a MISSING container writes `[]` to stdout (3 bytes),
+    # so `[] | jq '.[0].State.Status'` yields the literal string `null` — which
+    # state_of would print instead of `inactive`. `// empty` suppresses it.
+    n1 "docker inspect '$cname' 2>/dev/null | jq -r '($jqf) // empty'"
   fi
 }
 
@@ -260,7 +263,9 @@ state_of(){
     load "$f"
     local st
     st="$(inspect_q "$node" "$CONTAINER" '{{.State.Status}}')"
-    [[ -n "$st" && "$st" != "<no value>" ]] && echo "$st" || echo inactive
+    # "null" is jq's answer for a container inspect on node1 before the
+    # `// empty` guard landed — treat it as absent rather than as a state.
+    [[ -n "$st" && "$st" != "<no value>" && "$st" != "null" ]] && echo "$st" || echo inactive
   )
 }
 
