@@ -346,6 +346,18 @@ Key rules:
 - `.env.example`/`cluster.env.example` are the sanitized templates; never add real keys.
 - Structural refactors and model/image patch work should be separate commits/PRs so regression
   ownership is obvious.
+- **Marking a version creates a Release on BOTH remotes (since 2026-10-14).** A pushed
+  annotated tag creates only a **tag** — never a Release. A Release is a per-platform
+  object that must be POSTed to each host separately, so marking a version on only one
+  side silently leaves the other's releases page stale. That went unnoticed for six
+  versions: `v1.3.1`…`v1.7.0` were tagged on both hosts, but only GitHub ever received
+  the release objects, so Forgejo's page still read `v1.2.0`. For every new version
+  create the release on **both** `origin` (Forgejo `http://192.168.23.167:3000`) and
+  `github`, with `name` = tag name, `body` = the annotated tag message verbatim,
+  `draft=false`, `prerelease=false`, `target_commitish=main`. Get credentials from the
+  local store with `git credential fill` (LF-only request file + `cmd /c`) — never write
+  them to any file in this repo and never echo them. The 2026-10-14 repair took both
+  hosts to 13/13 byte-identical releases (`v1.0.0`…`v1.7.0`); details in `handoff.md`.
 
 ## Handoff lineage
 

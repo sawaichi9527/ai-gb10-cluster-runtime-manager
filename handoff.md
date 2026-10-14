@@ -1403,6 +1403,73 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
   被外部工具解析需另行確認（repo 內**無任何**呼叫者解析，唯一內部呼叫 `poll:` 已
   帶明確節點）。
 
+### 2026-10-14（續二） — Forgejo Releases 與 GitHub 不同步：診斷＋補齊 13/13＋「兩端都建」慣例入法：session close Validation evidence
+
+- **起因**：使用者發現 Forgejo（`origin`，`http://192.168.23.167:3000`）的 Releases
+  頁面停在 `v1.2.0`，GitHub 同一 repo 卻顯示到 `v1.7.0`，懷疑是兩種服務的機制差異。
+- **結論：不是機制差異，是 workflow 斷層。** 兩邊規則完全相同 —— `git push --tags`
+  只建立 **tag**，永遠不會建立 **Release**；Release 是各平台自己的資料庫物件，必須
+  另外用 UI/API POST。GitHub 端每版都另外打了一次 `POST /repos/…/releases`，
+  Forgejo 端從 `v1.3.1` 起就沒再打過。
+  （使用者「Release 是平台層物件、不是 git 層」的直覺正確，但兩平台機制無差異；
+  「停在 v1.2.0」是 Releases 分頁只列 Release 物件，**Tags 分頁一直看得到 `v1.7.0`**。）
+- **四項證據**：
+  1. **git 層完全同步**：`git ls-remote --tags` 兩端各 **13** 個 tag、SHA 逐位相同
+     （`v1.0.0`…`v1.7.0`）；Forgejo `GET /tags` 亦回傳同樣 13 個
+  2. **Release 物件原本完全不重疊**（補建前）：Forgejo **3** 個（`v1.0.0`／`v1.1.0`／
+     `v1.2.0`，建立於 2026-09-10～09-13）vs GitHub **9** 個（`v1.3.1`…`v1.7.0`，首個
+     2026-09-29）；`only_forgejo=[v1.0.0,v1.1.0,v1.2.0,v1.3.0]`、`only_github=[]`。
+     **`v1.3.0` 兩邊都只有 tag、沒有 Release** —— 它掉在換手的縫裡
+  3. **handoff 既有慣例只寫 GitHub**：L1088（v1.3.1「並在 GitHub 建立…」）、L1101
+     （v1.3.2「同樣建了 GitHub Release」）、L1121／L1129／L1144／L1157／L1174／L1204 同
+  4. **沒有自動化可補**：`.github/workflows`、`.gitea/workflows`、`.forgejo/` 皆不存在，
+     repo 內也無 release 腳本
+  - 既有 L1321「Release body 與 tag 訊息逐字相同（皆 3009 字元、CR=0）」**僅指 v1.7.0
+    本身**；後半句「歷前 8 個 Release id 未變」只驗 id、未驗 body —— 故本輪發現的
+    body 分歧**不是**推翻既有聲明。
+- **修復動作**（全經 API；憑證取自本機 credential store，**未寫入任何檔案、未印出**）：
+  1. **Forgejo 補建 10 個**（`v1.3.0`…`v1.7.0`）→ 10×`status=201`，id `13`…`19`、
+     `21`…`23`（`20` 為既有 id）；body 來源＝本機 annotated tag 訊息
+  2. **GitHub 補建 4 個**（`v1.0.0`…`v1.3.0`）→ 4×`status=201`，id `412515193`／
+     `412515211`／`412515232`／`412515250`；來源＝Forgejo 現有 name+body 逐字鏡像。
+     **`v1.2.0` 是 lightweight tag** —— `%(contents)` 只回 250 字元 commit 訊息，而
+     Forgejo 該 Release body 有 2004 字元手寫內容，故不能取 tag 訊息
+  3. **發現 7 個 body 分歧**：`v1.3.1`…`v1.5.0` 的 GitHub body 是**手寫豐富 Markdown**
+     （3922／1839／1606／1188／1799／2075／2279 字元），本輪新建的 Forgejo 用的是
+     tag 訊息（524／434／586／704／1644／1052／1946）。`git grep` 證實**豐富版只存在於
+     GitHub**（repo 無 release/changelog 檔）。經裁定方案 A：**把 GitHub 豐富版 PATCH
+     回 Forgejo**（就地更新、id 不變）→ 7×`status=200`、`exactMatch=True`
+  4. **慣例入法**：AGENTS.md Conventions 新增「標記新版本時兩端都建 Release」規則
+- **過程中三次判讀錯誤（皆已修正，以修正後為準）**：
+  1. payload 的「剝掉尾端空行」迴圈吃掉最後的 `\n`，`v1.7.0` body 算成 **3008**；
+     拿 GitHub 實測的 **3009** 當驗證點才抓到 → 拿掉迴圈後 3009 MATCH（LF-only、CR=0）
+  2. 第一次 parity 報告顯示 7 個 `BODY-DIFF` 卻「`bodyLen` 兩邊相同」—— 腳本的
+     `bodyLen` 取的是 **Forgejo** 的長度，「相同」是假象；改為逐字元比對才看到
+     GitHub 實際是 3922 vs 524
+  3. 首次 parity 的 `mismatched` 判定用 `-ceq` 比 body 正確，但**呈現欄位**取錯來源，
+     導致先誤報「僅 7 個 body 不同、其餘全等」的半套結論
+- **最終狀態（兩端逐字相同）**：GitHub **13**、Forgejo **13**、`mismatched=0` →
+  **FULL 13/13 PARITY**；逐版 bodyLen：547／1136／2004／425／3922／1839／1606／1188／
+  1799／2075／2279／2340／3009
+- **結構與內容檢查**（node0 與本機 API 層，全部 PASS）：
+  1. 兩端 tag 13/13、SHA 逐位相同
+  2. 補建後 Forgejo release 數 3→13；GitHub 9→13
+  3. 13 個版本逐一 `name` 與 `body` `-ceq` 比對 → 全等
+  4. Forgejo PATCH 後 **id 未變**（`14`…`19`、`21`…`23`）
+  5. 憑證處理：LF-only 請求檔 + `cmd /c`、用畢即刪、輸出從未含密碼/token
+- **統計：Pass 53（13 tag 比對 + 10 Forgejo 建立 + 4 GitHub 建立 + 7 PATCH +
+  13 版逐版比對 + 3 payload 驗證 + 3 憑證安全）/ Fail 0 / Skip 0** —— 純遠端
+  Release 物件，**不觸碰任何 node、不動任何 lane、不改任何 git 內容**，故 runtime
+  面 N/A、與前三個 commit 無依賴關係。
+- **Test environment**：本機 Windows + pwsh 7.4.6 + git 2.56.0.windows.1；Forgejo
+  `192.168.23.167:3000`（`GET /user` → `login=829522`、`admin=True`/`push=True`）；
+  GitHub API（Bearer，來自本機 GCM，`user=sawaichi9527`）。
+- **Artifacts**：Forgejo release id `13`…`19`／`21`…`23`；GitHub `412515193`／
+  `412515211`／`412515232`／`412515250`；既有 `412399294`（v1.7.0）id 未變。
+- **尚未驗證／不在本輪範圍**：兩端 Releases **頁面的瀏覽器實際渲染**（僅 API 層驗證）；
+  Release **assets**（兩端皆 0，從未有附件）；Forgejo 的 draft／prerelease UI 分頁；
+  **下一個版本是否真的兩端都建**（規則已入法，但尚未實作過一次）。
+
 ### qwen38flash 對齊上游 + 冷啟驗證（2026-09-29）
 
 觸發：上游 `MiaAI-Lab/Qwen3.8-Flash-Next-Dual-DGX-Sparks` 的 `main` 已前進到 **`2c86a1d0`**
