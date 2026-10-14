@@ -13,7 +13,7 @@
 #   gb10-single restart {node0|node1} <runtime>   # stop then background up
 #   gb10-single wait {node0|node1} <runtime>      # foreground wait for background boot
 #   gb10-single free {node0|node1}            # stop ALL active runtimes on a node
-#   gb10-single status [node]
+#   gb10-single status [node0|node1]   # no node = both nodes
 #   gb10-single logs {node0|node1} [runtime]
 #   gb10-single doctor
 #
@@ -51,7 +51,7 @@ gb10-single - DGX Spark GB10 single-node runtime manager
   gb10-single restart {node0|node1} <runtime>  # stop then background up
   gb10-single wait {node0|node1} <runtime>     # foreground wait for boot
   gb10-single free {node0|node1}               # stop ALL active runtimes on a node
-  gb10-single status [node0|node1]
+  gb10-single status [node0|node1]             # omit the node to see BOTH
   gb10-single logs {node0|node1} <runtime>
   gb10-single doctor
 
@@ -448,9 +448,18 @@ case "$cmd" in
     show_list "$node"
     ;;
   status)
-    node="${2:-node0}"; node_is_valid "$node" || die "unknown node: $node"
     "${SCRIPTS}/check-git-sync.sh" --warn
-    show_status "$node"
+    if [[ -z "${2:-}" ]]; then
+      # No node given -> show BOTH nodes. Defaulting silently to node0 was
+      # misleading: node1-only lanes (comfyui-jdaln) always read "inactive"
+      # here even while they are serving traffic on node1.
+      show_status node0
+      echo
+      show_status node1
+    else
+      node="$2"; node_is_valid "$node" || die "unknown node: $node"
+      show_status "$node"
+    fi
     ;;
   use|start)
     [[ $# == 3 ]] || die "usage: gb10-single $cmd <node0|node1> <runtime>"

@@ -702,7 +702,7 @@ gb10-single use {node0|node1} <runtime>     # exclusive switch
 gb10-single start {node0|node1} <runtime>   # start
 gb10-single stop {node0|node1} [runtime]
 gb10-single restart {node0|node1} [runtime]
-gb10-single status [node]
+gb10-single status [node]                   # no node = BOTH nodes
 gb10-single logs {node0|node1} <runtime>
 gb10-single doctor
 ```
