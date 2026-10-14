@@ -3,7 +3,7 @@
 > 本檔是本機中繼 checkout 的交接摘要。主要開發在 **node0**（`~/workspace/ai-gb10-cluster-runtime-manager`，branch **`main`**；2026-09-29 實測 node0 為 `main`／upstream `origin/main`、工作區乾淨 —— 舊文件寫的 `keystone` 已於 `496c9b1` 併入 main、**非**現役 checkout）＋ Forgejo `829522`；本機僅作中繼存取，修改前先確認是否應改在 node0。
 > 建立：2026-09-18；更新：**2026-09-20**（DeepSeek V4 Flash **Vision-Exp** lane 上線：同一顆 Anemll image + 啟動 wrapper；bench-c / bench-ctx / bench-mm 實測；`cluster-up` 新增 `SYNC_DIRS` 自動同步 patch 目錄；**vision 開 prefix caching + `dspark-swa-prefix` hotfix**、長上下文邊界 261K/262144、圖片高併發 C=8/16；本檔納入版控並同步三方）；**2026-09-29** 上游查核（Anemll 無新 image/tag、MiaAI-Lab main 未動且 23 檔 byte 全同）→ 見「定期檢討追蹤」；**2026-09-29（後續）** qwen38flash 對齊上游 `2c86a1d0`（GMU 0.80／prefix caching ON／block-drop backport／index share）並完成冷啟驗證（READY、KV 29.88 GiB、無回歸）→ 見「qwen38flash 對齊上游 + 冷啟驗證」；**2026-09-29（後續之二）** DeepSeek-V4.1-Flash **EXL3 2×GB10 選型查核**（取得兩顆可下載 arm64 image 的 digest、證實 sfxnz image 未發佈、TP=2 對 3.5bpw 不可行、各線 benchmark 與 NVIDIA 論壇口碑）→ **本輪不新增 lane**（維持 `deepseek-vision` 為 2-Spark 多模態），詳見 `docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md`；**2026-09-30** 上游再查核（deepseek 與 deepseek-vision 的 **image／配方／官方權重皆無更新** → 兩 lane 現行設定即為最新、無需變更，含首度補查官方權重 commit 比較，見 `docs/DEEPSEEK_UPSTREAM_REVERIFY_2026-09-30.md`）；**2026-09-30（續）** 27b／35b 上游再查核（兩 lane 共用的 `ghcr.io/aeon-7/aeon-vllm-ultimate` 最新 dated tag 仍 `2026-09-18-v0.29.0-omni`＝現行 pin、digest 不變；27B/35B 四個 HF 來源 body/drafter 最後 commit 為 09-18／08-19／07-15／06-28，**皆無 09-19 後更新** → 無需變更，見 `docs/QWEN_27B_35B_UPSTREAM_REVERIFY_2026-09-30.md`）；**2026-10-03** `mimo26flash` lane 上線（MiMo V2.6 Flash MOPD，TP2 vLLM+DFlash，見同名章節）；**2026-10-05** `mimo26flash` NVFP4 變體 A/B + DFlash cliff 探測（兩變體皆過）→ **定案 MXFP4**、延後調優 C/D/E 註記於 docs §7、**服務切回 `deepseek`**、README 同步 → 見「2026-10-05」章節；**2026-10-07** DeepSeek **V4 Flash Vision** 同 image 調優 A/B（V0–V5 + V-win，獨立 `deepseek-vision-tune` lane）→ **只升一個旋鈕 `--long-prefill-token-threshold 1024→0`（V3）**，`deepseek.conf` 全程未動、生產 gate 全過；記錄 production lane boot 散佈 8.1% 無法驗證 2.7% 效應、cold prefill 32K 判為噪聲、garble soak `thinking:true` false alarm → 見「2026-10-07 — DeepSeek V4 Flash Vision」章節；**2026-10-07（續）** `deepseek-nvfp4` lane **建置**（NVIDIA NVFP4 0731 checkpoint + `eugr/spark-vllm-b12x`，Phase 1–2：下載/傳輸 + profile/白名單/文件，**Phase 3 開機另排**）→ 見「2026-10-07 — deepseek-nvfp4 lane 建置」章節；**2026-10-08（續）** `deepseek-nvfp4` **Phase 3 完成**（boot ×4：seccomp/safetensors 兩個啟動修復 → DSpark acceptance 垃圾 draft 根因＝共享 NVFP4 quant dict 把原生 MXFP4 draft 建成 ModelOptNvFp4（上游 #49133 closed）→ `hotfix-dspark-draft-mxfp4` 容器啟動補丁 → **全 gate PASS**：acceptance 2%→**27%**（temp0，pos0 0.629）／**49–59%**（temp0.7）、單流 16→**33.6 tok/s**、prefix-hit 44.8×、garble 3/3、compose-verify 過）→ 見同章節「Phase 3」；**2026-10-08（三）** C1–C8 完整併發 benchmark（47.1→**129.9 tok/s**、**2.76×**、accept 41–50% 全程不崩）+ `bench-c.sh` metrics scrape auth 修正（`/metrics` 401）、**NVFP4 KV（`nvfp4_ds_mla`）A/B 負結果**（三重硬閘、回退 fp8）→ README「已部署服務」正式列入 `deepseek-nvfp4`（**現役**）+ benchmark 區塊重寫，tag **`v1.5.0`** → 見 Phase 3 第 6/7 項與「版本標記」
 > **2026-10-14**：**`comfyui-jdaln` 上線（Node1 唯一 ComfyUI runtime）** —— clone `ef7a677b`、建置 144 s、`:8188` 200、ComfyUI 0.38.0、2812 node types；過程中修掉 **17.5 h 掛死**（404 的 `ComfyUI-VDN-H3` clone 卡 credential prompt）與 **`gb10-single-boot` 假 READY**（commit `537c64e`），並依使用者裁定**裁剪 asset 範圍**（allowlist 置空：預設 93 GiB + workflow-asset 階段 +174 GiB 起跳 → 只保留 `z-image-turbo-core`，`use`→READY 46 秒）。詳見 `docs/COMFYUI_JDALN_DEPLOYMENT_2026-10-14.md`。
-> **2026-10-14（續）**：**兩條 Node1 runtime 同日退役**（使用者裁定）—— ① `comfyui`／aeon：HF token 先搬至 `~/docker-stacks/config/hf_token` 再刪 stack（71 GB）+ image（26.7 GB），flux2 權重**無備份**；② `minimaxh3`：**先驗證後拆** —— jdaln 的原生 MiniMax H3 節點跑通 i2v（`prompt_id d91692b7`、`status=success`、204.5 s、產出合法 MP4）才拆 stack（135 GB）+ image（32 GB）+ 輸出目錄；repo 側 `git rm` 兩個 conf 與 `src/minimax-h3/`（45 檔）；③ **同日稍後追加：`minimax-h3-sglang` 也一併清除**（依使用者追加指示）—— 目錄 **56 GB**（全在 `models/quantized`）+ 2 個 image **≈105 GB**，各 `Untagged`+`Deleted` rc=0，image 總數 11→9；其 `FAILURE_ANALYSIS.md` 內容已於刪除前擷取、留存於下方「`FAILURE_ANALYSIS.md` 原文留存」。三者合計磁碟 `used 2.1T→1.8T`、`avail 1.5T→1.8T`、59%→51%。詳見 `docs/COMFYUI_JDALN_DEPLOYMENT_2026-10-14.md` §11–§12。
+> **2026-10-14（續）**：**兩條 Node1 runtime 同日退役**（使用者裁定）—— ① `comfyui`／aeon：HF token 先搬至 `~/docker-stacks/config/hf_token` 再刪 stack（71 GB）+ image（26.7 GB），flux2 權重**無備份**；② `minimaxh3`：**先驗證後拆** —— jdaln 的原生 MiniMax H3 節點跑通 i2v（`prompt_id d91692b7`、`status=success`、204.5 s、產出合法 MP4）才拆 stack（135 GB）+ image（32 GB）+ 輸出目錄；repo 側 `git rm` 兩個 conf 與 `src/minimax-h3/`（45 檔）；③ **同日稍後追加：`minimax-h3-sglang` 也一併清除**（依使用者追加指示）—— 目錄 **56 GB**（全在 `models/quantized`）+ 2 個 image **≈105 GB**，各 `Untagged`+`Deleted` rc=0，image 總數 11→9；其 `FAILURE_ANALYSIS.md` 內容已於刪除前擷取、留存於下方「`FAILURE_ANALYSIS.md` 原文留存」。三者合計磁碟 `used 2.1T→1.8T`、`avail 1.5T→1.8T`、59%→51%。詳見 `docs/COMFYUI_JDALN_DEPLOYMENT_2026-10-14.md` §11–§12。④ **同日再追加（續二）**：盤點發現退役只做一半 —— Node0 還留著 `minimax-h3` 135 GB + `comfyui-aeon` 54 GB + image 16.8 GB（~204 GB），已全數清除；並依使用者指示「經 CX7 用 rsync」把 `comfyui-jdaln` 鏡像到 Node0（stack 124 GB／114,316 檔 rsync 335 s ~396 MB/s，image `docker save|load` 128 s，**byte 驗證通過**；Node0 端**未實測 boot**）→ 見「2026-10-14（續二）」。
 > **2026-10-09**：`deepseek-vision` **配方繼承（promote）**——對決 `eugr/spark-vllm-b12x:latest` + `deepseek-v4-flash-vision-exp-ablit`（候選 lane `deepseek-vision-b12x`，B0/B1/B2 三 boot）vs README 舊配方記錄：decode Σ 535.3/545.9 vs 538.1（−0.5%/+1.4%，持平）、prefill 131K–261K 全欄 **+9~14%**、accept +1pp、prefix-hit 正確性 gate **無需任何 hotfix 即過**（HIT 50.9×、輸出位元組一致）→ 條件成立。**唯一升版旋鈕 `CUDAGRAPH_CAPTURE 48→56`**（上游 verbatim 48 於 C7/C8 掉 capture range，Σ −6%）。新 `deepseek-vision.conf` 已改寫（原生 vision、無 `CMD_WRAPPER`/`SYNC_DIRS`）；舊 Anemll 配方 byte-identical 封存於 `_overdue_recipe/deepseek-vision_anemll-dspark-vllm-gx10-011_20261009/`（conf+compose+patches+`recipe_README.md` 自帶、含還原步驟）；**舊官方模型 `models/deepseek-v4-flash-vision-exp` 依使用者決定兩節點暫留、後續再議**。詳見 `docs/DEEPSEEK_VISION_B12X_RECIPE_AB_2026-10-09.md`。另依使用者決定，舊配方的 A/B lane `deepseek-vision-tune{,.conf.base}` 同日**歸檔**至同一 `_overdue_recipe/` 目錄（白名單移除；未來 vision 調優需從新配方另立 lane）。
 > **2026-10-09（續）**：`deepseek`（mainline）**配方繼承（promote）**——對決 `eugr/spark-vllm-b12x:latest` + `deepseek-v4-flash-0731-dspark-ablit`（drowzeys Anchored-Tensors；候選 lane `deepseek-b12x`，D0 單 boot）vs README E5 記錄：decode Σ **693.3 vs 670.7（+3.4%，8/8 格全正）**、prefill 131K–261K **+16~18%**、accept **+2.3pp（33.4%）**、prefix-hit 正確性 gate **無需任何 hotfix 即過**（HIT 38.5×、輸出逐字一致）、soak（3×3 完整性、garble 3/3、262K 近硬限、health 200）全過 → 條件成立。配方差異：KV fp8（nvfp4_ds_mla 此 image 不可行）、**capture 64**（公式 8×(k+1) 配保留的 k=7；上游 48 是配 k=5）、batched 8192、GMU 0.85、無 `CMD_WRAPPER`/`SYNC_DIRS`/patches。新 `deepseek.conf` 已改寫；舊 Anemll 配方 byte-identical 封存於 `_overdue_recipe/deepseek_anemll-dspark-vllm-gx10-011_20261009/`（`deepseek-anemll.conf` SHA256 `3147b4e9…` + compose + patches + `recipe_README.md` 自帶、含還原步驟）；**舊官方模型 `models/deepseek-v4-flash-0731-official` 依使用者裁定兩節點暫留、後續再議**。候選 lane `deepseek-b12x.conf` 已刪、白名單還原。過程記錄：profile 寫入 `COMPILATION_JSON` 轉義反斜線導致 boot arg 錯誤（修正＋harness 加 90s 早錯檢查）；soak 兩個假警報（腳本未 source `cluster-common.sh` 致 401；verbose 列舉格式打滿 400 tok 預算——皆非模型回歸）。詳見 `docs/DEEPSEEK_B12X_RECIPE_AB_2026-10-09.md`。另依使用者決定，舊配方的 A/B lane `deepseek-tune{,.conf.base}` 同日**歸檔**至同一 `_overdue_recipe/` 目錄（白名單移除；未來 mainline 調優需從新配方另立 lane）。
 > **2026-10-09（續二）**：**退役配方歸檔結構整併**——依使用者決定新設 repo 根目錄 `_overdue_recipe/`，子目錄命名 `<profile>_<image+tag>_<yyyymmdd>/`：`deepseek_anemll-dspark-vllm-gx10-011_20261009/` 與 `deepseek-vision_anemll-dspark-vllm-gx10-011_20261009/`。每個子目錄自帶：封存 conf（byte-identical，含 tune `.conf.base`）、**由封存 conf 現場重新渲染的 compose yml**（`--api-key` 已脫敏為 `<REDACTED:from-cluster.env>` placeholder，實 key 仍在 `~/docker-stacks/config/cluster.env`）、`patches/dspark-vision/` 副本（17 patch + `vision_exp/` + `NOTICE.md`；原 repo 根 `patches/dspark-vision/` 已移入兩份封存，**還原時須複製回 repo 根**——封存 conf 的 `SYNC_DIRS` 解析 `${REPO_DIR}/patches/dspark-vision`）、**`recipe_README.md`（該配方歷史 benchmark 記錄 + 退役對決 + 還原步驟 + 模型保留註記）**、頂層 `_overdue_recipe/README.md`（命名慣例/Inventory/還原總綱/封存 SHA256 表）。**Docker image 與模型檔不上傳**（digest pin 與模型路徑記錄於說明檔）。原 `cluster-profiles.d/_backup/` 全數移入後撤銷（loader 只掃 `cluster-profiles.d/*.conf`，新目錄在 repo 根永遠非 live）；AGENTS／README／兩份 A/B doc／現役 conf header／`bin/gb10` 註解的 `_backup/` 引用同步改寫。
@@ -193,6 +193,80 @@ node0 對 node1 的連線（由 node0 發起）走 CX7 區網：`ssh -i ~/.ssh/i
 ### 磁碟
 
 兩者合計：`used 2.1T → 1.9T`、`avail 1.5T → 1.7T`、**59% → 53%**。
+
+## 2026-10-14（續二） — Node0 殘留清除 + `comfyui-jdaln` failover 鏡像建立
+
+**起因**：Node1 側三項退役完成後，使用者提醒「Node0 與 Node1 之間的同步要透過 CX7 網路
+作 rsync 比較快」。盤點後發現**退役只做了一半** —— Node0 還留著兩個退役 runtime 的副本。
+
+### 1. Node0 殘留清除（~204 GB）
+
+| 項目 | 大小 | 說明 |
+|---|---|---|
+| `~/docker-stacks/minimax-h3/` | 135 GB（217 檔） | 就是 2026-09-01 部署文件裡的「Node0 failover mirror rsync in progress」；最新 mtime 2026-09-01 23:17，含 `compose.yaml` + `.env`(600) |
+| `~/docker-stacks/comfyui-aeon/` | 54 GB（3,919 檔，**5,054 個非 eye**） | 最新 mtime 2026-07-31 —— 比 Node1 那份還舊 |
+| image `ghcr.io/aeon-7/comfyui-aeon-spark:slim` | 16.8 GB | Node1 當時是 26.7 GB，兩節點版本本就不同 |
+
+**刪前查證**：repo conf 無人引用這兩個路徑、`state/` 無標記、**無任何容器**（running 或
+stopped）使用。`minimax-h3-sglang` 從未出現在 Node0。
+
+**執行**：兩目錄一次容器內 `rm`（`comfyui-aeon` 含 root 擁有 → 必須容器內）`rc=0`；
+image `Untagged`+`Deleted` `rc=0`。
+
+**磁碟**：`used 1.8T / avail 1.8T / 51%` → `1.6T / 2.0T / 46%`。
+
+**未動**：Node0 的 `c0918`（`Created` 自 2026-09-18、image `ghcr.io/aeon-7/aeon-vllm-ultimate:
+2026-09-18-v0.29.0-omni`、`cmd=null`、無 mount）—— 那是 AEON runtime 的 `docker create`
+殘骸，與本次無關。
+
+### 2. `comfyui-jdaln` failover 鏡像（經 CX7，124 GB + image）
+
+使用者裁定：「把 node1 的 jdaln 鏡像到 node0」。全程由 Node0 發起、走 CX7：
+
+```bash
+# stack（在 node0 執行）
+rsync -aHAX --no-o --no-g --delete \
+  -e 'ssh -i ~/.ssh/id_gb10_cluster -o BatchMode=yes -o StrictHostKeyChecking=no' \
+  eye@10.0.101.102:~/docker-stacks/comfyui-dgx-spark/ ~/docker-stacks/comfyui-dgx-spark/
+
+# image —— 方向：Node1 才有，所以 Node1 save、Node0 load
+ssh -i ~/.ssh/id_gb10_cluster eye@10.0.101.102 \
+  'docker save comfyui-dgx-spark-docker-opinionated-comfy:latest' | docker load
+```
+
+**結果**：rsync **rc=0**、335 s、**114,316 檔 / 132.79 GB / ~396 MB/s**（磁碟瓶頸，NIC 尚有
+餘裕）；image **rc=0/0**、128 s。
+
+**驗證（byte-mirror）**：
+
+- 檔案／目錄／symlink 數兩端**完全相同**：`114,316 / 16,298 / 6`，size 都是 124G。
+- 抽查 >2 GB 權重 `hunyuan_video_720_fp8_e4m3fn.safetensors` 的 sha256
+  `07ae20b5…d62426` **兩端一致**。
+- 鏡像上非 eye 擁有條目 = **0**。`--no-o --no-g` 是刻意的：來源只有 1 個 uid 0 的目錄
+  （`ComfyUI-DGX-Spark-Docker-opinionated/ComfyUI/user`），不加會在 Node0 複製出
+  root-owned 檔 —— 本 repo 今天已經被這件事咬兩次。
+
+**image「看起來不一樣」不是 bug**：Node1 用 containerd image store 存**壓縮**層
+（`.Size` 6.87 GB），Node0 用經典 `overlay2` 存**解壓**層（`.Size` 10.28 GB）。**31 層
+diff-ID chain byte-identical**、`Created`/`Entrypoint`/arch 相同，且 `docker save` 的
+tarball 大小正好等於 Node1 的 `.Size`（多出的 36 KB 是 tar 元資料）。image ID 不同是
+config 重序列化所致。`--entrypoint /bin/sh` smoke test 通過（Python 3.12.3、`/workspace`
+完整；`ComfyUI`/`custom_nodes`/`venv` 是 runtime bind-mount、本來就不在 image 內）。
+
+**我自己踩的方向 bug**：第一次把 `docker save` 放在 Node0 執行 → `reference does not
+exist` + `unrecognized image format`，因為 Node0 根本沒有那顆 image。方向必須是
+Node1 save → Node0 load。
+
+**尚未驗證（重要）**：Node0 端**沒有實際 boot ComfyUI**。當時 Node0 正跑 27b TP2 cluster，
+起 ComfyUI 會搶同一顆 GB10 GPU。所以這是**被動 byte-mirror，不是自動 failover lane**：
+`runtimes.d/comfyui-jdaln.conf` 沒有 `NODE` 欄位（`gb10-single` 以參數指定節點），真要切換
+得手動 `gb10 stop`（TP2）→ `gb10-single use comfyui-jdaln node0`，而**這條路徑尚未實測**。
+重新鏡像就用上面同一行 rsync，不需要排除任何東西。
+
+### 磁碟（Node0）
+
+`1.8T used / 1.8T avail / 51%` →（刪殘留）`1.6T / 2.0T / 46%` →（+124 GB stack + image）
+**`1.8T / 1.8T / 49%`**。
 
 ## 2026-10-07 — aeon 舊 image 清理（兩節點）
 

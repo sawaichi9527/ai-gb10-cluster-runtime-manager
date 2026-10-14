@@ -435,3 +435,95 @@ batch/scripted access) no longer exists. Any automated caller must move to the C
 `/prompt` API on `:8188`. Weights are re-downloadable via the recipe in
 `docs/MINIMAX_H3_DEPLOYMENT_2026-09-01.md` but that is a multi-hour fetch at the measured
 ~5–7 MB/s.
+
+## 13. Node0 leftovers cleared + `comfyui-jdaln` failover mirror — 2026-10-14
+
+Same day, after §§11–12 closed, an operator note about moving data between Node0 and Node1
+over CX7 with rsync prompted a cross-node check. It found the retirement was only half done,
+and produced a new artifact: a Node0 mirror of this lane.
+
+### 13.1 Node0 still held both retired runtimes (~204 GB)
+
+| Path on Node0 | Size | What it was |
+|---|---|---|
+| `~/docker-stacks/minimax-h3/` | 135 GB, 217 files | the "failover mirror rsync in progress" from the 2026-09-01 deployment (newest mtime 2026-09-01 23:17, `compose.yaml` + `.env` 600) |
+| `~/docker-stacks/comfyui-aeon/` | 54 GB, 3,919 files, 5,054 non-`eye` | newest mtime 2026-07-31 — older than Node1's copy was |
+| image `ghcr.io/aeon-7/comfyui-aeon-spark:slim` | 16.8 GB | Node1's was 26.7 GB; the two nodes had diverged |
+
+Checked before deleting: no repo conf referenced either path, no `state/` marker existed, and
+no container in any state used them. `minimax-h3-sglang` never existed on Node0. Both dirs
+went through one in-container `rm` (`rc=0`; `comfyui-aeon` was the root-owned one) and the
+image through `Untagged`+`Deleted` (`rc=0`).
+
+Disk: `1.8T used / 1.8T avail / 51%` → `1.6T / 2.0T / 46%`.
+
+Left alone: Node0's `c0918`, a `Created`-state container since 2026-09-18
+(`ghcr.io/aeon-7/aeon-vllm-ultimate:2026-09-18-v0.29.0-omni`, `cmd=null`, no mounts) — a
+stray `docker create` for the AEON runtime, unrelated to these retirements.
+
+### 13.2 Mirror built over CX7
+
+Operator decision: mirror this lane to Node0. Everything was initiated from Node0 over the
+CX7 interconnect (`10.0.101.101` ↔ `10.0.101.102`, key `~/.ssh/id_gb10_cluster`, rsync 3.2.7
+on both, no passwordless sudo on either node so everything runs as `eye`):
+
+```bash
+# stack
+rsync -aHAX --no-o --no-g --delete \
+  -e 'ssh -i ~/.ssh/id_gb10_cluster -o BatchMode=yes -o StrictHostKeyChecking=no' \
+  eye@10.0.101.102:~/docker-stacks/comfyui-dgx-spark/ ~/docker-stacks/comfyui-dgx-spark/
+
+# image -- Node1 owns it, so Node1 saves and Node0 loads
+ssh -i ~/.ssh/id_gb10_cluster eye@10.0.101.102 \
+  'docker save comfyui-dgx-spark-docker-opinionated-comfy:latest' | docker load
+```
+
+Result: rsync **rc=0** in 335 s — **114,316 files / 132.79 GB at ~396 MB/s** (disk-bound; the
+NIC has far more headroom). Image **rc=0/0** in 128 s.
+
+`--no-o --no-g` is deliberate rather than cosmetic: the source contains exactly one non-`eye`
+entry (`ComfyUI-DGX-Spark-Docker-opinionated/ComfyUI/user`, uid 0), and dropping ownership
+keeps the mirror free of root-owned files instead of reproducing the trap that had already
+bitten this deployment twice (§§11–12 both needed a container-based `rm`).
+
+**Direction bug worth remembering:** the first attempt ran `docker save` on Node0 and failed
+with `reference does not exist` / `unrecognized image format` — Node0 had no such image. The
+transfer must be Node1 save → Node0 load.
+
+### 13.3 Verification
+
+| Check | Node1 | Node0 |
+|---|---|---|
+| files / dirs / symlinks | 114,316 / 16,298 / 6 | **114,316 / 16,298 / 6** |
+| `du -sh` | 124 G | 124 G |
+| non-`eye` entries | 1 (the `ComfyUI/user` dir) | **0** |
+| sha256 of `hunyuan_video_720_fp8_e4m3fn.safetensors` | `07ae20b5c60574414c4102bebaec79f3024f5e8db78ae27819b22d0e61d62426` | **identical** |
+
+The image looks different but is not:
+
+| | Node1 | Node0 |
+|---|---|---|
+| storage | containerd image store (layers compressed) | classic `overlay2` (layers unpacked) |
+| `.Size` | 6,867,543,464 | 10,285,271,216 |
+| `docker images` SIZE | 17.2 GB | 10.3 GB |
+| layers | 31 | 31 — **diff-ID chain byte-identical** |
+| image ID | `sha256:49dfc620…` | `sha256:5b9bfc51…` (config re-serialised) |
+| `Created` / `Entrypoint` / arch | `2026-10-12T17:30:30+08:00` / `["/entrypoint.sh"]` / `linux/arm64` | **identical** |
+
+`docker save`'s tarball measures 6,867,579,904 bytes — Node1's `.Size` plus 36 KB of tar
+metadata — which confirms the gap is compression, not content. A `--entrypoint /bin/sh`
+smoke test on Node0 runs clean (Python 3.12.3, `/workspace` populated with
+`asset-profiles.json` / `models-cutter` / `patches`); `ComfyUI`, `custom_nodes` and `venv`
+are bind-mounted at runtime and are correctly *absent* from the image. **Do not "fix" the
+image-ID or size mismatch.**
+
+### 13.4 What this mirror is — and is not
+
+It is a **passive byte-mirror**, not an automatic failover lane. ComfyUI was **not
+boot-tested on Node0**: at the time Node0 was serving the 27b TP2 cluster, and starting
+ComfyUI there contends for the same GB10 GPU. `runtimes.d/comfyui-jdaln.conf` carries no
+`NODE` field — `gb10-single` takes the node as an argument — so a real switchover would be
+manual: `gb10 stop` (TP2) then `gb10-single use comfyui-jdaln node0`, and **that path is
+untested**. Re-mirroring uses the same rsync line with no exclusions.
+
+Node0 ends at `1.8T used / 1.8T avail / 49%`.

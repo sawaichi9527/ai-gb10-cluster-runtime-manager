@@ -178,6 +178,37 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   stack (~71 GB) + image (26.7 GB) deleted from Node1, `runtimes.d/comfyui.conf` removed.
   Do not resurrect it, and do not bring back the older `comfyui-personal` / `comfyui-work`
   split. Its HF token now lives at `~/docker-stacks/config/hf_token` (mode 600).
+- **`comfyui-jdaln` has a failover mirror on Node0 (built 2026-10-14 over CX7).** Node0
+  holds a copy of the whole lane at `~/docker-stacks/comfyui-dgx-spark/` (124 GB,
+  114,316 files / 16,298 dirs / 6 symlinks) plus the image
+  `comfyui-dgx-spark-docker-opinionated-comfy:latest`.
+  - **Node0↔Node1 data movement goes over CX7, always** (`10.0.101.101`↔`10.0.101.102`,
+    key `~/.ssh/id_gb10_cluster`, rsync 3.2.7 on both) — not through the Windows host,
+    not over the `192.168.23.x` LAN. Both nodes lack passwordless sudo, so every rsync
+    runs as `eye`.
+  - Stack pulled with `rsync -aHAX --no-o --no-g --delete` — 335 s, ~396 MB/s
+    (disk-bound; the NIC has far more headroom). **`--no-o --no-g` is deliberate**: the
+    source has exactly one non-`eye` entry (`ComfyUI-DGX-Spark-Docker-opinionated/ComfyUI/user`,
+    uid 0), and dropping ownership keeps the mirror free of root-owned files rather than
+    reproducing the trap that has bitten this repo twice.
+  - Image moved **Node1 → Node0** via `ssh eye@10.0.101.102 'docker save <img>' | docker load`
+    (128 s). Get the direction right: Node1 owns the image, so Node1 saves — putting
+    `docker save` on Node0 fails with `reference does not exist`.
+  - **Verified**: file/dir/symlink counts match exactly on both ends, and a >2 GB
+    weight's sha256 (`hunyuan_video_720_fp8_e4m3fn.safetensors` =
+    `07ae20b5c60574414c4102bebaec79f3024f5e8db78ae27819b22d0e61d62426`) is identical
+    on both. The image differs in *bytes shown* but not in content: Node0 uses the
+    classic `overlay2` graph driver (31 layers unpacked, `.Size` 10.28 GB) while Node1
+    uses the containerd image store (31 layers compressed, `.Size` 6.87 GB) — the
+    diff-ID chains are byte-identical, the `Created`/`Entrypoint`/arch match, and a
+    `--entrypoint /bin/sh` smoke test runs (Python 3.12.3, `/workspace` intact). **Do
+    not "fix" the image-ID or size mismatch; it is a storage-representation artifact.**
+  - **Not boot-tested on Node0** — Node0 was serving the 27b TP2 cluster, and starting
+    ComfyUI there contends for the same GB10 GPU. Failover is therefore a manual
+    `gb10-single use comfyui-jdaln node0` (`runtimes.d/comfyui-jdaln.conf` has no `NODE`
+    field; `gb10-single` takes the node as an argument), not an automatic switch, and it
+    requires TP2 down first. Re-mirror with the same rsync line, excluding nothing.
+    Node0 ends at `1.8T used / 1.8T avail / 49%`.
 - **`minimaxh3` retired 2026-10-14.** The vLLM-API MiniMax H3 lane (`:8000`,
   OpenAI-compatible, stack `~/docker-stacks/minimax-h3/` 135 GB + image
   `minimax-h3-dgx-spark:sm121-fp8` 32 GB + `~/Downloads/minimax-h3-output`) was deleted
@@ -194,6 +225,23 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   custom Diffusers class → `ComponentCheckpointUnsupportedError`, not fixable
   within the allowed rules) — was preserved verbatim in `handoff.md` before
   deletion. Nothing under `~/docker-stacks/` matches `sglang` anymore.
+  - **Node0's leftovers were also cleared 2026-10-14** (follow-up operator instruction):
+    Node0 had been holding its own copies of BOTH retired runtimes — `minimax-h3` 135 GB
+    (217 files, newest mtime 2026-09-01 23:17; this was the "failover mirror rsync in
+    progress" from the 2026-09-01 deployment) and `comfyui-aeon` 54 GB (3,919 files,
+    5,054 non-`eye` entries, newest mtime 2026-07-31 — older than Node1's copy was) —
+    plus the image `ghcr.io/aeon-7/comfyui-aeon-spark:slim` 16.8 GB. Both dirs went
+    through one in-container `rm` (`rc=0`; `comfyui-aeon` was the root-owned one) and
+    the image through `Untagged`+`Deleted` (`rc=0`): **~204 GB reclaimed on Node0**,
+    disk `1.8T used / 1.8T avail / 51%` → `1.6T / 2.0T / 46%`. Checked before deleting:
+    no repo conf referenced either path, no `state/` marker existed, and no container in
+    any state used them.
+    `minimax-h3-sglang` never existed on Node0. Node0's `~/docker-stacks/` now has no
+    trace of any retired runtime.
+  - **One stray container is NOT ours and was left alone**: Node0 has `c0918` in
+    `Created` state since 2026-09-18 (`ghcr.io/aeon-7/aeon-vllm-ultimate:2026-09-18-v0.29.0-omni`,
+    `cmd=null`, no mounts) — a leftover `docker create` for the AEON runtime, unrelated
+    to these retirements.
 
 ## TP2 profile refactor (completed 2026-09-05)
 

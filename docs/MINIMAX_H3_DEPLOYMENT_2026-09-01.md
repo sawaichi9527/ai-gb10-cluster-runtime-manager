@@ -12,7 +12,7 @@
 > | Node1 stack `~/docker-stacks/minimax-h3/` (135 GB: 64 GB weights + 73 GB HF cache) | **deleted** |
 > | image `minimax-h3-dgx-spark:sm121-fp8` (32 GB) | **untagged + deleted** |
 > | `~/Downloads/minimax-h3-output/` (19 MB, generated .mp4) | **deleted** |
-> | Node0 failover mirror (§ decision 3) | superseded — remove any replica you kept |
+> | Node0 failover mirror (§ decision 3) | **deleted 2026-10-14** — 135 GB replica removed as well |
 >
 > **Why:** `comfyui-jdaln` covers MiniMax H3 image-to-video natively
 > (`comfy_extras.nodes_minimax_h3` + `ComfyUI-MiniMaxH3-Easy`, 39 local node types on
@@ -39,6 +39,9 @@
 **Status:** ✅ **DEPLOYED & VERIFIED (2026-09-01)**
 - Node1: `minimax-h3-fl2va` running, `/health` = `200` (cold start ≈ 11.9 min), smoke `t2va` PASS (H.264 768×448@24fps + AAC).
 - Node0: failover mirror rsync in progress (`~/.ssh/id_gb10_cluster`, interconnect `10.0.101.x`).
+  **This node0 replica was deleted on 2026-10-14** along with the lane itself — node0's copy
+  was 135 GB (217 files, newest mtime 2026-09-01 23:17, `compose.yaml` + `.env` 600 present,
+  nothing referencing it afterward). See the retired banner above.
 - TP2 torn down first (operator-approved Phase 5).
 
 ---
