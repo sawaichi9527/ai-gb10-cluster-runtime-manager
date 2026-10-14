@@ -722,6 +722,27 @@ node across groups (e.g. starting `minimaxh3` on node1 also stops a running
 `comfyui` there) and auto-tears down an active TP2 cluster first (做法 B).
 Placeholders print "not deployed yet"; they are CLI skeletons until models/versions land.
 
+### ComfyUI: two independent lanes on Node1
+
+`comfyui` (aeon / Flux 2 Dev) and `comfyui-jdaln` (jdaln opinionated) both live on Node1,
+both `GROUP=image` + `MODE=exclusive` → `use` switches between them and frees the other;
+port 8188 cannot collide. Full record: `docs/COMFYUI_JDALN_DEPLOYMENT_2026-10-14.md`.
+
+- **Its upstream healthcheck is a false positive** (`curl … || pgrep -af 'curl .* models/…'`
+  matches the healthcheck's own `sh -c` command line → always `healthy`). The authoritative
+  gate is `gb10-single`'s loopback curl to `:8188/` — never `docker ps` health.
+- **Asset scope is trimmed.** `.env` carries an *empty*
+  `COMFY_CUSTOM_NODE_EXAMPLE_WORKFLOWS_ALLOWLIST` and `UPDATE_DEPS=false`. The compose
+  default (`docker-compose.yml:49`) was removed (`${VAR:-…}` → `${VAR-}`) because `${VAR:-}`
+  treats empty as unset and would silently re-expand to 6 packs → +93 GiB of profiles plus a
+  +174 GiB workflow-asset stage. Restore a gallery by writing pack names back into `.env`;
+  downloads are idempotent (`download_if_missing` skips existing files).
+- **Rebuild prerequisite:** copy `SelfBuiltWheels/*` → `DGX-Spark-WheelsBuilder/Wheels/`
+  before `docker compose build`, or onnxruntime compiles from source (hours).
+- Known dead pack: `ComfyUI-SAM3-DGX-Spark` pins `comfy-env==0.2.61`, which PyPI has yanked
+  (oldest now `0.3.0`) → it imports to zero nodes. Harmless: all 11 `SAM3_*` node types come
+  from ComfyUI core (`comfy_extras.nodes_sam3d_body`).
+
 ## Config
 
 - `cluster.env` (gitignored) — cluster/site knobs: `MASTER_ADDR/PORT`, `NODE0/1_IP`,
@@ -765,10 +786,13 @@ cluster.env.example cluster/site config template (NEVER commit real values)
                     mia-vllm-openai-qwen38flashNext (qwen38flash)
                     tonyd2wild-vllm-mimo26flash (mimo26flash)
                     comfyui-aeon (comfyui / Flux 2 Dev)
-                    comfyui-dgx-spark (comfyui-jdaln, since 2026-10-12; git
-                      clone of jdaln/ComfyUI-DGX-Spark-Docker-opinionated —
-                      self-built image via `docker compose build`, wheels in
-                      Git LFS; host needs ~/.local/bin/git-lfs to clone/pull)
+                    comfyui-dgx-spark/ComfyUI-DGX-Spark-Docker-opinionated
+                      (comfyui-jdaln, since 2026-10-12, live 2026-10-14; git
+                       clone of jdaln/ComfyUI-DGX-Spark-Docker-opinionated —
+                       self-built image via `docker compose build`, wheels in
+                       Git LFS; host needs ~/.local/bin/git-lfs to clone/pull.
+                       Its models/user/input/output live one level down in
+                       comfyui-dgx-spark/ComfyData/, NOT at the stack root)
     docker-compose.<profile>.yml            (cluster-only lanes, materialized)
     docker-compose-<profile>-cluster.yml    (lanes that also run single: 27b/35b)
     docker-compose-<profile>-single.yml
