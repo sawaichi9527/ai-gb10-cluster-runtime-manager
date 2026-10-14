@@ -527,3 +527,78 @@ manual: `gb10 stop` (TP2) then `gb10-single use comfyui-jdaln node0`, and **that
 untested**. Re-mirroring uses the same rsync line with no exclusions.
 
 Node0 ends at `1.8T used / 1.8T avail / 49%`.
+
+## 14. Output directory moved to `~/Downloads/output/` — 2026-10-14
+
+Operator instruction: from now on this lane's renders land in `~/Downloads/output/` instead
+of `ComfyData/output/`, and the two deployment-test artefacts should be cleared from both
+nodes.
+
+### 14.1 Why an override file was not an option
+
+`scripts/gb10-single-boot` runs compose as
+`cd "$STACK_DIR" && docker compose -p "$PROJECT" -f "$COMPOSE_FILE" …`. Passing an explicit
+`-f` disables Compose's default file discovery, so a `docker-compose.override.yml` would be
+silently ignored. The output mount therefore had to change inside the compose itself — which
+is an **upstream git-tracked** file (`jdaln/ComfyUI-DGX-Spark-Docker-opinionated`,
+`docker-compose.yml`, line 30).
+
+The edit was made defaults-preserving so upstream behaviour survives a lost variable and a
+future conflict is a one-line resolve:
+
+```yaml
+      - ${COMFY_OUTPUT_DIR:-../ComfyData/output}:/workspace/ComfyUI/output
+```
+
+The value itself lives in the gitignored `.env` (line 22, `COMFY_OUTPUT_DIR=/home/eye/Downloads/output`),
+which rides along with the mirror rsync. Compose still parses (`config --quiet` rc=0) on both
+nodes, and `docker-compose.yml` + `.env` have **matching sha256 across Node0 and Node1**.
+
+### 14.2 Pre-flight that made it safe
+
+`ComfyData/user/default/comfy.settings.json` (13 KB) contains **no output-related key**, so
+ComfyUI has no persisted absolute `output_directory` that would override the mount. `.env`
+carries `UID=1000 GID=1000`, matching `eye`, and `~/Downloads` is `drwxrwxr-x eye:eye`, so the
+container's `user: "${UID}:${GID}"` can write to the new bind target without a permission fix.
+
+### 14.3 What changed on each node
+
+On Node1 the compose and `.env` were backed up, `~/Downloads/output` created (0775), line 30
+rewritten, and the container recreated (`Container comfyui Recreated`). Verification after the
+recreate:
+
+| Check | Result |
+|---|---|
+| mount | `/home/eye/Downloads/output -> /workspace/ComfyUI/output`, `rw=true` |
+| write probe inside the container | `touch` succeeds |
+| `:8188` | READY in **~10 s**, `health=healthy`, `restarts=0` |
+| `/` and `/system_stats` | both `200` |
+
+Cleared from **both** nodes: `MiniMax_H3_verify_00001_.mp4` (935,097 B) and
+`z-image_00001_.png` (709,670 B), plus the empty `video/` subdir. The mp4 was fetched to the
+operator's Windows `Downloads\` first and sha256-verified identical
+(`3b2a4753c7f3c83f91418475a32130448f31166e6d1c99eedd079e64ae2a1ab4`).
+
+`ComfyData/output/` itself is **kept, now empty** — it remains the upstream default if
+`COMFY_OUTPUT_DIR` is unset — and still contains two empty custom-node dirs
+(`qwen3-tts_voices/`, `exp_data/`) that ComfyUI recreates at startup.
+
+### 14.4 Propagating to Node0
+
+Node0 was brought in line by **re-running the same mirror rsync** rather than hand-editing:
+`--delete` removed exactly `3 (reg: 2, dir: 1)` — the two artefacts and the `video/` dir —
+rc=0 in 4 s, and the parameterised compose plus the `.env` line arrived with it. Node0's
+compose parses rc=0. Node0 still has no ComfyUI container (it remains a passive mirror); only
+`aeon-vllm-27b` (Up 2 days) and the unrelated `c0918` are present.
+
+### 14.5 Three limits to remember
+
+1. **The compose now diverges from upstream by 2 lines** — this one, and a pre-existing
+   `COMFY_CUSTOM_NODE_EXAMPLE_WORKFLOWS_ALLOWLIST` default that is redundant with `.env`. A
+   future `git pull` may conflict on either; keep `${COMFY_OUTPUT_DIR:-../ComfyData/output}`.
+2. **`~/Downloads/output/` sits outside the mirrored tree** (`~/docker-stacks/comfyui-dgx-spark/`),
+   so renders are **not** carried to Node0. Deliberate: outputs are regenerable, the models and
+   venv that produce them are what the mirror protects.
+3. Nothing enforces the directory. A caller that writes to `/workspace/ComfyUI/output` still
+   lands in the new bind; a caller that uses an absolute host path to `ComfyData/output` will
+   bypass it.

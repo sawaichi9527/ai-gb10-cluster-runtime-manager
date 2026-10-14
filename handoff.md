@@ -263,6 +263,53 @@ Node1 save → Node0 load。
 得手動 `gb10 stop`（TP2）→ `gb10-single use comfyui-jdaln node0`，而**這條路徑尚未實測**。
 重新鏡像就用上面同一行 rsync，不需要排除任何東西。
 
+### 3. 輸出目錄改到 `~/Downloads/output/` + 測試產物清除
+
+使用者指示：以後 jdaln 產出放 `~/Downloads/output/`，順便清掉兩個 Node 的
+`ComfyData/output/` 測試檔。
+
+**為什麼不能用 override 檔**：`scripts/gb10-single-boot:106` 是
+`docker compose -p "$PROJECT" -f "$COMPOSE_FILE"` —— 明確 `-f` 會讓
+`docker-compose.override.yml` **不被自動載入**。而輸出掛載位於**上游 git 追蹤的**
+`ComfyUI-DGX-Spark-Docker-opinionated/docker-compose.yml` 第 30 行。因此改動直接落在
+compose 本身，但做成**保留預設值**的參數化形式：
+
+```yaml
+      - ${COMFY_OUTPUT_DIR:-../ComfyData/output}:/workspace/ComfyUI/output
+```
+
+`.env`（gitignored）第 22 行設 `COMFY_OUTPUT_DIR=/home/eye/Downloads/output`。變數未設時
+上游行為完全不變。
+
+**前置查證**：`ComfyData/user/default/comfy.settings.json`（13 KB）**沒有任何 output 相關
+鍵** → ComfyUI 不會釘住絕對路徑，只換掛載即生效。UID/GID `.env` 為 1000:1000、與 `eye`
+一致。compose 改後 `config --quiet` **rc=0**。
+
+**執行（node1）**：備份 `docker-compose.yml` 與 `.env` → `mkdir ~/Downloads/output` →
+sed 改第 30 行 → 寫 `.env` → `docker compose up -d`（`Container comfyui Recreated`）。
+容器掛載確認為 `/home/eye/Downloads/output -> /workspace/ComfyUI/output rw=true`，容器內
+`touch` 寫入測試 **YES**，**`:8188` 約 10 秒即 READY**、`health=healthy`、`restarts=0`、
+`/` 與 `/system_stats` 皆 200。
+
+**清除**：兩節點的 `ComfyData/output/` 各刪 2 檔（`MiniMax_H3_verify_00001_.mp4` 935,097 B、
+`z-image_00001_.png` 709,670 B）與空的 `video/` 目錄。node0 那份是靠**重跑同一條 rsync**
+帶走的（`--delete` → `Number of deleted files: 3 (reg: 2, dir: 1)`，rc=0、4 秒）。目錄本身
+保留（仍是上游預設路徑），底下剩 `qwen3-tts_voices/`、`exp_data/` 兩個 **空目錄**（custom
+node 啟動時建的，不是測試輸出）。
+
+**驗證**：node0/node1 的 `docker-compose.yml` 與 `.env` **sha256 完全相同**；node0 compose
+解析 rc=0；node0 無 comfyui 容器（仍是被動鏡像），只有 `aeon-vllm-27b Up 2 days` +
+`c0918 Created`。
+
+**三個要記的限制**：
+
+1. **compose 現在與上游分歧 2 行**（另一行是舊有的
+   `COMFY_CUSTOM_NODE_EXAMPLE_WORKFLOWS_ALLOWLIST` 預設值，與 `.env` 重複）。未來
+   `git pull` 可能在這兩行衝突 —— 解法是保留 `${COMFY_OUTPUT_DIR:-../ComfyData/output}`。
+2. **`~/Downloads/output/` 在鏡像範圍之外**（`~/docker-stacks/comfyui-dgx-spark/` 以外），
+   所以產出**不會**被鏡像到 node0。這是刻意的：產物可重新產生。
+3. 舊 mp4 已在刪除前撈到 Windows `C:\Users\Sawaichi\Downloads\`（sha256 一致）。
+
 ### 磁碟（Node0）
 
 `1.8T used / 1.8T avail / 51%` →（刪殘留）`1.6T / 2.0T / 46%` →（+124 GB stack + image）

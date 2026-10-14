@@ -209,6 +209,33 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
     field; `gb10-single` takes the node as an argument), not an automatic switch, and it
     requires TP2 down first. Re-mirror with the same rsync line, excluding nothing.
     Node0 ends at `1.8T used / 1.8T avail / 49%`.
+  - **Outputs go to `~/Downloads/output/`, not `ComfyData/output/` (since 2026-10-14).**
+    The output bind mount lives in the *upstream git-tracked* compose
+    (`ComfyUI-DGX-Spark-Docker-opinionated/docker-compose.yml`), and
+    `scripts/gb10-single-boot` invokes compose with an explicit `-f "$COMPOSE_FILE"`, so a
+    `docker-compose.override.yml` would **not** be auto-loaded — the edit had to go into
+    the compose itself, as a defaults-preserving parameter:
+    `- ${COMFY_OUTPUT_DIR:-../ComfyData/output}:/workspace/ComfyUI/output`. The actual value
+    lives in the gitignored `.env` (`COMFY_OUTPUT_DIR=/home/eye/Downloads/output`) and
+    travels with the mirror rsync. Both nodes carry it, and compose+`.env` sha256 match.
+    - **The compose file is upstream-tracked and now diverges by 2 lines.** A future
+      `git pull` from `jdaln/ComfyUI-DGX-Spark-Docker-opinionated` may conflict here; the
+      other local line (a `COMFY_CUSTOM_NODE_EXAMPLE_WORKFLOWS_ALLOWLIST` default) predates
+      this change and is redundant with `.env`. Resolve conflicts by keeping
+      `${COMFY_OUTPUT_DIR:-../ComfyData/output}`.
+    - **`~/Downloads/output/` is OUTSIDE the mirrored tree** (`~/docker-stacks/comfyui-dgx-spark/`),
+      so rendered outputs are **not** carried to Node0 by the mirror. That is intentional —
+      outputs are regenerable. Both nodes have the dir created and empty.
+    - **`ComfyData/output/` is kept, now empty** (it remains the upstream default if
+      `COMFY_OUTPUT_DIR` is ever unset), and still holds two empty custom-node dirs
+      (`qwen3-tts_voices/`, `exp_data/`) that ComfyUI recreates at startup.
+    - The two deployment-test artefacts were deleted from **both** nodes
+      (`MiniMax_H3_verify_00001_.mp4` 935,097 B and `z-image_00001_.png` 709,670 B, plus the
+      empty `video/` subdir); the mp4 was fetched to the operator's Windows
+      `Downloads\` first, sha256-verified identical. Verify any change by
+      `docker inspect comfyui` showing `/home/eye/Downloads/output -> /workspace/ComfyUI/output`
+      and a writable probe inside the container; after the recreate, `:8188` was READY in
+      ~10 s with `health=healthy`.
 - **`minimaxh3` retired 2026-10-14.** The vLLM-API MiniMax H3 lane (`:8000`,
   OpenAI-compatible, stack `~/docker-stacks/minimax-h3/` 135 GB + image
   `minimax-h3-dgx-spark:sm121-fp8` 32 GB + `~/Downloads/minimax-h3-output`) was deleted
