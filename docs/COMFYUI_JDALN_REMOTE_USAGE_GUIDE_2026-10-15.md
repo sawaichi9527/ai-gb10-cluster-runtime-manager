@@ -900,10 +900,17 @@ Full list on the node: `asset-profiles.json` (91 profiles) and the pack's own
 
    ```bash
    # on node1: read dest→url from asset-profiles.json, curl each missing file to its
-   # ComfyData path (resume with -C -, verify size against the HEAD Content-Length)
+   # ComfyData path. Use resume + the failure-proof flags:
+   curl -L --fail --retry 8 --retry-delay 5 --retry-all-errors \
+        --speed-time 60 --speed-limit 1024 -C - -o "$dest.part" "$url" && mv -f "$dest.part" "$dest"
    ```
    The bootstrap's own downloader is fine but runs **inside the restart**, so `:8188` is down for
    the whole transfer; pre-fetching keeps ComfyUI serving and makes the next restart ~30 s.
+   ⚠️ **`--retry-all-errors` matters**: a transient `curl: (92) HTTP/2 stream error` is *not*
+   covered by `--retry` alone, and it leaves a silently stalled `.part` behind (this happened
+   during the ref2v install: the transfer stopped at 3.15 GB of 20.97 GB with no error visible
+   except in the log). `--speed-time/--speed-limit` additionally aborts a hung connection so the
+   retry loop can resume it.
 3b. *(alternative)* **Restart and let the bootstrap download**: `gb10-single restart node1
    comfyui-jdaln` — the entrypoint downloads new assets **before** starting ComfyUI. Budget
    **≈8–10 MB/s** (2.8 GB ≈ 5 min, 33 GB ≈ 1 h, 50 GB ≈ 1.5 h) and expect `:8188` to be down the
