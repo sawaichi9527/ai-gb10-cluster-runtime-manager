@@ -1919,6 +1919,34 @@ ref2va 與 3D upscaler sha256 MATCH、node0 非 eye = 0；node0 stack **236 GB**
 `AGENTS.md`：16 profiles、upscaler URL 缺陷、鏡像第四次事實。
 commit `04f83c6`（LoRA 階梯）→ `d26611b`（Easy）→ `a8d90d8`（預抓強化）→ 本輪 ref2v 追加。
 
+### 2026-10-16（續十）— (c) 簡報 prompt 模板 + `scripts/comfy-slide.py`（指南 rev 7）
+
+**使用者裁定**：影片擴充先告一段落，回到 (c)：讓 hermes-agent 能**一致地**產出整份簡報。
+
+**新增 `scripts/comfy-slide.py`**（stdlib-only；PIL 有就用、否則退 ImageMagick、否則回報略過）：
+輸入提示／模式／尺寸／seed → 組出**已驗證的 payload** → `POST /prompt` → 輪詢 `/history`
+→ `/view` 下載 → **自動裁成精確 1920×1080** → 印出可解析的 JSON 摘要。
+子指令：`--check`（服務版本＋佇列）、`--models`（列出可用 unet/clip/vae/input 檔名）、`--dry-run`。
+模式：`qwen21 a/b/c`、`z-image a/b`、`edit`（需 `--reference`）、`layers`（需 `--reference`，每層一張 PNG）。
+`COMFY_URL` 可切 node0；`COMFY_WAIT` 可調等待上限；prompt 拒絕／`execution_error`／逾時皆**非零退出**。
+
+**五條路徑實測（本機 Windows 直接呼叫 node1）**
+
+| 指令 | 耗時 | 產出 |
+|---|---|---|
+| `--model qwen21 --mode a` | **56 s** | 1920×1088 → 自動裁 **1920×1080**（offset 0,4）|
+| `--model qwen21 --mode b`（hero）| **116 s** | 2752×1536 → 縮成 1935×1080 → 裁 **1920×1080** |
+| `--model z-image --mode a` | **20 s** | 1280×720（草稿）|
+| `--model edit --reference …` | **51 s** | 1920×1080 |
+| `--model layers --reference angry_broccoli.png --layers 2 --size 640x640` | **261 s** | 2 張 PNG（`out-1/-2`）；**尺寸跟隨參考圖**（896×1152，`--size` 無效 → 已在說明中標註）|
+
+**指南 §12（新）**：三分塊 prompt 模板（LAYOUT＝整份簡報固定／CONTENT＝每頁視覺／TEXT＝僅在圖上需有字時，
+且**精確引號 + 「must read exactly」**）；一致性規則（`--style deck-style.txt`、固定負面詞、整份用模式 A、
+seed family＝base+頁碼、逐頁記錄）；已驗證的完整範例與指令；輔助腳本的用法、JSON 契約與**不做的事**
+（不批次、不檢查文字正確性、不含影片）；交稿前 QA 指向 §10.8。同步更新 §0 指標與版本行（rev 7）。
+
+**本機成品**：`C:\Users\Sawaichi\Downloads\c-slide-test\`（q21_a、q21_b、zi_a、edit、layer-1/2）。
+
 ### 2026-10-15（續六）— 簡報產線定案：兩條獨立工作流 + 模型選擇查證（指南 rev 4）
 
 **使用者指正**：我原本把「Z-Image Turbo 出草稿 → Qwen-Image 定稿」寫成一條混用管線，那是我的

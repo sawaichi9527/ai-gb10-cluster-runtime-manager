@@ -13,13 +13,13 @@ human — that generates images or videos by calling this ComfyUI over the netwo
 > **Maintenance rule: if the ComfyUI image or the asset profiles change, re-verify
 > §2/§4/§5/§5b against `/object_info` before trusting the file names below.**
 
-**Version of this document:** 2026-10-15 (**rev 6**). Rev 2 added §5b Qwen-Image 2.1 and the
+**Version of this document:** 2026-10-15/16 (**rev 7**). Rev 2 added §5b Qwen-Image 2.1 and the
 "output dimensions must be multiples of 16" rule; rev 3 added §0 (agent TL;DR) and §9 (node0
 failover); rev 4 added §10 (presentation-deck workflow); rev 5 expanded §10.3 (Z-Image Turbo+Base)
-and added §11 (model portfolio); **rev 6 adds §5c (FLUX.2 Klein 4B edit) and §5d (Qwen-Image
-Layered), fills in the measured Z-Image Base numbers, and records the fp8mixed substitution for
-Layered**. Everything marked ✅ was executed against the live service on that date, with file
-sizes/hashes and wall times recorded below.
+and added §11 (model portfolio); rev 6 added §5c (FLUX.2 Klein) and §5d (Qwen-Image Layered) plus
+§5.1–§5.3 (the MiniMax H3 capability ladder: turbo LoRAs, Easy segmented long video, ref2v);
+**rev 7 adds §12 (the slide prompt template and `scripts/comfy-slide.py`)**. Everything marked ✅
+was executed against the live service, with file sizes/hashes and wall times recorded below.
 
 ---
 
@@ -69,7 +69,9 @@ inside `history[<id>].status.messages` as `execution_error`, and success is
 
 **Building a slide deck?** Go straight to **§10** — it splits this into two independent
 workflows (Qwen-Image 2.1 for graphic/text slides, Z-Image Turbo for pure imagery), plus the
-1080p 16:9 crop contract, batching rules and a QA checklist.
+1080p 16:9 crop contract, batching rules and a QA checklist. **§12 has the fill-in-the-blank
+slide prompt template and `scripts/comfy-slide.py`, which renders one slide per command** (builds
+the payload, crops to exactly 1920×1080, prints a JSON summary).
 
 ### Four rules that break naive clients
 
@@ -980,3 +982,105 @@ Full list on the node: `asset-profiles.json` (91 profiles) and the pack's own
 
 When a new family lands, extend §0's decision table and this cheat-sheet in the same commit —
 that is what keeps this document usable as the portfolio grows.
+
+---
+
+## 12. Slide prompt template + the `comfy-slide.py` helper
+
+§10 says *what* to do; this section is the **fill-in-the-blank form** and the **one command per
+slide** so a deck comes out consistent without re-deriving anything.
+
+### 12.1 The prompt template
+
+Every slide prompt is three blocks. Keep the first and third **identical across the whole deck** —
+that is what makes a deck look like a deck.
+
+```text
+[LAYOUT BLOCK — paste unchanged for every slide in the deck]
+A clean modern business presentation slide background, 16:9 widescreen, flat vector infographic
+style. Minimalist corporate design in deep navy blue and white with one thin warm-gold accent
+line. Generous calm empty space on the right two thirds reserved for body copy. Subtle abstract
+geometric shapes in the lower right corner. No photographic elements, high contrast,
+presentation-grade, crisp edges.
+
+[CONTENT BLOCK — per slide: the visual metaphor, 1–2 sentences, no text mentioned]
+
+[TEXT BLOCK — per slide, only if the text must be rendered IN the image]
+Bold sans-serif headline text reading "EXACT HEADLINE", directly below it a smaller subheading
+reading "EXACT SUBHEADING". The typography must be perfectly legible and spelled exactly as
+written. Do not add any other words.
+```
+
+Rules that come from the measured behaviour (§5b, §10.5):
+
+- **Quote the text exactly** and say "must read exactly". Text is the model's weakest area;
+  quoting plus a QA read is how you catch errors — then fix them with `--model edit`, never by
+  re-rolling.
+- **At most ~3 text elements per image.** Dense paragraphs and long lists inside an image are
+  not reliable at any size; put those in the deck tool.
+- **Text belongs in the deck tool for anything editable** (titles, bullets, numbers). Use the
+  image for the *visual*, and machine-generated text in-image only for a cover/hero word or two,
+  or when the text *is* the graphic (a poster-style panel).
+- **Reserve the copy area explicitly** ("calm empty space on the right two thirds") and keep
+  in-image text ≥5 % from the edges (≈96 px at 1920 wide) — the deck tool may crop or scale.
+- **Prefer `qwen21` when text is in the image; `z-image` when it is not** (§10.1).
+
+### 12.2 Deck consistency
+
+| Keep constant | How |
+|---|---|
+| the layout + style wording | put it in `deck-style.txt` and pass `--style deck-style.txt` on every render |
+| the negative prompt | `--mode c` uses the built-in quality negative; otherwise pass `--negative` explicitly |
+| the mode | mode A (`1920x1088` → cropped `1920x1080`) for every slide; mode B only for the cover |
+| the seed family | one base seed + the slide index (e.g. `20261015`, `20261016`, …) so a re-roll stays close |
+| the record | save the exact prompt, seed, mode and the resulting file per slide — see §10.7 |
+
+### 12.3 Worked example (verified end to end)
+
+```bash
+# deck-style.txt holds the LAYOUT BLOCK once
+./scripts/comfy-slide.py --model qwen21 --mode a --style deck-style.txt --seed 20261007 \
+    --out slides/07.png \
+    --prompt 'A single ascending bar chart rendered as abstract extruded gold shapes. \
+              Bold sans-serif headline text reading "Q3 Revenue Growth", directly below it a \
+              smaller subheading reading "Regional performance and outlook". Typography must be \
+              perfectly legible and spelled exactly as written.'
+```
+
+Measured with the helper on 2026-10-15/16 (node1, warm):
+
+| Command | Wall | Result on disk |
+|---|---|---|
+| `--model qwen21 --mode a` | **56 s** | 1920×1088 → auto-cropped **1920×1080** |
+| `--model qwen21 --mode b` (hero) | **116 s** | 2752×1536 → scaled 1935×1080 → **1920×1080** |
+| `--model qwen21 --mode c` | ~90 s | 1920×1080 (cfg 2.5 + quality negative) |
+| `--model z-image --mode a` | **20 s** | 1280×720 (draft) |
+| `--model edit --reference X --prompt '…'` | **51 s** | 1920×1080 |
+| `--model layers --reference X --layers 2 --size 640x640` | 261 s | **one PNG per layer** (`out-1.png`, `out-2.png`); the size follows the *reference* |
+
+### 12.4 Using the helper
+
+`scripts/comfy-slide.py` — stdlib only (PIL is used for the crop if importable, otherwise
+ImageMagick, otherwise the crop is reported as skipped). It builds the verified payload, queues,
+polls `/history`, downloads via `/view`, crops/scales to the exact slide size, and prints a JSON
+summary so an agent can parse it.
+
+```bash
+scripts/comfy-slide.py --check                 # service version + queue depth
+scripts/comfy-slide.py --models                # available UNet/CLIP/VAE/input filenames
+scripts/comfy-slide.py --dry-run …             # show the payload without sending
+COMFY_URL=http://192.168.23.215:8188 scripts/comfy-slide.py …   # target the node0 failover
+```
+
+- Exit status is non-zero on a rejected prompt, an `execution_error`, or a timeout; the JSON
+  output carries `status`, `wall_s`, `prompt_id` and per-file `{file, bytes, post, source}`.
+- `COMFY_URL` (default node1), `COMFY_TIMEOUT`, `COMFY_WAIT` (raise it for H3-length jobs).
+- **What it does not do**: no batching/queueing of a whole deck in one call (call it per slide or
+  script the loop), no text-accuracy checking (read the QA list in §10.8), and no video — for
+  MiniMax H3 use the payloads in §5/§5.1/§5.2/§5.3.
+
+### 12.5 Deck QA before delivery
+
+Run the §10.8 checklist on every exported image — in particular: read every word, confirm
+1920×1080, confirm nothing important sits in the outer 5 %, and confirm the promised empty space
+is actually empty. Then place the deck's own text in the deck tool on top of the artwork.
