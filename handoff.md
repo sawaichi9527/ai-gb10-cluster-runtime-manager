@@ -1548,3 +1548,151 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
   tokens（09-20 為 597，圖檔／解析度已變，**不可直接對比**）。
 - 完整表格見 `README.md` 的 qwen38flash benchmark 段（**比較須同取樣模式**）。
 - 現役仍為 qwen38flash（**新預設**：determinism ON；KV 29.15 GiB）。
+
+### 2026-10-15 — `comfyui-jdaln` asset profiles 1 → 9（工具／字幕／語音／影片放大）+ SAM3 靜音 + 鏡像落後：session close Validation evidence
+
+**背景**：node1 的 `comfyui-jdaln` 上線時 `.env` 只啟用單一 `z-image-turbo-core`，其餘 90 個上游
+asset profile 全未下載。在磁碟（1.8T 可用）與記憶體（115G available）都充裕的前提下，把六個工具類、
+字幕、語音設計與 z-image 控制延伸一次補齊。
+
+**決策記錄**：
+
+- 一次加入 **9 個 profile**（原 1 個）：`z-image-turbo-core`（原）、`z-image-turbo-union-control`、
+  `frame-interpolation-film`、`lucida-background-removal`、`lotus-depth-support`、
+  `ltx-2.5-latent-upscale`、`whisper-subtitles`、`seedvr2-video-upscale`、`qwen3-tts-voice-design`。
+- **`HF_TOKEN` 接入 `.env` 第 5 行**，經 compose 既有的 `env_file: - .env`（第 64 行）進容器。
+  **compose 一行未動** —— lane 維持只有原本兩條本地分歧（`${COMFY_OUTPUT_DIR:-…}` 與 allowlist
+  預設），未產生 AGENTS.md 所說的第 3 條。
+- **`.env` 第 11 行 `COMFY_NODE_BLACKLIST=ComfyUI-SAM3-DGX-Spark` 啟用**，靜音上游已知的
+  `No module named 'comfy_env'` 每次 boot `[ERROR]`；代價是 node 類型 **2812 → 2811**。
+- 用戶決定**保留原 HF token 不輪替**（`read` 權限、本機 transcript，曝險限於可讀取的 repo）。
+
+**Validation evidence**：
+
+- 乾跑先行：`scripts/smoke/plan_downloads.py`（host-side、read-only）確認 9 個 profile 皆取得大小、
+  **無任何 401/403**（LTX-2.5 除外，見下）；並確認 `bootstrap_comfy_assets.sh`
+  `download_if_missing()` 第 26-28 行會跳過已存在檔案 → z-image 的 20.69 GB 不會重下
+  （planner 在主機上算出該數字是路徑假象：存在檢查用 manifest 的原始
+  `/workspace/ComfyUI/models/…`，該路徑只在容器內成立）。
+- 下載分兩批，皆以 `gb10-single restart node1 comfyui-jdaln`（node0 執行、走 CX7、
+  `up -d --force-recreate` 重讀 `env_file`）：第一批 8 個 profile（17.71 GB）於
+  **23:57:30 READY**；第二批 LTX-2.5（2.47 GB）於 **00:25:17 READY**。
+- **資產齊全**：13 個權重檔 + 4 個範例輸入全數存在，`missing count: 0`。實測位元組：
+  controlnet 3101572408、film 68882302、lucida 884878856、lotus 1735197352、
+  vae-ft-mse 334641190、ltx-2.5 VAE 1472223346、ltx-2.5 spatial upscaler 995778752、
+  whisper 3087130976、seedvr2 3458259704、seedvr2 VAE 501324814、
+  Qwen3-TTS snapshot 4.3 GB（含 `.asset-profile-complete` 標記）。
+- **既有權重未被觸碰**：逐一比對位元組與 106G baseline 完全一致（minimax_h3_fl2va
+  20970379616、hunyuan_video_720 13185035336、qwen3vl_32b 15687142551、umt5-xxl 11361845464、
+  minimax_h3_video_vae 5207808496、z_image_turbo 12309866400、qwen_3_4b 8044982048、ae 335304388）。
+- ComfyData **106G → 124G**；`:8188` HTTP 200；`object_info` 註冊 **2811** 個 node 類型
+  （黑名單前 2812，正好少 1）；`comfy_env` ERROR 命中數 **0**。
+- compose `dirty tracked files: 0`；`.env` 無 CRLF，md5 `bf9680cd…` → `fe42c04f…` → `ebaceadc…`；
+  備份 `.env.bak-20261014-231133` / `.env.bak-20261015-001832` 保留。
+
+**LTX-2.5 閘控**（本次最重要的判斷修正）：
+
+- 第一輪判斷錯誤：以為 `ltx-2.5-latent-upscale` 不依賴 Gemma 文字編碼器故不受閘控。
+  乾跑顯示兩個檔案皆 **HTTP 401** —— **`Lightricks/LTX-2.5` repo 本身是 `gated: auto`**。
+- 帶 token 重跑變成 **HTTP 403**：token 有效（帳號 `Sawaichi`、`read`）但該帳號**未接受授權**。
+  **403 ≠ token 錯誤**，此點已寫入 AGENTS.md。
+- 用戶於瀏覽器以該帳號點一次 "Agree and access repository" 後，乾跑 rc=0 無 PROBLEM，
+  重啟即自動補齊（兩個檔案留在 `.env` 補齊了失敗只會 WARNING 不會中止，故可自癒）。
+- 對照：`Lightricks/LTX-2`（LTX 2.0/2.3 lanes）是 `gated: false`，不需要任何動作。
+
+**⚠️ 自我記錄的三個錯誤**：
+
+1. **HF token 洩漏**：驗證容器環境時寫了 `echo "${HF_TOKEN:+YES}${HF_TOKEN:-NO}"` ——
+   `${VAR:-word}` 在變數**有值時會展開成那個值**，於是 token 值被印出並進入對話紀錄
+   （亦即模型供應商側 log）。之前幾次跑這段時變數未設、印出 `NO`，看起來完全正確，故未察覺。
+   正確寫法：`if [ -n "${HF_TOKEN:-}" ]; then echo YES; else echo NO; fi`。用戶評估後決定保留原 token。
+2. **誤稱 AGENTS.md 路徑寫錯**：兩次向用戶表示 AGENTS.md 的 HF token 路徑為
+   `~/docker-stacks/comfyui-dgx-spark/config/hf_token`（該位置不存在）。實際檔案第 180 行本來就是
+   正確的 `~/docker-stacks/config/hf_token`；`git log -S 'comfyui-dgx-spark/config/hf_token'`
+   證明該錯誤字串**從未存在於 AGENTS.md 歷史**。依據的是 session 開頭的過期快照而非磁碟實檔，
+   幸好動手前先 grep 驗證，否則會把一條正確規則「修正」成錯的。
+3. **安全檢查誤擋刪除**：`grep -c` 在計數為 0 時回傳 exit code 1，導致 `|| echo '?'` 也觸發、
+   變數變成 `"0\n?"`，比對失敗而拒絕刪除。修正為先 `head -1` 再 `tr -dc '0-9'` 後通過。
+
+**清理**：刪除 node1 上與本次無關的殘檔 `models/diffusion_models/LongCat/LongCat-Avatar_bf16.safetensors.part`
+（911 MB、mtime 2026-10-14 00:12:47、age 86828s、0 個開啟 fd）與其空目錄。manifest 中從未出現
+LongCat，判斷為更早某次 boot 的中斷下載。`.part` 檔數歸零。
+
+**✅ node0 failover mirror 已補齊（2026-10-15 09:23，經 CX7 rsync）**（AGENTS.md 該 bullet 已同步改寫）
+
+- 鏡射前快照：node0 **19** 個 safetensors / node1 **31** 個（**缺 12 檔**；兩端 stack
+  `du -sh` **124G vs 142G**），node0 `.env` md5 `bf9680cd…`（變更前版本）、node1 `ebaceadc…`。
+- 執行：在 **node0** 以既有 CX7 rsync（`rsync -aHAX --no-o --no-g --delete --stats`，
+  `-e 'ssh -i ~/.ssh/id_gb10_cluster …' eye@10.0.101.102:…`）背景啟動 + 輪詢
+  （log `~/docker-stacks/logs/comfyui-jdaln/mirror-sync-20261015.log`）。
+- 結果：**rc=0、39 秒（09:23:10 → 09:23:49）、511 MB/s、received 20.2 GB**；
+  create 94（reg 72 / dir 22）、delete 2（reg 1 / dir 1）、transferred 1,153 檔
+  （literal 20,187,022,178 B / 22.7 s）。
+- 鏡射後驗證（兩端同一組指令）：
+  - 檔案／目錄／symlink = **114,388 / 16,318 / 6**，**兩端完全一致**。
+  - safetensors **31 / 31**；`du -sh` stack **142G / 142G**。
+  - node0 `.env` md5 = **`ebaceadc8c94eba01e3e55702777bc09`** = node1（**rsync 已自動帶過來，
+    不需手動複製** —— AGENTS.md 原先「copy the .env across」的前提在此不成立）。
+  - sha256 抽查：既有 >2 GB 權重 `hunyuan_video_720_fp8_e4m3fn` = `07ae20b5…d62426`
+    與 2026-10-14 記錄相同（本次未動）；新傳檔 `Z-Image-Turbo-Fun-Controlnet-Union`
+    = `86c085c0d7853f12ce5183499934b54d08371c60f549c5a6b20615cd23989388`，兩端一致。
+  - node0 非 `eye` 擁有條目 = **0**（`--no-o --no-g` 生效；node1 為 1，即已知 uid 0 的
+    `ComfyUI/user`）。
+  - node0 仍**無 comfyui 容器**（被動鏡像）；`aeon-vllm-27b Up 2 days` + `c0918 Created`
+    未受影響；磁碟 49% → **50%**。
+- **仍未 boot 測試**：Node0 未實際啟動 ComfyUI（與 TP2 共用同一顆 GB10 GPU），failover
+  仍須手動 `gb10 stop` → `gb10-single use comfyui-jdaln node0`。
+- **工具教訓**：Windows 端以 Posh-SSH（pwsh7）連 node0；腳本**必須先 base64 落地成遠端
+  檔案再 `bash <file>`**，不可用 `echo … | base64 -d | bash` —— 腳本內第一個 `ssh` 會
+  吃掉剩下的 stdin，實測會**靜默截斷**後續所有輸出（第一次執行只印到 CX7 檢查就結束）。
+
+**已知無害殘留**：boot log 仍有一條
+`[WARNING] Skipping import of cpp extensions ... torch >= 2.11.0 (found 2.10.0+cu130)` ——
+來自另一個 custom node，torch 2.10 是燒在 image 裡的，該 node 自行降級運作。屬 WARNING 非 ERROR，
+修正需重燒 image，收益不划算，決定放著。
+
+**文件變更本身的 Validation evidence**（AGENTS.md + handoff.md，2026-10-15 01:27:25）
+
+本次僅修改 Markdown 文件，**Runtime test = N/A**（依 session-close skill 第 5 步，不為形式啟動
+不相關的 DUT／容器）。下列為文件結構與內容檢查，證明「文件修改正確」，不推論 node1 lane 的
+Runtime 行為 —— 那部分的證據見上方資產驗證段。
+
+- 命令：`scripts/check-git-sync.sh --block`（repo 既有檢查，經 git bash `C:\Program Files\Git\bin\bash.exe`
+  執行；`bash` 不在 PATH 上）→ **exit code 0**。輸出 `WARN: repo is out of sync with origin/main`，
+  內容為 `working tree has uncommitted changes to tracked files` —— 即本次待 commit 的兩份文件；
+  `HEAD 8ced936 (0 ahead, 0 behind)`、`origin/main 8ced936` 同步，**不需 pull**。
+- Markdown fence 平衡：`AGENTS.md` fences=2、`handoff.md` fences=4，皆為偶數 → **BALANCED**
+  （對應 AGENTS.md「文件結尾必須是關閉 fence」規則）。
+- 換行／縮排：`AGENTS.md` CRLF=0 TAB=0、`handoff.md` CRLF=0 TAB=0 → **LF-only OK**（repo 規則）。
+- 內容檢查（`git diff -U0` 新增行）：無 HTML entity 逸出（`&lt;`／`&gt;`／`&amp;`）、無行尾空白、
+  **diff 中無 `hf_` token 字串、無密碼／secret 字樣**（對應 skill 的安全要求）。
+- 測試環境：Windows 10 NT 10.0.19044.0、pwsh 7.4.6、git bash（Git for Windows）。基線 commit `8ced936`。
+- **尚未驗證**：AGENTS.md 新增的 5 條 bullet 與 handoff 新增段的**語意正確性**僅經人工撰寫，
+  未經任何 Markdown linter（repo 無 linter 設定、無 CI、無 `tests/` 目錄 —— 先前誤用的
+  `tests\validate.ps1` 屬於另一個 repo，已確認不存在）。node0 failover mirror 落後一事已於
+  **同輪補齊**（見上一節「✅ node0 failover mirror 已補齊」）。
+
+### 2026-10-15（續三）— 本輪收尾：鏡射補齊紀錄入庫 + 文件驗證（第二次）
+
+**做了什麼**：① 先把 node0 failover mirror 補齊（見上，經 CX7 rsync rc=0 / 39 s / 511 MB/s）；
+② 把 AGENTS.md 的 `⚠️ mirror is BEHIND` 與 handoff 的 `⚠️ 未處理` 兩處**改寫為完成紀錄**，
+  並把 AGENTS.md 的 Node0 鏡射數字（124 GB / 114,316 / 16,298 → **142 GB / 114,388 / 16,318**）
+  與磁碟（49% → **50%**）更新；③ 兩份文件一次 commit。
+
+**Validation evidence（本輪文件變更，2026-10-15）**
+
+- `scripts/check-git-sync.sh --block`（經 git bash）→ **exit 0**；輸出
+  `WARN: working tree has uncommitted changes to tracked files`（= 本次待 commit 的兩份文件），
+  `HEAD 8ced936 (0 ahead, 0 behind)` / `origin/main 8ced936`。
+- Markdown fence 平衡：`AGENTS.md` fences=**2**、`handoff.md` fences=**4**，皆偶數 → BALANCED。
+- 換行／縮排：`AGENTS.md` CRLF=**0** TAB=**0**、`handoff.md` CRLF=**0** TAB=**0** → LF-only OK。
+- 內容：`git diff -U0` 新增行掃 `hf_|token|secret|password` 僅命中**散文用詞**
+  （`HF_TOKEN` 變數名、`hf_snapshot` 類型名、403≠token 錯誤的說明），**無任何實際憑證值**；
+  真 token 只在 gitignored 的 `~/docker-stacks/config/hf_token` 與節點 `.env`。
+- **Runtime test = N/A**：本輪**未變更任何 runtime 設定** —— node1 lane 未重啟、node0 未 boot
+  ComfyUI、TP2 容器（`aeon-vllm-27b Up 2 days`）未觸碰；鏡射是 node0 上的檔案同步。
+- **仍未驗證**：node0 failover 的**實際 boot** 路徑（`gb10 stop` → `gb10-single use comfyui-jdaln
+  node0`）依然沒跑過 —— 被動鏡像已 byte 對齊，但「切得過去」仍未被實測。
+- **另有發現（未改動文件）**：handoff「目前狀態」段宣稱 node0 live lane 為 `deepseek`／
+  `deepseek-nvfp4`，但本輪 09:22 快照顯示 node0 實際跑的是 **`aeon-vllm-27b`（Up 2 days）**；
+  此落差本輪**不處理**（非本次範圍），留待使用者裁定後再校正該段。

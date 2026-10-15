@@ -173,15 +173,69 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   deltas are not results.
 - **ComfyUI on Node1 = `comfyui-jdaln` only (since 2026-10-14).** It runs
   `jdaln/ComfyUI-DGX-Spark-Docker-opinionated` (self-built image, ComfyUI 0.38.0,
-  2812 node types) under `~/docker-stacks/comfyui-dgx-spark/`, UI at `:8188`.
+  2811 node types — was 2812 until `ComfyUI-SAM3-DGX-Spark` was blacklisted on
+  2026-10-15; see the asset-profile bullet below) under
+  `~/docker-stacks/comfyui-dgx-spark/`, UI at `:8188`.
   The legacy `comfyui` lane (`comfyui-aeon` / Flux 2 Dev) was **retired 2026-10-14** —
   stack (~71 GB) + image (26.7 GB) deleted from Node1, `runtimes.d/comfyui.conf` removed.
   Do not resurrect it, and do not bring back the older `comfyui-personal` / `comfyui-work`
   split. Its HF token now lives at `~/docker-stacks/config/hf_token` (mode 600).
-- **`comfyui-jdaln` has a failover mirror on Node0 (built 2026-10-14 over CX7).** Node0
-  holds a copy of the whole lane at `~/docker-stacks/comfyui-dgx-spark/` (124 GB,
-  114,316 files / 16,298 dirs / 6 symlinks) plus the image
+- **`comfyui-jdaln` asset profiles (expanded 2026-10-15).** Node1's
+  `ComfyUI-DGX-Spark-Docker-opinionated/.env` (gitignored upstream) sets
+  `COMFY_ASSET_PROFILES=` to **nine** profiles — up from the single `z-image-turbo-core`
+  the lane launched with: `z-image-turbo-core`, `z-image-turbo-union-control`,
+  `frame-interpolation-film`, `lucida-background-removal`, `lotus-depth-support`,
+  `ltx-2.5-latent-upscale`, `whisper-subtitles`, `seedvr2-video-upscale`,
+  `qwen3-tts-voice-design` (~20 GB; `ComfyData/models` went 106 GB → 124 GB).
+  The compose reads `.env` twice — for variable substitution AND via `env_file: - .env`
+  (line 64) — so every rule below depends on that one file:
+  - **`HF_TOKEN` sits on `.env` line 5**, copied from `~/docker-stacks/config/hf_token`
+    and reaching the container through the upstream `env_file` key. **The compose file was
+    NOT edited**, so this lane still carries only its two pre-existing local divergences
+    (the `${COMFY_OUTPUT_DIR:-…}` default and the allowlist default). Never add an
+    `HF_TOKEN:` entry under `environment:` — it would create a third divergence for
+    something `env_file` already does.
+  - **`.env` line 11 `COMFY_NODE_BLACKLIST=ComfyUI-SAM3-DGX-Spark` is deliberately ON.**
+    That pack cannot import (`No module named 'comfy_env'`) against the image's baked
+    `torch 2.10.0+cu130`; blacklisting silences a per-boot `[ERROR]` and costs exactly
+    one node type (2812 → 2811). Do not remove it to "restore" the count — the import
+    failure is upstream, not ours.
+  - **`Lightricks/LTX-2.5` is `gated: auto`**: `ltx-2.5-latent-upscale`'s two files
+    (1.47 GB video VAE + 1.00 GB spatial upscaler) need a one-time "Agree and access
+    repository" click in a browser **as the token's account**. A valid-but-un-accepted
+    account gets **HTTP 403, not 401** — so a 403 here is NOT a bad token, it means the
+    licence was never accepted. `Lightricks/LTX-2` (the LTX 2.0 / 2.3 lanes) is
+    `gated: false` and needs nothing.
+  - **Adding profiles never re-downloads weights already on disk**:
+    `scripts/bootstrap_comfy_assets.sh` `download_if_missing()` returns early on an
+    existing file (`if [ -f "$dest" ]; then return 0; fi`). Per-dest `.asset-profile-complete`
+    markers apply only to `hf_snapshot`-type assets. The lane's `TIMEOUT="14400"`
+    (`runtimes.d/comfyui-jdaln.conf`) is sized for exactly this — a multi-GB WAN pull
+    during boot — and the compose healthcheck passes on a running `.part` download so
+    the container is not declared unhealthy mid-pull.
+  - **Dry-run before adding a profile**:
+    `python3 scripts/smoke/plan_downloads.py <profiles…>` — host-side, read-only, skips
+    what is present, asks Hugging Face for real sizes, and **exits non-zero on any
+    401/403**. Run it on the HOST, not in the container (`/workspace/scripts` is baked
+    into the image and is not bind-mounted). Note its "to download" totals are inflated
+    on the host: the existence check uses the manifest's raw `/workspace/ComfyUI/models/…`
+    paths, which only resolve inside the container — that is a false positive, not a
+    real re-download.
+- **`comfyui-jdaln` has a failover mirror on Node0 (built 2026-10-14, brought level
+  2026-10-15 over CX7).** Node0 holds a copy of the whole lane at
+  `~/docker-stacks/comfyui-dgx-spark/` (142 GB, 114,388 files / 16,318 dirs / 6 symlinks,
+  byte-identical to node1) plus the image
   `comfyui-dgx-spark-docker-opinionated-comfy:latest`.
+  - **It is a MANUAL rsync, not a scheduled job — verify before trusting it.** The
+    2026-10-15 asset-profile expansion above initially landed on **node1 only**: node0 was
+    12 weight files / ~19 GiB short and still carried the pre-expansion `.env` (md5
+    `bf9680cd…` — only `z-image-turbo-core`, no `HF_TOKEN`, no `COMFY_NODE_BLACKLIST`), so
+    a failover would have come up with z-image alone and re-emitted the SAM3 `[ERROR]`.
+    Re-synced the same day with the same CX7 rsync line below: **rc=0, 39 s, 511 MB/s,
+    20.2 GB received**; both ends now hold **31 safetensors** and the counts above, and
+    node0's `.env` md5 `ebaceadc…` equals node1's. Check the safetensors count and the
+    `.env` md5 on **both** nodes before trusting a failover — never assume it is current
+    just because it exists.
   - **Node0↔Node1 data movement goes over CX7, always** (`10.0.101.101`↔`10.0.101.102`,
     key `~/.ssh/id_gb10_cluster`, rsync 3.2.7 on both) — not through the Windows host,
     not over the `192.168.23.x` LAN. Both nodes lack passwordless sudo, so every rsync
@@ -208,7 +262,8 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
     `gb10-single use comfyui-jdaln node0` (`runtimes.d/comfyui-jdaln.conf` has no `NODE`
     field; `gb10-single` takes the node as an argument), not an automatic switch, and it
     requires TP2 down first. Re-mirror with the same rsync line, excluding nothing.
-    Node0 ends at `1.8T used / 1.8T avail / 49%`.
+    After the 2026-10-15 re-sync Node0 is at `1.8T used / 1.8T avail / 50%`
+    (`46%` before the mirror, `49%` after the initial pull).
   - **Outputs go to `~/Downloads/output/`, not `ComfyData/output/` (since 2026-10-14).**
     The output bind mount lives in the *upstream git-tracked* compose
     (`ComfyUI-DGX-Spark-Docker-opinionated/docker-compose.yml`), and
