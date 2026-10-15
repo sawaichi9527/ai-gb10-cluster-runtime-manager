@@ -1748,3 +1748,67 @@ video/audio 兩個 `VAELoader`；`MiniMaxH3ImageToVideo` 同時輸出 `CONDITION
 **清理**：node1 `~/Downloads/output/` 的三個測試產出與 node1 `/tmp/{h3i2v,h3t2v,zprompt}.json`
 已刪除（該目錄現只剩 `exp_data/`、`qwen3-tts_voices/` 兩個 custom-node 空目錄；
 `~/Downloads/output/` 在鏡像範圍之外，node0 無需同步）。
+
+### 2026-10-15（續五）— Qwen-Image 2.1 上線（簡報圖文主力）+ 解析度對齊發現 + 鏡像第二次補齊
+
+**起因**：使用者要把「面向高階主管的簡報圖文」從 ChatGPT Plus 搬回地端，要求品質可比或更優。
+選定 **Qwen-Image 2.1**（中英文字排版最強、同一份權重兼生成與編輯、原生 2K、RGBA alpha）。
+
+**profile 擴充（node1）**：`qwen-image-2.1-t2i`、`qwen-image-2.1-edit`、`qwen-image-2.1-remove-background`
+→ `COMFY_ASSET_PROFILES` 由 9 增為 **12**（`.env` md5 `a617684f…` → `53328eeb…`，逐次備份）。
+下載 **33.2 GB**（UNET 7.26 GB + 文字編碼器 6.31 GB + VAE 0.68 GB + 兩個 9B prompt-enhancer 各 9.47 GB；
+別名 `qwen3vl_8b_int8_convrot` → `w4a8` 由 bootstrap 自動建立）。實測速率 ~8 MB/s，約 1 小時；
+`ComfyData/models` 124 GB → **173 GB**。
+
+**我的錯誤（重要）**：第一次編輯 `.env` 時腳本只跑在 **node0**（未 ssh 進 node1），改到的是
+**node0 鏡像副本**；`gb10-single restart node1` 讀的是 node1 的 `.env`，所以**什麼都沒下載**
+（40 分鐘毫無動靜、容器 log 只有正常啟動訊息）。修正：node0 `.env` 還原回 `ebaceadc…`（parity 回復），
+改在 **node1** 套用後重啟才真正下載。**教訓：`gb10-single` 的目標節點是 node1，`.env` 必須改在 node1。**
+
+**實測結果（node1，25 步 / cfg 1 / euler / simple，同 seed）**
+
+| 任務 | 輸出 | 耗時 |
+|---|---|---|
+| t2i 1280×720（兩者皆 /16）| 1280×720 | 20 s |
+| t2i 1920×1080（1080 非 /16）| **1920×1088**（被補齊）| 60 s（含冷載入）|
+| t2i 1920×1088 | 1920×1088 | **50 s** |
+| t2i 2752×1536（原生 2K 16:9 桶）| 2752×1536 | **111 s** |
+| t2i 1920×1088 + cfg 2.5 + 品質負面詞 | 1920×1088 | 90 s |
+| edit（2 參考圖、1024²）| 1024×1024 | 20 s |
+| **remove-background**（`angry_broccoli.png`）| 1024×1024，**alpha (0,255) 真透明** | 20 s |
+| **16:9 簡報改圖**（EmptyLatent 1920×1088 + resolution 1440）| 1920×1088 | 50 s |
+
+**四個技術發現（都已寫進指南 §5b）**
+
+1. **輸出寬高必須是 16 的倍數**：非 /16 會被 `pad_to_patch_size`（circular padding）補齊且**不裁回**。
+   1920×1080 → 1920×1088（=1.7647）→ 16:9 全螢幕會左右各約 7 px 黑邊（使用者實際觀察到）。
+   1080p 產線 = **渲 1920×1088 → 裁 8 列**；或用原生 2752×1536 降採樣。官方 `ResolutionSelector`
+   （`aspect_ratio` + **`megapixels`** + `multiple`）以 16:9 + 2.0 MP + multiple 32 精算即得 1920×1088。
+2. **`TextEncodeQwenImage21` 的 `latent` 輸出恆為方形**（= `resolution`×`resolution`），與其 tooltip 不符
+   → 16:9 編輯必須改用自備的 `EmptyLatentImage`（官方範本也是走這條）。
+3. **autogrow 在 API 格式是巢狀 dict**：`"images": {"image_1": ["6",0], "image_2": ["7",0]}`（名稱 `image_1`…`image_16`）。
+   傳扁平 `"image_1": [...]` 會得到 `execute() got an unexpected keyword argument 'image_1'`。
+   編輯／去背**必須接 `vae`**（參考 latent 會 splice 進序列）。
+4. **t2i 的 RGBA 不等於去背**：一般生成 alpha 實測 `(244,255)` 幾乎全不透明；只有明確要求去背才會得到 `(0,255)`。
+
+**官方依據（查證）**：ComfyUI 內建 `ResolutionSelector` 文件；Qwen-Image 2.1 原生桶
+2048²/2400×1792/2528×1696/**2752×1536**；comfy.org Q&A（原生 2K、RGBA、「遠超 2048 級會讓曝光不穩」、
+`resolution` 為參考圖重設大小）；ComfyUI Wiki（**小 CFG + 品質負面提示詞可讓圖內文字更銳利**；
+CFG 不可 <1）。
+
+**交付**：`docs/COMFYUI_JDALN_REMOTE_USAGE_GUIDE_2026-10-15.md` **rev 2**（新增 §5b：三 profile 表、
+`/16` 規則、A/B/C 三種品質模式與實測時間、t2i payload、edit/去背的兩個陷阱、巢狀 autogrow 範例）；
+`AGENTS.md` 的 comfyui-jdaln bullet 更新（12 profiles、/16 規則、指南指標）。使用者已確認 A（直接渲 1088
+裁成 1080）為預設、B 為 hero 用、C 為文字加強。
+
+**鏡像第二次補齊（node1 → node0，CX7）**：`rsync -aHAX --no-o --no-g --delete`，**rc=0、53 秒、621 MB/s、
+收到 33.2 GB**（create 11 = 10 檔 + 1 連結、delete 4）；驗證兩端 **114,396 檔 / 16,317 目錄 / 7 連結**、
+`.env` md5 **`53328eeb…`** 相同、`qwen_image_2.1_int8_convrot` sha256 `cb74113c…` 相同、node0 非 eye 條目 **0**；
+node0 stack 173 GB、磁碟 51%（node1 53%）。
+
+**清理**：node1 `ComfyData/input/slide16x9_source.png`（我為 16:9 測試複製的臨時檔）已刪除；
+`~/Downloads/output/` 的測試產出留在 node1（在鏡像範圍外），本機 `C:\Users\Sawaichi\Downloads\`
+保有 A/B/C/D 四個 1080p 對照版本與各原始檔。
+
+**待辦（未做）**：把 edit／去背也一併做成 16:9 的標準步驟（已驗證可行，尚未寫成固定模板）；
+簡報用的 prompt 模板與風格固定（同一 seed + 模板）尚未系統化。

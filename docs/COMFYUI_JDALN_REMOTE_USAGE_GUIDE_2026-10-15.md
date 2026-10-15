@@ -12,8 +12,9 @@ videos by calling this ComfyUI over the network.
 > **Maintenance rule: if the ComfyUI image or the asset profiles change, re-verify §2/§4/§5
 > against `/object_info` before trusting the file names below.**
 
-**Version of this document:** 2026-10-15. Everything marked ✅ was executed against the live
-service on that date, with the file sizes/hashes recorded below.
+**Version of this document:** 2026-10-15 (**rev 2** — adds §5b Qwen-Image 2.1 and the
+"output dimensions must be multiples of 16" rule). Everything marked ✅ was executed against the
+live service on that date, with file sizes/hashes and wall times recorded below.
 
 ---
 
@@ -55,9 +56,19 @@ curl -s http://192.168.23.216:8188/object_info/VAELoader    # -> models/vae/*
 The filename strings inside those combo lists are the **only** valid values for the
 corresponding inputs. Verified on 2026-10-15:
 
-- `UNETLoader.unet_name`: `z_image_turbo_bf16.safetensors`, `minimax_h3_fl2va_pruned_int8_convrot.safetensors`, `minimax_h3_fl2va_int8_convrot.safetensors` (symlink to the same file), `seedvr2_3b_int8_convrot.safetensors`, `lotus-depth-d-v1-1.safetensors`, `hyvideo/hunyuan_video_720_fp8_e4m3fn.safetensors`
-- `CLIPLoader.clip_name`: `qwen_3_4b.safetensors`, `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors`, `clip_l.safetensors`, `llava_llama3_fp16.safetensors`, `umt5-xxl-enc-bf16.safetensors`
-- `VAELoader.vae_name`: `ae.safetensors`, `minimax_h3_video_vae_fp16.safetensors`, `minimax_h3_audio_vae_fp32.safetensors`, `seedvr2_ema_vae_fp16.safetensors`, `ltx-2.5-video-vae-bf16.safetensors`, `vae-ft-mse-840000-ema-pruned.safetensors`, `Wan2_1_VAE_bf16.safetensors`, `hyvid/hunyuan_video_vae_bf16.safetensors`
+- `UNETLoader.unet_name`: `hyvideo/hunyuan_video_720_fp8_e4m3fn.safetensors`, `lotus-depth-d-v1-1.safetensors`, `minimax_h3_fl2va_int8_convrot.safetensors` (symlink to the pruned file), `minimax_h3_fl2va_pruned_int8_convrot.safetensors`, **`qwen_image_2.1_int8_convrot.safetensors`**, `seedvr2_3b_int8_convrot.safetensors`, `z_image_turbo_bf16.safetensors`
+- `CLIPLoader.clip_name`: `clip_l.safetensors`, `llava_llama3_fp16.safetensors`, **`qwen3.5_9b_qwen_image_2.1_pe_i2i.int8_convrot.safetensors`**, **`qwen3.5_9b_qwen_image_2.1_pe_t2i.int8_convrot.safetensors`**, `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors`, **`qwen3vl_8b_int8_convrot.safetensors`** (symlink to the `w4a8` file), **`qwen3vl_8b_w4a8.safetensors`**, `qwen_3_4b.safetensors`, `umt5-xxl-enc-bf16.safetensors`
+- `VAELoader.vae_name`: `Wan2_1_VAE_bf16.safetensors`, `ae.safetensors`, `hyvid/hunyuan_video_vae_bf16.safetensors`, `ltx-2.5-video-vae-bf16.safetensors`, `minimax_h3_audio_vae_fp32.safetensors`, `minimax_h3_video_vae_fp16.safetensors`, **`qwen_image_2.1_vae_bf16.safetensors`**, `seedvr2_ema_vae_fp16.safetensors`, `vae-ft-mse-840000-ema-pruned.safetensors`, `pixel_space`
+- `CheckpointLoaderSimple.ckpt_name` (**for contrast**): `[]` — still empty; see §2.
+
+### Second golden rule — output dimensions must be multiples of 16
+
+**Width and height must both be multiples of 16.** Anything else is silently padded by the model
+and the padding is **not** cropped back, so the delivered image is larger than requested:
+ask for **1920×1080** and you get **1920×1088** (1080 = 67.5×16). Since 1920×1088 = 1.7647 and
+16:9 = 1.7778, a presentation tool will letterbox it (~7 px black bars each side at 1920 wide).
+For 1080p slide work: render **1920×1088** and crop 8 rows, or render the native 2K 16:9 bucket
+**2752×1536** and downscale. Full evidence and timings in §5b.1.
 
 ---
 
@@ -206,13 +217,114 @@ do not use short HTTP/timeout settings.
 
 ---
 
+## 5b. Qwen-Image 2.1 — slide graphics with real text, editing and cutouts ✅
+
+**Recommended whenever the image must carry legible text** (headlines, labels, charts-style
+graphics). One set of weights serves generation *and* editing. Three profiles are enabled
+(~33 GB total, mostly shared):
+
+| Job | Profile | Official template id | Measured |
+|---|---|---|---|
+| Text to image up to 2K, dense text, native alpha | `qwen-image-2.1-t2i` | `image_qwen_image_2_1_t2i` | 50 s @1920×1088 |
+| Instruction edit, up to 10 reference images | `qwen-image-2.1-edit` | `image_qwen_image_2_1_image_edit` | 20–50 s |
+| Instruction background removal → **real alpha** | `qwen-image-2.1-remove-background` | `image_qwen_image_2_1_background_removal` | 20 s |
+
+Loaders: `UNETLoader qwen_image_2.1_int8_convrot.safetensors` →
+`QwenImage21Cache` (device `auto`, dtype `default`) → `KSampler`; `CLIPLoader`
+`qwen3vl_8b_int8_convrot.safetensors` with `type="qwen_image"` → `TextEncodeQwenImage21`;
+`VAELoader qwen_image_2.1_vae_bf16.safetensors`; `KSampler` **25 steps, cfg 1, euler / simple**.
+The BFL-style prompt-rewriter (`qwen3.5_9b_..._pe_t2i` via `TextGenerate`) is **optional** — the
+verified payloads below skip it.
+
+### 5b.1 Resolution — multiples of 16, and the 1080p crop
+
+Measured on node1 (25 steps, cfg 1, euler/simple, same seed and prompt):
+
+| requested | delivered | wall time |
+|---|---|---|
+| 1280×720 (both /16) | 1280×720 | 20 s |
+| 1920×1080 (1080 not /16) | **1920×1088** | 60 s (cold load) |
+| 1920×1088 | 1920×1088 | **50 s** |
+| 2752×1536 (native 2K 16:9 bucket) | 2752×1536 | **111 s** |
+| 1920×1088 + cfg 2.5 + quality negative prompt | 1920×1088 | 90 s |
+
+- Native buckets published for this model: **2048×2048 (1:1), 2400×1792 (4:3), 2528×1696 (3:2),
+  2752×1536 (16:9)** — note that even the "native 16:9" is 1.7917, not exactly 16:9.
+- `resolution` on `TextEncodeQwenImage21` is **only** the resize target for reference images
+  (multiples of 32; `0` = keep each reference's own size). It does not size a text-to-image job.
+- **For exactly 1920×1080 (no letterboxing in a slide deck):** render **1920×1088**, then crop
+  8 rows (4 top / 4 bottom) in post. Verified: the resulting 1920×1080 fills a 16:9 display.
+
+### 5b.2 Three quality modes for slide art
+
+| Mode | Recipe | Wall | Use for |
+|---|---|---|---|
+| **A (default)** | render 1920×1088 → crop 8 rows → 1920×1080 | **50 s** | every slide |
+| **B (hero)** | render 2752×1536 (native) → downscale to 1935×1080 → crop to 1920×1080 | **111 s** | cover/hero image; supersampled text |
+| **C (sharpest text)** | A or B **+ `cfg` 2.5 + a quality-oriented `negative_prompt`** | 90 s | small print, dense labels |
+
+Mode C follows the published guidance ("CFG below 1 is not usable; a small CFG with a
+quality-focused negative prompt is what people reach for when text in the image needs to be
+sharper"). Example negative prompt: `blurry, low quality, distorted text, misspelled letters,
+garbled typography, watermark, jpeg artifacts, cluttered layout`.
+
+### 5b.3 Verified text-to-image payload (mode A: 1920×1088)
+
+```json
+{"prompt":{
+ "1":{"class_type":"UNETLoader","inputs":{"unet_name":"qwen_image_2.1_int8_convrot.safetensors","weight_dtype":"default"}},
+ "2":{"class_type":"QwenImage21Cache","inputs":{"model":["1",0],"device":"auto","dtype":"default"}},
+ "3":{"class_type":"CLIPLoader","inputs":{"clip_name":"qwen3vl_8b_int8_convrot.safetensors","type":"qwen_image"}},
+ "4":{"class_type":"TextEncodeQwenImage21","inputs":{"clip":["3",0],"prompt":"<YOUR PROMPT>","negative_prompt":"","resolution":1024}},
+ "5":{"class_type":"VAELoader","inputs":{"vae_name":"qwen_image_2.1_vae_bf16.safetensors"}},
+ "6":{"class_type":"EmptyLatentImage","inputs":{"width":1920,"height":1088,"batch_size":1}},
+ "7":{"class_type":"KSampler","inputs":{"model":["2",0],"positive":["4",0],"negative":["4",1],"latent_image":["6",0],"seed":20261015,"steps":25,"cfg":1,"sampler_name":"euler","scheduler":"simple","denoise":1}},
+ "8":{"class_type":"VAEDecode","inputs":{"samples":["7",0],"vae":["5",0]}},
+ "9":{"class_type":"SaveImage","inputs":{"images":["8",0],"filename_prefix":"slide"}}
+}}
+```
+
+### 5b.4 Editing / background removal — two traps
+
+Reference images go into the node's **autogrow** input. In the **API format that is a nested
+object**, never flat keys:
+
+```json
+"4":{"class_type":"TextEncodeQwenImage21","inputs":{
+  "clip":["3",0],
+  "prompt":"<EDIT INSTRUCTION>",
+  "negative_prompt":"",
+  "resolution":1440,
+  "vae":["5",0],
+  "images":{"image_1":["6",0],"image_2":["7",0]}
+}}
+```
+
+1. **Names are `image_1` … `image_16` inside `images`.** Passing `"image_1": [...]` as a
+   top-level input fails with
+   `TextEncodeQwenImage21.execute() got an unexpected keyword argument 'image_1'`.
+2. **`vae` is required for edits** (the reference latents are spliced into the sequence).
+3. ⚠️ **The node's `latent` output is always SQUARE** (`resolution × resolution`) despite its
+   tooltip saying "on the first reference image's size". For a 16:9 edit you must ignore that
+   output and feed your own `EmptyLatentImage`; keep `resolution` at a value whose reference
+   resize matches your canvas (16:9 reference + `resolution=1440` resizes it to exactly
+   1920×1088).
+
+Verified: costume replacement (2 refs, 1024×1024, 20 s), 16:9 slide re-edit
+(`EmptyLatentImage 1920×1088` + `resolution=1440`, **1920×1088, 50 s**), background removal on
+the bundled sample `angry_broccoli.png` (**RGBA `alpha_minmax = (0, 255)` — genuinely
+transparent**, 20 s). Ordinary text-to-image output is also RGBA but effectively opaque
+(measured `(244,255)`), so do not treat an alpha channel as proof of a cutout.
+
+
+
 ## 6. Outputs, inputs and file transfer
 
 | Direction | Location |
 |---|---|
 | **Outputs** (what you fetch) | Node1 `~/Downloads/output/` — mounted as the container's `/workspace/ComfyUI/output`. Fetch with `GET /view?...&type=output` |
 | **Inputs** (first frames etc.) | Node1 `…/ComfyData/input/` → container `/workspace/ComfyUI/input`. Upload via `POST /upload/image` |
-| Already-present inputs | `figurine_knight.jpg`, `Mona-Lisa-oil-wood-panel-Leonardo-da.webp`, `image_lotus_depth_v1_1_input_image.png`, `infinitetalk_speaker1_mask.png`, `infinitetalk_speaker2_mask.png` |
+| Already-present inputs | `angry_broccoli.png` (background-removal sample), `portrait_model_denim.png` + `clothing_light_blue_denim_shirt.png` (Qwen-Image 2.1 edit samples), `figurine_knight.jpg` (MiniMax H3 i2v sample), `Mona-Lisa-oil-wood-panel-Leonardo-da.webp`, `image_lotus_depth_v1_1_input_image.png`, `infinitetalk_speaker1_mask.png`, `infinitetalk_speaker2_mask.png` |
 
 `filename_prefix` in `SaveImage` / `SaveVideo` controls the file name (ComfyUI appends
 `_00001_`). Outputs are **not** mirrored elsewhere; always download from `/view`.

@@ -182,16 +182,23 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   split. Its HF token now lives at `~/docker-stacks/config/hf_token` (mode 600).
   **Remote clients must load models with `UNETLoader` + `CLIPLoader` + `VAELoader` —
   `models/checkpoints/` is intentionally absent** (`CheckpointLoaderSimple` therefore
-  returns an empty list; that is not a missing install). Verified API payloads for
-  z-image and MiniMax H3 (i2v/t2v), plus the `/prompt` → `/history` → `/view` contract, are
-  in `docs/COMFYUI_JDALN_REMOTE_USAGE_GUIDE_2026-10-15.md`.
-- **`comfyui-jdaln` asset profiles (expanded 2026-10-15).** Node1's
+  returns an empty list; that is not a missing install). **Output width and height must be
+  multiples of 16** — anything else is silently padded and not cropped back (1920×1080 delivers
+  1920×1088, which letterboxes in a 16:9 slide deck; render 1088 and crop 8 rows). Verified API
+  payloads for z-image, MiniMax H3 (i2v/t2v) and Qwen-Image 2.1 (t2i/edit/background-removal,
+  plus the measured resolution/quality modes), and the `/prompt` → `/history` → `/view`
+  contract, are in `docs/COMFYUI_JDALN_REMOTE_USAGE_GUIDE_2026-10-15.md` (rev 2, §5b).
+- **`comfyui-jdaln` asset profiles (expanded 2026-10-15, now **12**).** Node1's
   `ComfyUI-DGX-Spark-Docker-opinionated/.env` (gitignored upstream) sets
-  `COMFY_ASSET_PROFILES=` to **nine** profiles — up from the single `z-image-turbo-core`
+  `COMFY_ASSET_PROFILES=` to twelve profiles — up from the single `z-image-turbo-core`
   the lane launched with: `z-image-turbo-core`, `z-image-turbo-union-control`,
   `frame-interpolation-film`, `lucida-background-removal`, `lotus-depth-support`,
   `ltx-2.5-latent-upscale`, `whisper-subtitles`, `seedvr2-video-upscale`,
-  `qwen3-tts-voice-design` (~20 GB; `ComfyData/models` went 106 GB → 124 GB).
+  `qwen3-tts-voice-design` (first expansion, ~20 GB), then **`qwen-image-2.1-t2i`,
+  `qwen-image-2.1-edit`, `qwen-image-2.1-remove-background`** (second expansion, ~33 GB;
+  `ComfyData/models` 106 GB → 124 GB → 173 GB). The 2.1 line is the one to use when the image
+  must carry legible text (`qwen-image-2.1-remove-background` shares the core weights and costs
+  no extra model download).
   The compose reads `.env` twice — for variable substitution AND via `env_file: - .env`
   (line 64) — so every rule below depends on that one file:
   - **`HF_TOKEN` sits on `.env` line 5**, copied from `~/docker-stacks/config/hf_token`
@@ -226,21 +233,18 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
     on the host: the existence check uses the manifest's raw `/workspace/ComfyUI/models/…`
     paths, which only resolve inside the container — that is a false positive, not a
     real re-download.
-- **`comfyui-jdaln` has a failover mirror on Node0 (built 2026-10-14, brought level
+- **`comfyui-jdaln` has a failover mirror on Node0 (built 2026-10-14, brought level twice
   2026-10-15 over CX7).** Node0 holds a copy of the whole lane at
-  `~/docker-stacks/comfyui-dgx-spark/` (142 GB, 114,388 files / 16,318 dirs / 6 symlinks,
+  `~/docker-stacks/comfyui-dgx-spark/` (173 GB, 114,396 files / 16,317 dirs / 7 symlinks,
   byte-identical to node1) plus the image
   `comfyui-dgx-spark-docker-opinionated-comfy:latest`.
-  - **It is a MANUAL rsync, not a scheduled job — verify before trusting it.** The
-    2026-10-15 asset-profile expansion above initially landed on **node1 only**: node0 was
-    12 weight files / ~19 GiB short and still carried the pre-expansion `.env` (md5
-    `bf9680cd…` — only `z-image-turbo-core`, no `HF_TOKEN`, no `COMFY_NODE_BLACKLIST`), so
-    a failover would have come up with z-image alone and re-emitted the SAM3 `[ERROR]`.
-    Re-synced the same day with the same CX7 rsync line below: **rc=0, 39 s, 511 MB/s,
-    20.2 GB received**; both ends now hold **31 safetensors** and the counts above, and
-    node0's `.env` md5 `ebaceadc…` equals node1's. Check the safetensors count and the
-    `.env` md5 on **both** nodes before trusting a failover — never assume it is current
-    just because it exists.
+  - **It is a MANUAL rsync, not a scheduled job — verify before trusting it.** Twice on
+    2026-10-15 the mirror fell behind: the asset-profile expansion left node0 12 weight files /
+    ~19 GiB short, and the Qwen-Image 2.1 expansion (12 profiles now) added another 33.2 GB.
+    Both were re-synced the same day with the CX7 rsync line below — the second run:
+    **rc=0, 53 s, 621 MB/s, 33.2 GB received**. Verify the file/dir/link counts, the `.env` md5
+    and one >2 GB weight's sha256 on **both** nodes before trusting a failover — never assume it
+    is current just because it exists.
   - **Node0↔Node1 data movement goes over CX7, always** (`10.0.101.101`↔`10.0.101.102`,
     key `~/.ssh/id_gb10_cluster`, rsync 3.2.7 on both) — not through the Windows host,
     not over the `192.168.23.x` LAN. Both nodes lack passwordless sudo, so every rsync
