@@ -60,6 +60,7 @@ inside `history[<id>].status.messages` as `execution_error`, and success is
 | Edit an existing image (rewrite text, recolour, swap object, ≤10 refs) | **Qwen-Image 2.1** edit | 20–50 s | §5b.4 |
 | Subject cutout with **real alpha** on a transparent background | **Qwen-Image 2.1** remove-background | 20 s | §5b.4 |
 | Video **with audio** (~5 s, 24 fps), from text or from a first frame | **MiniMax H3** (20 steps) | **≈13 min** | §5 |
+| **Video longer than ~15 s** (multi-minute, segmented) | **MiniMax H3 Easy** `context_segments` | **181 s for 10 s** @480P with the 4-step LoRA | §5.2 |
 | Same video, faster draft | MiniMax H3 + turbo LoRA (8 or 4 steps) | **362 s / 201 s** (vs 755 s @20 steps) | §5.1 |
 | Frame interpolation / video upscale / subtitles / speech | FILM / SeedVR2 / Whisper / Qwen3-TTS | seconds | §2 inventory |
 | Split an image into **editable RGBA layers** | **Qwen-Image Layered** | 13.6 min @1920×1088/3 layers | §5d |
@@ -300,13 +301,58 @@ Beyond speed, two further H3 capabilities exist but are **not installed**:
 
 | Capability | What it adds | Cost | Ready when |
 |---|---|---|---|
-| **`minimax-h3-easy` segmentation** (nodes already installed) | **multi-minute video** by rendering in segments (`MiniMaxH3EasySegment*`), cross-segment context (`ContextSegments`, `SelectedVideoContext`), a **second refinement pass** (`SegmentRefine`), 3D latent upscaling, and `MiniMaxH3Easy`'s `mode` (image / reference / **digital_human**), resolution/aspect/**seconds**/fps/keyframe presets | **one file** (`latent_upscale_models/minimax_h3_latent_upscaler_3d_fp16.safetensors`, GB-scale); the other 8/9 assets are present | after that single download |
+| **`minimax-h3-easy` segmentation** (nodes installed; **3D latent upscaler installed ✅**) | **multi-minute video** by rendering in segments (`MiniMaxH3EasySegment*`), cross-segment context (`ContextSegments`, `SelectedVideoContext`), a **second refinement pass** (`SegmentRefine`), 3D latent upscaling, and `MiniMaxH3Easy`'s `mode` (image / reference / **digital_human**), resolution/aspect/**seconds**/fps/keyframe presets | **0 GB** (install complete) | **working ✅ — §5.2** |
 | **`minimax-h3-ref2v`** | a *different* UNET (`minimax_h3_ref2va_pruned_int8_convrot`, 20.97 GB) driven by **multiple references** — `ref_images` / `ref_videos` / `ref_video_audios` / `ref_audios` + `ref_image_size` — i.e. **character/identity consistency across shots, motion or style from a reference clip, audio-driven video** | **+20.97 GB** (text encoder and both VAEs already present) | blueprint `Reference to Video (MiniMax H3)` already resolves fully |
 | **H3 VDN 8-step** | linear-attention branch + DMD adapters for very fast long sequences | +5.5 GB **and a missing node pack** (`ApplyVDNH3` is not registered) | **not recommended** |
 
 So the three options are complementary, not alternatives: **turbo LoRA = speed**, **Easy =
 length/refine/inputs**, **ref2v = reference conditioning**. Today's `t2v`/`i2v` send exactly one
 first frame (plus an optional last frame) and cap at the model's trained 124–362 frames.
+
+### 5.2 Long video — `MiniMaxH3Easy` segmented rendering ✅ (installed, verified)
+
+**Measured: a 10-second video (2 segments × 5 s) at 1344×768 took 181 s** — far cheaper per second
+than a single 20-step 5 s clip (755 s), because the official Easy recipe pairs the **4-step LoRA
+with a `beta` scheduler, a 480P preset and INT8 attention**.
+
+Verified graph (all node types are already installed):
+
+```
+MiniMaxH3EasyLoader(fl2va_model, ref2va_model="none", text_encoder, video_vae, audio_vae)
+   └─> MiniMaxH3EasyContextSegments ──MODEL──> ModelAttentionBackend(attention="comfy kitchen attention")
+                    │                                   └─> LoraLoaderModelOnly(…turbo_4step_v1.0_768p…, 1)
+                    │                                            └─> BasicScheduler("beta", steps=4, denoise=1)
+                    └─MINIMAX_H3_CONTEXT──> MiniMaxH3EasySegmentRender(h3_context, model, sampler, sigmas, seed, segment_seeds="default")
+                                                                 └─> MiniMaxH3EasySegmentDecode ─> SaveVideo
+```
+
+`MiniMaxH3EasyContextSegments` is where long video is configured:
+
+| Input | Value used | Notes |
+|---|---|---|
+| `mode` | `context_segments` | the only option on this node |
+| `audio_mode` | `generated` or `digital_human` | |
+| `prompt` | one text per segment, separated by a line containing `---` | reference media with `<Picture 1>` / `index` naming (`reference_mention_mode`) |
+| `seconds` | **total** length (e.g. 10) | up to 900 |
+| `segment_seconds` | **per-segment list** e.g. `"5,5"` | must match the number of segments |
+| `context_length` | 22 (5–141, step 17) | how much context carries between segments |
+| `continuity_mode` | `latent_guide` / `guide` / `soft_av` / `hard_av` | cross-segment consistency |
+| `resolution` / `aspect_ratio` / `width` / `height` | `480P`, `16:9`, 1344×768 | presets plus explicit size (multiple of 32) |
+| `context_prompt_optimizer_mode` | `whole_sequence` or `per_segment` | |
+
+⚠️ **API-mode traps learned here**
+- **`ModelAttentionBackend.attention` must be passed explicitly** (`"attention": "comfy kitchen
+  attention"` — the alternative is `"pytorch attention"`). It is a UI *widget*, so a payload that
+  wires only `model` fails validation with
+  `validate_inputs() missing 1 required positional argument: 'attention'`.
+- `MiniMaxH3EasySegmentRefine` (the two-pass quality mode) additionally takes
+  `latent_upscale_model` — that is the **3D latent upscaler**, now installed.
+- The pack's manifest URL for the 3D upscaler is **wrong** (it 404s and returns a 15-byte error
+  page). The real file lives in `LBH-123-AI/Minimax_h3_latent_Upscaler` at
+  `minimax_h3_latent_upscaler_3d_conv_v1/minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors`
+  (690,592,672 B); it is installed under the manifest's expected name
+  `latent_upscale_models/minimax_h3_latent_upscaler_3d_fp16.safetensors`, so the boot-time
+  bootstrap skips it.
 
 ---
 

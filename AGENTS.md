@@ -190,22 +190,26 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   contract, are in `docs/COMFYUI_JDALN_REMOTE_USAGE_GUIDE_2026-10-15.md` (**rev 6**: §0 agent
   TL;DR + decision table, §2/§4/§5/§5b/§5c/§5d payloads, §9 node0 failover, **§10 presentation-deck
   workflow**, **§11 model portfolio + how to add a family**).
-- **`comfyui-jdaln` asset profiles (expanded 2026-10-15, now **14**).** Node1's
+- **`comfyui-jdaln` asset profiles (expanded 2026-10-15, now **16**).** Node1's
   `ComfyUI-DGX-Spark-Docker-opinionated/.env` (gitignored upstream) sets
-  `COMFY_ASSET_PROFILES=` to fourteen profiles — up from the single `z-image-turbo-core`
+  `COMFY_ASSET_PROFILES=` to sixteen profiles — up from the single `z-image-turbo-core`
   the lane launched with: `z-image-turbo-core`, `z-image-turbo-union-control`,
   `frame-interpolation-film`, `lucida-background-removal`, `lotus-depth-support`,
   `ltx-2.5-latent-upscale`, `whisper-subtitles`, `seedvr2-video-upscale`,
-  `qwen3-tts-voice-design` (first expansion, ~20 GB), then **`qwen-image-2.1-t2i`,
-  `qwen-image-2.1-edit`, `qwen-image-2.1-remove-background`** (second, ~33 GB), then
-  **`flux2-klein-4b-edit`, `qwen-image-layered-core`** (third, ~33 GB as fp8mixed;
-  `ComfyData/models` 106 GB → 124 → 173 → 186 GB). **Z-Image Base
+  `qwen3-tts-voice-design` (first expansion, ~20 GB), **`qwen-image-2.1-t2i`,
+  `qwen-image-2.1-edit`, `qwen-image-2.1-remove-background`** (second, ~33 GB),
+  **`flux2-klein-4b-edit`, `qwen-image-layered-core`** (third, ~33 GB as fp8mixed), then
+  **`minimax-h3-easy`, `minimax-h3-ref2v`** (fourth, the H3 extensions; `ComfyData/models`
+  106 GB → 124 → 173 → 186 → ~222 GB). **Z-Image Base
   (`z_image_bf16.safetensors`, 12.31 GB) is installed as a MANUAL file** — no pack profile
   exists for it (see the guide §10.3), so it is not part of the pack's asset bookkeeping and
   simply travels with the mirror rsync. **Qwen-Image Layered ships as bf16 (40.86 GB) in the
   manifest but is installed as `fp8mixed` (20.53 GB)** with a
-  `qwen_image_layered_bf16 → fp8mixed` symlink so the boot bootstrap skips the 40 GB file
-  (the pack's own alias convention).
+  `qwen_image_layered_bf16 → fp8mixed` symlink so the boot bootstrap skips the 40 GB file.
+  **The H3 3D latent upscaler's manifest URL is WRONG** (404 → a 15-byte error page); the file
+  was fetched from its real path in `LBH-123-AI/Minimax_h3_latent_Upscaler`
+  (`minimax_h3_latent_upscaler_3d_conv_v1/…_fp16.safetensors`, 690,592,672 B) and installed under
+  the manifest's expected name so the bootstrap skips it.
   The compose reads `.env` twice — for variable substitution AND via `env_file: - .env`
   (line 64) — so every rule below depends on that one file:
   - **`HF_TOKEN` sits on `.env` line 5**, copied from `~/docker-stacks/config/hf_token`
