@@ -13,12 +13,13 @@ human — that generates images or videos by calling this ComfyUI over the netwo
 > **Maintenance rule: if the ComfyUI image or the asset profiles change, re-verify
 > §2/§4/§5/§5b against `/object_info` before trusting the file names below.**
 
-**Version of this document:** 2026-10-15 (**rev 5**). Rev 2 added §5b Qwen-Image 2.1 and the
+**Version of this document:** 2026-10-15 (**rev 6**). Rev 2 added §5b Qwen-Image 2.1 and the
 "output dimensions must be multiples of 16" rule; rev 3 added §0 (agent TL;DR) and §9 (node0
-failover); rev 4 added §10 (presentation-deck workflow); rev 5 expands §10.3 into the Z-Image
-Turbo+Base family pairing and adds §11 (model portfolio, candidate costs, and the procedure for
-adding a family). Everything marked ✅ was executed against the live service on that date, with
-file sizes/hashes and wall times recorded below.
+failover); rev 4 added §10 (presentation-deck workflow); rev 5 expanded §10.3 (Z-Image Turbo+Base)
+and added §11 (model portfolio); **rev 6 adds §5c (FLUX.2 Klein 4B edit) and §5d (Qwen-Image
+Layered), fills in the measured Z-Image Base numbers, and records the fp8mixed substitution for
+Layered**. Everything marked ✅ was executed against the live service on that date, with file
+sizes/hashes and wall times recorded below.
 
 ---
 
@@ -61,6 +62,9 @@ inside `history[<id>].status.messages` as `execution_error`, and success is
 | Video **with audio** (~5 s, 24 fps), from text or from a first frame | **MiniMax H3** (20 steps) | **≈13 min** | §5 |
 | Same video, faster draft | MiniMax H3 + turbo LoRA (8 or 4 steps) | less | §5 |
 | Frame interpolation / video upscale / subtitles / speech | FILM / SeedVR2 / Whisper / Qwen3-TTS | seconds | §2 inventory |
+| Split an image into **editable RGBA layers** | **Qwen-Image Layered** | 13.6 min @1920×1088/3 layers | §5d |
+| Cheap multi-reference edit (no text focus) | **FLUX.2 Klein 4B** | 10–20 s | §5c |
+| Extra variation / negative-prompt control on Z-Image | **Z-Image Base** (40 steps, CFG 4.5) | 60–141 s | §10.3 |
 
 **Building a slide deck?** Go straight to **§10** — it splits this into two independent
 workflows (Qwen-Image 2.1 for graphic/text slides, Z-Image Turbo for pure imagery), plus the
@@ -379,6 +383,85 @@ transparent**, 20 s). Ordinary text-to-image output is also RGBA but effectively
 
 
 
+## 5c. Image editing — FLUX.2 Klein 4B (distilled) ✅
+
+Installed 2026-10-15. A cheap, fast, **multi-reference** editor: 3 files, and its text encoder is
+shared with Z-Image.
+
+| Role | Node | File |
+|---|---|---|
+| UNET | `UNETLoader` | `flux-2-klein-4b-nvfp4.safetensors` (2.46 GB; an alias `flux-2-klein-4b-fp8.safetensors` points at it) |
+| Text encoder | `CLIPLoader` **`type="flux2"`** | `qwen_3_4b.safetensors` |
+| VAE | `VAELoader` | `flux2-vae.safetensors` (0.34 GB) |
+
+**Recipe (distilled variant): 4 steps, CFGGuider `cfg=1`, `euler`, `Flux2Scheduler(steps=4, w, h)`** —
+reference images are injected as conditioning with **`VAEEncode → ReferenceLatent`**, and the
+negative branch is `CLIPTextEncode → ConditioningZeroOut → ReferenceLatent`. Verified payload:
+
+```json
+{"prompt":{
+ "1":{"class_type":"UNETLoader","inputs":{"unet_name":"flux-2-klein-4b-nvfp4.safetensors","weight_dtype":"default"}},
+ "2":{"class_type":"CLIPLoader","inputs":{"clip_name":"qwen_3_4b.safetensors","type":"flux2"}},
+ "3":{"class_type":"VAELoader","inputs":{"vae_name":"flux2-vae.safetensors"}},
+ "4":{"class_type":"CLIPTextEncode","inputs":{"clip":["2",0],"text":"<EDIT INSTRUCTION>"}},
+ "5":{"class_type":"ConditioningZeroOut","inputs":{"conditioning":["4",0]}},
+ "6":{"class_type":"LoadImage","inputs":{"image":"<REFERENCE>"}},
+ "7":{"class_type":"ImageScaleToTotalPixels","inputs":{"image":["6",0],"upscale_method":"nearest-exact","megapixels":1.0,"resolution_steps":1}},
+ "8":{"class_type":"VAEEncode","inputs":{"pixels":["7",0],"vae":["3",0]}},
+ "9":{"class_type":"ReferenceLatent","inputs":{"conditioning":["4",0],"latent":["8",0]}},
+ "10":{"class_type":"ReferenceLatent","inputs":{"conditioning":["5",0],"latent":["8",0]}},
+ "11":{"class_type":"CFGGuider","inputs":{"model":["1",0],"positive":["9",0],"negative":["10",0],"cfg":1}},
+ "12":{"class_type":"GetImageSize","inputs":{"image":["7",0]}},
+ "13":{"class_type":"Flux2Scheduler","inputs":{"steps":4,"width":["12",0],"height":["12",1]}},
+ "14":{"class_type":"EmptyFlux2LatentImage","inputs":{"width":["12",0],"height":["12",1],"batch_size":1}},
+ "15":{"class_type":"KSamplerSelect","inputs":{"sampler_name":"euler"}},
+ "16":{"class_type":"RandomNoise","inputs":{"noise_seed":1234}},
+ "17":{"class_type":"SamplerCustomAdvanced","inputs":{"noise":["16",0],"guider":["11",0],"sampler":["15",0],"sigmas":["13",0],"latent_image":["14",0]}},
+ "18":{"class_type":"VAEDecode","inputs":{"samples":["17",0],"vae":["3",0]}},
+ "19":{"class_type":"SaveImage","inputs":{"images":["18",0],"filename_prefix":"klein_edit"}}
+}}
+```
+
+Measured: **20 s (cold, 1 MP) / 10 s (warm)**. Output resolution follows the **scaled reference**
+(`ImageScaleToTotalPixels` → `GetImageSize` → `EmptyFlux2LatentImage`), so 2.09 MP gave
+1952×1104. For an exact 1920×1088 target either feed a reference already at 1920×1088 and skip the
+scaler, or crop afterwards.
+
+The pack's own note: Klein ranks low on public edit leaderboards — use it for cheap/fast
+multi-reference edits, and **Qwen-Image 2.1 edit** when text fidelity matters.
+
+## 5d. Image → layers — Qwen-Image Layered ✅
+
+Splits one image into N RGBA layers (background / subject / text …) — useful for taking a
+rendered slide apart into editable pieces.
+
+| Role | Node | File |
+|---|---|---|
+| UNET | `UNETLoader` | `qwen_image_layered_fp8mixed.safetensors` (20.53 GB — see the substitution note) |
+| Text encoder | `CLIPLoader` **`type="qwen_image"`** | `qwen_2.5_vl_7b_fp8_scaled.safetensors` (9.38 GB) |
+| VAE | `VAELoader` | `qwen_image_layered_vae.safetensors` (0.25 GB) |
+
+**Recipe:** `ModelSamplingAuraFlow shift = 1` (not 3); `KSampler` **20 steps, cfg 2.5, euler /
+simple**; the latent comes from **`EmptyQwenImageLayeredLatentImage(width, height, layers, batch)`**
+itself, not the usual empty-latent node; the input image is injected with
+`VAEEncode → ReferenceLatent` into both branches; the sampler output passes through
+**`LatentCut(dim="t", index=1, amount=16384)` → `LatentCutToBatch(dim="t", slice_size=1)`** →
+`VAEDecode` → `SaveImage`, producing **one PNG per layer**.
+
+Measured: **1920×1088 with 3 layers = 814 s (13.6 min)**; the three outputs were 1920×1088 RGBA,
+and layers 2–3 carried **`alpha (0,255)` — genuinely transparent**. Cost scales with
+pixels × layers, and the blueprint's own default is much smaller (640×640, 2 layers) — size
+accordingly.
+
+⚠️ **Substitution (size):** the pack's profile names the **bf16** checkpoint (40.86 GB). Upstream
+(`Comfy-Org/Qwen-Image-Layered_ComfyUI`) also publishes **`qwen_image_layered_fp8mixed` (20.53 GB)**
+and there is **no nvfp4** for this model (community GGUF Q2–Q8 exists and `ComfyUI-GGUF` is
+installed, so `UnetLoaderGGUF` is a fallback). We installed fp8mixed and left a **symlink**
+`qwen_image_layered_bf16.safetensors → qwen_image_layered_fp8mixed.safetensors`, which satisfies the
+boot-time bootstrap (its existence check follows symlinks) so the 40 GB bf16 is never fetched.
+
+
+
 ## 6. Outputs, inputs and file transfer
 
 | Direction | Location |
@@ -538,13 +621,13 @@ downloads and a *different* checkpoint — 1280×720 on 2.1 at 20 s is normally 
 Z-Image ships as **two checkpoints of the same 6B architecture that share one text encoder
 (`qwen_3_4b`, `lumina2`) and one VAE (`ae.safetensors`)** — only the UNET file differs:
 
-| | **Z-Image Turbo** (installed ✅) | **Z-Image Base** (NOT installed — see below) |
+| | **Z-Image Turbo** (installed ✅) | **Z-Image Base** (installed ✅ 2026-10-15) |
 |---|---|---|
-| UNET file | `z_image_turbo_bf16.safetensors` (12.31 GB) | `z_image_bf16.safetensors` (≈12 GB) |
+| UNET file | `z_image_turbo_bf16.safetensors` (12.31 GB) | `z_image_bf16.safetensors` (12.31 GB, sha256 `996a67d3…`) |
 | Steps / CFG | **4–8 steps, CFG 1** (official `guidance_scale 0.0`) | **30–50 steps, CFG 3–5** (4–5 optimal) |
 | Negative prompts | effectively **ignored** at CFG 1 (ComfyUI only re-introduces negative subtraction above CFG 1, with Turbo side effects) | **highly responsive** |
-| Character | speed + photorealism | richer detail, higher artistic ceiling, **more diversity across seeds** |
-| Measured here | **1280×720 = 10 s**, 1920×1088 = 20 s | not installed |
+| Character | speed + photorealism | richer detail, higher artistic ceiling, more variation |
+| Measured here | **1280×720 = 10 s** | **1280×720 (40 steps, cfg 4.5) = 60 s**; **1920×1088 = 141 s** |
 
 So Workflow B is itself a **complete two-stage pairing inside one family** — same idea as
 Qwen-Image 2.1's t2i+edit, and the official/community framing is explicitly
@@ -552,20 +635,21 @@ Qwen-Image 2.1's t2i+edit, and the official/community framing is explicitly
 
 | Stage | What to do | Cost |
 |---|---|---|
-| **B1 draft** | **Turbo**, 4–8 steps, CFG 1, 1280×720–1920×1088 → pick the look | 10–20 s |
-| **B2 final** | **Base**, 30–50 steps, CFG 3–5, same prompt/seed, keep the same resolution → detail + diversity | ~1–3 min (est.) |
+| **B1 draft** | **Turbo**, 4–8 steps, CFG 1, 1280×720–1920×1088 → pick the look | **10 s** (1280×720) |
+| **B2 final** | **Base**, 40 steps, CFG 4.5, same prompt/seed, same resolution → detail + negative-prompt control | **60 s** (1280×720), **141 s** (1920×1088) |
 | **B3 post** | same 1080p crop contract as §10.5 — **Z-Image outputs RGB, so no alpha** | instant |
 
-⚠️ **Seed diversity caveat**: Turbo produces *similar* images even with different seeds — vary the
-**prompt** when drafting, not just the seed. Base is the model you switch to when you need genuine
-variation.
+⚠️ **Seed-variation caveat, measured**: the common claim that Turbo barely changes between seeds
+**did not reproduce strongly here** — same prompt, seed 111 vs 222, mean-absolute pixel difference
+(0–255) was **55.75 for Turbo vs 67.53 for Base**. Base does vary more (and responds to negative
+prompts), but Turbo is *not* static; both changed substantially. Vary the prompt when exploring,
+and prefer Base for genuine variation plus negative-prompt control.
 
-**Install gap**: the enable-able pack profiles are only `z-image-turbo-core` and
-`z-image-turbo-union-control` — there is **no `z-image-base` profile**, although the blueprint
-`Text to Image (Z-Image-Base)` ships and expects `z_image_bf16.safetensors`. Because Base shares
-the encoder and VAE with Turbo that are already on disk, enabling it means adding **one ~12 GB
-UNET file** to `ComfyData/models/diffusion_models/` (manual placement, not an `.env` profile) —
-then it appears in `UNETLoader` and the blueprint runs. Ask the operator before doing it.
+**Install note**: there is **no `z-image-base` profile** in the pack manifest, although the
+blueprint `Text to Image (Z-Image-Base)` ships and expects `z_image_bf16.safetensors`. Base was
+therefore added as a **manual file** (2026-10-15) sharing Turbo's encoder and VAE; because no
+profile covers it, it is also **not** part of the pack's asset bookkeeping — it lives in the lane
+directory and travels to node0 with the mirror rsync.
 
 Also usable in this family: `z-image-turbo-union-control` (canny/depth/pose ControlNet Union) to
 lock a layout — blueprints `Canny/Depth/Pose to Image (Z-Image-Turbo)`, `ControlNet
@@ -696,7 +780,10 @@ must earn its place.
 | Family | Profiles / files | Strength | Measured |
 |---|---|---|---|
 | **Qwen-Image 2.1** | `qwen-image-2.1-t2i`, `-edit`, `-remove-background` | text-in-image champion; generate + edit + cutouts on one checkpoint | 20–111 s |
-| **Z-Image Turbo** | `z-image-turbo-core`, `z-image-turbo-union-control` | speed + photorealism; ControlNet Union for layout | 10–20 s |
+| **Z-Image Turbo** | `z-image-turbo-core`, `z-image-turbo-union-control` | speed + photorealism; ControlNet Union for layout | 10 s (1280×720) |
+| **Z-Image Base** | manual file, no profile (`z_image_bf16.safetensors`) | Z-Image quality pass: 40 steps, CFG 4.5, working negative prompts | 60 s / 141 s (1080p-class) |
+| **FLUX.2 Klein 4B** | `flux2-klein-4b-edit` | cheap fast multi-reference edit; reuses Z-Image's text encoder | 10–20 s |
+| **Qwen-Image Layered** | `qwen-image-layered-core` (installed as fp8mixed 20.53 GB + bf16 symlink) | image → N RGBA layers, real transparency | 814 s @1920×1088, 3 layers |
 | Tools (same lane) | `seedvr2-video-upscale`, `frame-interpolation-film`, `whisper-subtitles`, `qwen3-tts-voice-design`, `lotus-depth-support`, `lucida-background-removal`, `ltx-2.5-latent-upscale` | video upscale / interpolation / subtitles / speech / depth / matting | seconds–minutes |
 | **MiniMax H3** | weights present (i2v/t2v/turbo LoRA) | video with audio, ~5 s clips | ≈13 min |
 
@@ -707,35 +794,53 @@ accounts for assets already on disk.
 
 | Family / profile | Purpose it would cover | Size | Status |
 |---|---|---|---|
-| **Z-Image Base** (blueprint `Text to Image (Z-Image-Base)`) | Z-Image quality/diversity pass; negative-prompt control; LoRA training base | **≈12 GB** (UNET only — encoder+VAE shared) | **blueprint-only**: no pack profile → manual file add |
-| **FLUX.2 Klein 4B** (`flux2-klein-4b-edit`) | cheap photoreal + multi-reference **editing**; low latency | **+2.8 GB** incremental (10.85 GB total; `qwen_3_4b` shared) | profile-backed, 1-line `.env` — the cheapest real upgrade |
+| ~~**Z-Image Base**~~ | Z-Image quality/diversity pass; negative-prompt control | 12.31 GB | **INSTALLED ✅ 2026-10-15** (manual file) — §10.3 |
+| ~~**FLUX.2 Klein 4B**~~ | cheap photoreal + multi-reference **editing** | 2.8 GB incremental | **INSTALLED ✅ 2026-10-15** — §5c |
+| ~~**Qwen-Image Layered**~~ | image → editable RGBA layers | 30.2 GB as fp8mixed (bf16 would be 50.5 GB) | **INSTALLED ✅ 2026-10-15** — §5d |
 | **FLUX.2 Dev** (`Text to Image (Flux.2 Dev)`, `Image Edit (Flux.2 Dev)`) | strongest prompt adherence / photorealism tier | large (not measured) | **blueprint-only**: no pack profile → manual add |
 | **Krea 2 Turbo / RAW** (`krea-2-turbo-nvfp4`, `krea-2-raw`, style LoRAs) | aesthetics/hero imagery, style-reference workflows | 13.16 / 18.63 GB (shared encoder+VAE) | profile-backed |
 | **Ideogram v4** (`ideogram-4`, `ideogram-4-nvfp4`) | typography/graphic-design look (logos, poster type) | 21.91 GB | profile-backed |
 | **Qwen-Image 2512 Lightning** (`qwen-image-2512-t2i-lightning-4step`, `-8step`) | 4/8-step Qwen-class *drafts* (same family as 2.1) | 31.76 GB | profile-backed |
 | **Mage-Flow Edit Turbo** (`mage-flow-edit-turbo`) | instruction editing (pack's own "use for quality edits" pick) | 17.46 GB | profile-backed |
-| **Qwen-Image tooling** (`qwen-image-layered-core`, `qwen-image-inpaint-lightning-4step`, `qwen-image-edit-2511-core`) | layer decomposition (editable slide layers!), inpainting | 3–6 assets each | profile-backed |
+| **Qwen-Image tooling** (`qwen-image-inpaint-lightning-4step`, `qwen-image-edit-2511-core`) | inpainting; the 2511 edit line | 5–6 assets each | profile-backed |
 | **Others in the manifest** | Wan 2.2 (video), LTX-2.5 (video, **gated → needs a one-time licence click**), 3D (pixal3d/Hunyuan3D), audio (ACE-Step, YuE2, VibeVoice, MiniMax Music 3, HeartMuLa) | 10–60 GB each | 82 profiles not yet installed |
 
 Full list on the node: `asset-profiles.json` (91 profiles) and the pack's own
 `docs/workflows.md` (per-profile disk + expected run time), plus the bundled ComfyUI templates.
 
-### 11.4 How to add a family (procedure that has worked twice)
+### 11.4 How to add a family (procedure that has worked three times)
+
+> **⚠️ Execute every lane change ON NODE1.** A launcher script that uses `$HOME` operates on
+> whichever machine it runs on — when the command is issued through the node0 wrapper, `$HOME`
+> is **node0's mirror**, so a `.env` edit or a download silently lands on the wrong machine.
+> Both mistakes happened here on 2026-10-15: one `.env` edit and one 12 GB download went to
+> node0. Nothing errors; the change simply has no effect on the running service. Always wrap the
+> work in `ssh eye@10.0.101.102 'bash -s' <<'REMOTE' … REMOTE` and verify on node1.
 
 1. **Dry-run the planner on the host** (read-only, asks Hugging Face for real sizes, exits
    non-zero on any 401/403):
    `python3 scripts/smoke/plan_downloads.py <profiles…>` — run it in the pack directory.
 2. **Add the profile to `.env`** (`COMFY_ASSET_PROFILES=`, comma-separated, one line) **on node1**;
    back the file up first. *(Blueprint-only items skip this step: the file is placed by hand.)*
-3. **Restart the lane**: `gb10-single restart node1 comfyui-jdaln` — the entrypoint downloads the
-   new assets **before** starting ComfyUI, so `:8188` is down for the whole download. Budget
-   **≈8 MB/s** (33 GB took ~1 h).
-4. **Verify**: the counts in `ComfyData/models`, then `GET /object_info/<Loader>` shows the new
-   file names. `docker ps` health is a **false positive** during the download — use a real
+3. **Pre-fetch the assets while the service stays up** (recommended for anything large):
+
+   ```bash
+   # on node1: read dest→url from asset-profiles.json, curl each missing file to its
+   # ComfyData path (resume with -C -, verify size against the HEAD Content-Length)
+   ```
+   The bootstrap's own downloader is fine but runs **inside the restart**, so `:8188` is down for
+   the whole transfer; pre-fetching keeps ComfyUI serving and makes the next restart ~30 s.
+3b. *(alternative)* **Restart and let the bootstrap download**: `gb10-single restart node1
+   comfyui-jdaln` — the entrypoint downloads new assets **before** starting ComfyUI. Budget
+   **≈8–10 MB/s** (2.8 GB ≈ 5 min, 33 GB ≈ 1 h, 50 GB ≈ 1.5 h) and expect `:8188` to be down the
+   whole time. `docker ps` health is a **false positive** during the download — use a real
    `:8188/system_stats` probe.
-5. **Smoke-render one image** and measure the wall time, then:
+4. **Verify**: `stat` the expected file sizes in `ComfyData/models`, then confirm
+   `GET /object_info/<Loader>` lists the new file names.
+5. **Smoke-render one image** and measure the wall time (that is what goes into §11.3/§10).
 6. **Mirror to node0** over CX7 (`rsync`, ~620 MB/s) and verify both ends — node1 is the source of
-   truth; node0 is a passive mirror (§9).
+   truth; node0 is a passive mirror (§9). Do this **after** the new assets are on node1, or the
+   mirror's `--delete` will remove node0's copies.
 
 ### 11.5 Selection cheat-sheet (extends §0/§10.1)
 
@@ -744,11 +849,11 @@ Full list on the node: `asset-profiles.json` (91 profiles) and the pack's own
 | Text/numbers legible in the image | **Qwen-Image 2.1** (any variant) |
 | A design/typography *look* (travel-poster, logo-ish) | Ideogram v4 (to add) |
 | Aesthetic hero image, style consistency | Krea 2 Turbo/RAW (to add), style-reference templates |
-| Photoreal product/person, prompt adherence | FLUX.2 Dev (to add) / Z-Image Base (to add) / Z-Image Turbo (tier below) |
+| Photoreal product/person, prompt adherence | FLUX.2 Dev (to add) / **Z-Image Base ✅** / Z-Image Turbo (tier below) |
 | Fast, cheap, good-enough imagery | **Z-Image Turbo** (10 s) — or a Lightning/Turbo variant of the chosen family |
-| Edit an existing image | **Qwen-Image 2.1 edit** (best text fidelity) / FLUX.2 Klein edit (cheap) / Mage-Flow (quality) |
+| Edit an existing image | **Qwen-Image 2.1 edit** (best text fidelity) / **FLUX.2 Klein edit ✅** (cheap, fast, multi-ref) / Mage-Flow (quality, to add) |
 | Cutout with alpha | **Qwen-Image 2.1 remove-background** (Z-Image cannot — RGB only) |
-| Editable layers for a deck | `qwen-image-layered-core` (to add) |
+| Editable layers for a deck | **Qwen-Image Layered ✅** (§5d) |
 | Video with audio | **MiniMax H3** |
 
 When a new family lands, extend §0's decision table and this cheat-sheet in the same commit —

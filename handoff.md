@@ -1816,6 +1816,67 @@ node0 stack 173 GB、磁碟 51%（node1 53%）。
 **待辦（未做）**：把 edit／去背也一併做成 16:9 的標準步驟（已驗證可行，尚未寫成固定模板）；
 簡報用的 prompt 模板與風格固定（同一 seed + 模板）尚未系統化。
 
+### 2026-10-15（續八）— (a) Z-Image Base + (b) FLUX.2 Klein 4B + (c) Qwen-Image Layered 三項安裝與實測（指南 rev 6）
+
+**使用者指示**：先做 (a) Z-Image Base → (b) FLUX.2 Klein 4B；並且「Qwen-Image Layered 也補安裝下載」。
+
+**安裝結果**（全部 node1，最後一次 mirror 後兩端一致）
+
+| 項目 | 檔案 / 大小 | 方式 |
+|---|---|---|
+| **Z-Image Base** | `z_image_bf16.safetensors` 12,309,866,400 B（sha256 `996a67d3…`）| **手動檔**：套件無此 profile，藍圖 `Text to Image (Z-Image-Base)` 期待此檔名；encoder/VAE 與 Turbo 共用 |
+| **FLUX.2 Klein 4B** | `flux-2-klein-4b-nvfp4` 2.46 GB + `flux2-vae` 336 MB（`qwen_3_4b` 已在）+ 2 官方樣本 | profile `flux2-klein-4b-edit` |
+| **Qwen-Image Layered** | **改用 `qwen_image_layered_fp8mixed` 20,533,591,821 B**（原 manifest 指向 bf16 40.86 GB）+ `qwen_2.5_vl_7b_fp8_scaled` 9.38 GB + layered VAE 253,816,616 B | profile `qwen-image-layered-core`；並建立 `qwen_image_layered_bf16 → fp8mixed` **symlink**（套件 alias 慣例）讓 bootstrap 不再抓 40 GB bf16 |
+
+`.env` 由 12 → **14 個 profile**（md5 `53328eeb…` → **`394b3c61…`**）；重啟 **21 秒 READY**。
+**nvfp4 查證**：Comfy-Org 對 Layered **沒有** nvfp4（只有 bf16 與 fp8mixed）；社群有 QuantStack/Unsloth 的
+GGUF（Q2–Q8），且本機 **已裝 ComfyUI-GGUF**（`UnetLoaderGGUF` 等節點在）→ 需要省資源時可走 GGUF。
+
+**實測**
+
+| 測試 | 結果 | 耗時 |
+|---|---|---|
+| Z-Image **Turbo** 1280×720（4 步 cfg 1）| 成功 | **10 s** |
+| Z-Image **Base** 1280×720（**40 步 cfg 4.5**，真負面詞）| 成功 | **60 s** |
+| Z-Image **Base** 1920×1088（同上）| 成功 | **141 s** |
+| seed 多樣性（同 prompt，seed 111 vs 222，MAD 0–255）| **Turbo 55.75 / Base 67.53** | — |
+| **FLUX.2 Klein** 樣本（1 MP）| 成功 752×1360 | **20 s** |
+| **FLUX.2 Klein** 簡報改字（2.09 MP）| 成功 **1952×1104** | **10 s**（暖機） |
+| **Qwen-Image Layered** 3 層 @1920×1088 | 成功 3 張 RGBA；**第 2/3 層 alpha (0,255) 真透明** | **814 s（13.6 分）** |
+
+⚠️ **社群說法未重現**：常見「Turbo 換 seed 幾乎不變」在本機**不成立**（MAD 55.75 vs 67.53，兩者都變化明顯）；
+已在指南 §10.3 據實標註「Base 變化較大，但 Turbo 並非靜態」。
+
+**新接線（已寫入指南 §5c / §5d）**
+
+- **Klein 4B distilled**：`UNETLoader(flux-2-klein-4b-nvfp4)` + `CLIPLoader(qwen_3_4b, type=flux2)` +
+  `flux2-vae`；**4 步、CFGGuider cfg=1、euler、`Flux2Scheduler(4)`**；參考圖以 `VAEEncode → ReferenceLatent`
+  注入正/負分支（負分支 = `CLIPTextEncode → ConditioningZeroOut → ReferenceLatent`）；
+  輸出尺寸**跟隨縮放後的參考圖**（`ImageScaleToTotalPixels` → `GetImageSize` → `EmptyFlux2LatentImage`）。
+- **Qwen-Image Layered**：`UNETLoader(qwen_image_layered_bf16/fp8mixed)` + `CLIPLoader(qwen_2.5_vl_7b_fp8_scaled, qwen_image)`
+  + `qwen_image_layered_vae`；`ModelSamplingAuraFlow shift 1`；**KSampler 20 步 / cfg 2.5 / euler-simple**；
+  latent 用 **`EmptyQwenImageLayeredLatentImage(w,h,layers,batch)`**（layer 數是節點參數）；
+  輸出經 **`LatentCut(dim=t,index=1,amount=16384) → LatentCutToBatch(dim=t,slice_size=1)`** → `VAEDecode`
+  → 每層一張 PNG。成本隨 **像素 × 層數** 成長（藍圖預設僅 640×640 / 2 層）。
+
+**兩個流程失誤（同一根因，已寫進指南 §11.4 紅字警示）**
+
+1. 第一次改 `.env` 時腳本跑在 **node0**（未 ssh 進 node1）→ 改到鏡像副本，服務毫無變化（40 分鐘無下載）。
+2. 下載 Z-Image Base 的啟動腳本同樣在 **node0** 執行 → 12.3 GB 下到 **node0**（事後經 CX7 修正並驗證 sha256 相同）。
+   → 規則：**所有 lane 變更必須在 node1 執行**；並改用「**主機側預抓 → 之後一次快速重啟**」避免 bootstrap
+   在下載期間（50 GB 級）讓服務停機。
+
+**鏡像第三次補齊**：`rsync -aHAX --no-o --no-g --delete`（**注意：`--no-own` 不存在，會 rc=1**），
+**rc=0、33.0 GB、653 MB/s**；兩端 **114,406 / 16,317 / 9**、`.env` md5 `394b3c61…`、4 個新權重 sha256 全部相同、
+node0 非 eye 條目 0；node0 stack 215 GB、磁碟 52%（node1 54%）。
+
+**交付**：指南 **rev 6**（新增 §5c Klein、§5d Layered；§10.3 填入 Base 實測值並更正 seed 多樣性說法；
+§11.2/11.3 標記已安裝；§0 決策表加 3 列）；`AGENTS.md`（14 profiles、Base 手動檔、Layered fp8mixed+symlink、鏡像事實）。
+
+**本機成品**（`C:\Users\Sawaichi\Downloads\`）：`zt_s1/s2`（Turbo 兩 seed）、`zb_s1/s2`（Base 兩 seed）、
+`zb_final`（Base 1920×1088）、`klein_s1`（樣本）、`klein_slide`（簡報改字、1952×1104）、
+`layered_00001..3`（三層，含透明層）。
+
 ### 2026-10-15（續六）— 簡報產線定案：兩條獨立工作流 + 模型選擇查證（指南 rev 4）
 
 **使用者指正**：我原本把「Z-Image Turbo 出草稿 → Qwen-Image 定稿」寫成一條混用管線，那是我的
