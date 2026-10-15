@@ -60,7 +60,7 @@ inside `history[<id>].status.messages` as `execution_error`, and success is
 | Edit an existing image (rewrite text, recolour, swap object, ≤10 refs) | **Qwen-Image 2.1** edit | 20–50 s | §5b.4 |
 | Subject cutout with **real alpha** on a transparent background | **Qwen-Image 2.1** remove-background | 20 s | §5b.4 |
 | Video **with audio** (~5 s, 24 fps), from text or from a first frame | **MiniMax H3** (20 steps) | **≈13 min** | §5 |
-| Same video, faster draft | MiniMax H3 + turbo LoRA (8 or 4 steps) | less | §5 |
+| Same video, faster draft | MiniMax H3 + turbo LoRA (8 or 4 steps) | **362 s / 201 s** (vs 755 s @20 steps) | §5.1 |
 | Frame interpolation / video upscale / subtitles / speech | FILM / SeedVR2 / Whisper / Qwen3-TTS | seconds | §2 inventory |
 | Split an image into **editable RGBA layers** | **Qwen-Image Layered** | 13.6 min @1920×1088/3 layers | §5d |
 | Cheap multi-reference edit (no text focus) | **FLUX.2 Klein 4B** | 10–20 s | §5c |
@@ -279,6 +279,34 @@ do not use short HTTP/timeout settings.
 - A simpler alternative pack exists (`MiniMaxH3EasyLoader → MiniMaxH3Easy →
   MiniMaxH3EasySampler → MiniMaxH3EasySegmentDecode`); it is **not** what was verified here.
   Prefer the graph in this section.
+
+### 5.1 Extending this family — what each option buys, measured
+
+Same prompt, 1344×768, 124 frames (~5.2 s at 24 fps), warm, seed 7:
+
+| Configuration | Wall time | vs 20 steps |
+|---|---|---|
+| 20 steps, no LoRA (this section's baseline) | **755 s** | 1.0× |
+| **+ `minimax_h3_fl2v_turbo_8step_v1.0` LoRA, `steps=8`** | **362 s** | **2.1× faster** |
+| **+ `minimax_h3_fl2v_turbo_4step_v1.2_768p` LoRA, `steps=4`** | **201 s** | **3.8× faster** |
+
+The turbo LoRAs are **already on disk (0 GB to add)** — apply `LoraLoaderModelOnly` on the UNET and
+lower `steps` (8 or 4); everything else in the graph is unchanged. Fitting the two points gives
+≈**40 s per sampling step plus ~40 s of fixed overhead** (model load, VAE decode, video encode),
+so the ladder is predictable. They are distillation adapters: expect some loss of motion/detail —
+use them for drafts and iteration, then re-render the keeper at 20 steps.
+
+Beyond speed, two further H3 capabilities exist but are **not installed**:
+
+| Capability | What it adds | Cost | Ready when |
+|---|---|---|---|
+| **`minimax-h3-easy` segmentation** (nodes already installed) | **multi-minute video** by rendering in segments (`MiniMaxH3EasySegment*`), cross-segment context (`ContextSegments`, `SelectedVideoContext`), a **second refinement pass** (`SegmentRefine`), 3D latent upscaling, and `MiniMaxH3Easy`'s `mode` (image / reference / **digital_human**), resolution/aspect/**seconds**/fps/keyframe presets | **one file** (`latent_upscale_models/minimax_h3_latent_upscaler_3d_fp16.safetensors`, GB-scale); the other 8/9 assets are present | after that single download |
+| **`minimax-h3-ref2v`** | a *different* UNET (`minimax_h3_ref2va_pruned_int8_convrot`, 20.97 GB) driven by **multiple references** — `ref_images` / `ref_videos` / `ref_video_audios` / `ref_audios` + `ref_image_size` — i.e. **character/identity consistency across shots, motion or style from a reference clip, audio-driven video** | **+20.97 GB** (text encoder and both VAEs already present) | blueprint `Reference to Video (MiniMax H3)` already resolves fully |
+| **H3 VDN 8-step** | linear-attention branch + DMD adapters for very fast long sequences | +5.5 GB **and a missing node pack** (`ApplyVDNH3` is not registered) | **not recommended** |
+
+So the three options are complementary, not alternatives: **turbo LoRA = speed**, **Easy =
+length/refine/inputs**, **ref2v = reference conditioning**. Today's `t2v`/`i2v` send exactly one
+first frame (plus an optional last frame) and cap at the model's trained 124–362 frames.
 
 ---
 
