@@ -1815,3 +1815,42 @@ node0 stack 173 GB、磁碟 51%（node1 53%）。
 
 **待辦（未做）**：把 edit／去背也一併做成 16:9 的標準步驟（已驗證可行，尚未寫成固定模板）；
 簡報用的 prompt 模板與風格固定（同一 seed + 模板）尚未系統化。
+
+### 2026-10-15（續六）— 簡報產線定案：兩條獨立工作流 + 模型選擇查證（指南 rev 4）
+
+**使用者指正**：我原本把「Z-Image Turbo 出草稿 → Qwen-Image 定稿」寫成一條混用管線，那是我的
+假設而非事實。使用者指出 z-image 與 qwen-image **可以各自獨立成流程**，且 **Qwen-Image 2.1 的
+t2i + edit 本身就是完整產線**。查證後確認使用者正確，已據此改寫指南 §10。
+
+**查證結果（2026-10-15 網路）**
+
+- Qwen-Image 系＝**文字準確度冠軍**：「posters, banners, UI mockups, product labels, social graphics」；
+  「Nothing local renders text better」；Qwen-Image 2.1 = 同一份權重同時做生成與編輯（t2i + edit
+  ＋remove-background 共用核心，**不需要第二個模型**）。
+- Z-Image Turbo＝**速度與寫實**：6B 蒸餾、8 步、資料中心 ~2–3 s；強項寫實/人像/產物；評語「realism
+  better, diversity narrower」。可信評測（diffusiondoodles）：「Text rendering is not as strong as
+  Qwen Image or Flux.2. It will do the basics but **do not expect longer text to work**」。
+- **混用管線只是零星說法，非主流做法**；主流建議是「用對的模型做對的事」。
+- ⚠️ **有行銷比較頁聲稱「Z-Image Turbo lacks text rendering support entirely」＝錯的**（本機實測
+  Z-Image 就生出了可讀的 headline）→ 這類比較頁可信度低，以本機 A/B 為準。
+
+**本輪實測（node1）**
+
+| 項目 | 結果 |
+|---|---|
+| Z-Image Turbo 草稿 1280×720（4 步）| **10 s**（RGB）|
+| Z-Image Turbo 1920×1088（4 步）| **20 s**（RGB，**無 alpha**）|
+| Z-Image 草稿 → Qwen-Image 2.1 **edit 定稿**（cfg 2.5, resolution 1440, EmptyLatent 1920×1088）| **100 s** → 1920×1088（RGBA）；版面保留、字重繪 |
+| Qwen-Image 2.1 1920×1088 定稿 | 50 s（RGBA）|
+
+可供肉眼比較的檔案（本機 `C:\Users\Sawaichi\Downloads\`）：`E_草稿_zimage_1920x1080.png`（Z-Image 同 prompt）
+vs `F_定稿_qwen21_1920x1080.png`（Qwen 2.1 重繪）。
+
+**交付**：指南 **rev 4** 新增 **§10 簡報產線**：§10.1 選模型對照表（附社群依據與「別信行銷比較頁」的提醒）、
+**§10.2 Workflow A = Qwen-Image 2.1 t2i+edit 自成完整產線**（A1 草稿 1280×720 20 s → A2 定稿 A/B/C →
+A3 用 edit 改字改版面 → A4 裁 1080p；全程同一模型、無切換成本）、§10.3 Workflow B = Z-Image Turbo 純影像
+（含 union ControlNet 鎖版面、RGB 無 alpha 的限制）、§10.4 可選混用（已驗證但非標準）、
+§10.5 1080p 16:9 裁切契約（渲 1920×1088 → 裁 8 列；PIL / ImageMagick / PowerShell 三種指令；
+hero 模式 2752×1536 → 1935×1080 → 裁邊）、§10.6 批次與排程（單 GPU 序列化、**依模型分組**避免權重反覆載入、
+10 張簡報 ≈ 10 分鐘 GPU 時間、可直接用的 python helper）、§10.7 一致性與可重現（記錄 prompt/seed/模式、
+固定 style block 與負面詞、同一 seed family）、§10.8 交稿前 QA 清單。

@@ -13,10 +13,11 @@ human — that generates images or videos by calling this ComfyUI over the netwo
 > **Maintenance rule: if the ComfyUI image or the asset profiles change, re-verify
 > §2/§4/§5/§5b against `/object_info` before trusting the file names below.**
 
-**Version of this document:** 2026-10-15 (**rev 3**). Rev 2 added §5b Qwen-Image 2.1 and the
-"output dimensions must be multiples of 16" rule; rev 3 adds §0 (agent TL;DR) and §9 (node0
-failover). Everything marked ✅ was executed against the live service on that date, with file
-sizes/hashes and wall times recorded below.
+**Version of this document:** 2026-10-15 (**rev 4**). Rev 2 added §5b Qwen-Image 2.1 and the
+"output dimensions must be multiples of 16" rule; rev 3 added §0 (agent TL;DR) and §9 (node0
+failover); rev 4 adds §10 (presentation-deck workflow: two independent model workflows, the
+optional hybrid, the 1080p crop contract, batching and QA). Everything marked ✅ was executed
+against the live service on that date, with file sizes/hashes and wall times recorded below.
 
 ---
 
@@ -59,6 +60,10 @@ inside `history[<id>].status.messages` as `execution_error`, and success is
 | Video **with audio** (~5 s, 24 fps), from text or from a first frame | **MiniMax H3** (20 steps) | **≈13 min** | §5 |
 | Same video, faster draft | MiniMax H3 + turbo LoRA (8 or 4 steps) | less | §5 |
 | Frame interpolation / video upscale / subtitles / speech | FILM / SeedVR2 / Whisper / Qwen3-TTS | seconds | §2 inventory |
+
+**Building a slide deck?** Go straight to **§10** — it splits this into two independent
+workflows (Qwen-Image 2.1 for graphic/text slides, Z-Image Turbo for pure imagery), plus the
+1080p 16:9 crop contract, batching rules and a QA checklist.
 
 ### Four rules that break naive clients
 
@@ -463,3 +468,180 @@ through the Windows host or the 192.168.23.x LAN.
 Probe both URLs with `GET /system_stats`; whichever answers `200` with
 `system.comfyui_version = 0.38.0` is the node to use. Ask the operator before failing over —
 it is a manual, GPU-exclusive operation.
+
+---
+
+## 10. Presentation-deck workflow (16:9, 1080p)
+
+Everything in this section is about producing **slide art**. It is split into **two independent
+workflows** — one per model — because that is what the two families are good at.
+**Workflow A (Qwen-Image 2.1 t2i + edit) is a complete pipeline on its own**; Workflow B
+(Z-Image Turbo) is a separate, equally complete pipeline for pure imagery. The hybrid in §10.4 is
+**optional** and explicitly not a community standard.
+
+### 10.1 Which model for which slide
+
+| The slide needs | Model | Reasoning (see sources below) | Measured here |
+|---|---|---|---|
+| Headlines, labels, numbers, dense or long text **inside the image** | **Qwen-Image 2.1** | the open-source text-rendering champion (EN+CN); built for posters/labels/UI/graphics | 20–111 s |
+| Photoreal or concept imagery, no in-image text (text goes in the deck tool) | **Z-Image Turbo** | photorealism, portraits, product shots, 4-step speed; "realism better, diversity narrower" | 10–20 s |
+| 1–5 words of in-image text on a photo-like image | Z-Image Turbo (acceptable) or Qwen 2.1 (safer) | reviewer consensus: Z-Image "will do the basics but do not expect longer text to work" | — |
+| Cutout with real alpha | **Qwen-Image 2.1** remove-background | Z-Image outputs **RGB (no alpha)** | 20 s |
+
+**What the community says** (checked 2026-10-15):
+
+- "Qwen-Image is the answer when text accuracy is critical: posters, banners, UI mockups, product
+  labels, and social graphics with overlaid copy… Z-Image Turbo is the faster alternative when
+  throughput matters more than maximum text precision." (model round-up)
+- "Nothing local renders text better" than Qwen-Image for readable text / posters / logos.
+- Z-Image Turbo is described as a 6B **speed-first** distilled model: ~2–3 s on data-centre GPUs,
+  8-step distillation, strong photorealism, bilingual short text, occasionally weak anatomy; one
+  careful reviewer: *"Text rendering is not as strong as Qwen Image or Flux.2. It will do the
+  basics but do not expect longer text to work."*
+- **Beware of comparison pages**: at least one marketing comparison asserts "Z-Image Turbo lacks
+  text rendering support entirely", which is **false** — we rendered legible in-image headlines
+  with it locally (§10.3). Treat vendor/marketing comparisons as low-trust; prefer your own A/B.
+- Mixed pipelines (draft on one model, finish on the other) are only mentioned anecdotally; the
+  mainstream advice is **"use the right model for the job"**.
+
+**Local A/B you can look at**: `E_草稿_zimage_1920x1080.png` (Z-Image Turbo, same prompt) vs
+`F_定稿_qwen21_1920x1080.png` (Qwen-Image 2.1, refined). Compare the headline/subheading
+legibility before deciding per slide type.
+
+### 10.2 Workflow A — graphic / text slides: **Qwen-Image 2.1 is a complete workflow by itself**
+
+`qwen-image-2.1-t2i` **generates**, `qwen-image-2.1-edit` **corrects and re-composes**, and
+`qwen-image-2.1-remove-background` **cuts out** — all three run on the **same weights** (one
+checkpoint, one text encoder, one VAE). Nothing else has to be installed, and no second model has
+to be loaded: a whole deck can be produced, fixed and post-processed inside this one family.
+(That is also why 2.1 was chosen: text accuracy where you need it, plus editing, without a
+cross-model detour.)
+
+| Stage | What to do | Cost | Typical |
+|---|---|---|---|
+| **A1 draft** | same payload as §5b.3 with `EmptyLatentImage 1280×720`, 2–4 seeds → pick the composition. *(All Qwen-Image 2.1 — the cheap knob is resolution, not another model.)* | 20 s per image | 3 drafts = 1 min |
+| **A2 final** | §5b.2 modes: **A** 1920×1088 = 50 s · **B** hero 2752×1536 = 111 s · **C** cfg 2.5 + quality negative prompt = 90–100 s | 50–111 s | one final per slide |
+| **A3 fix** | text wrong, or an element misplaced? **Do not re-roll — edit it**: `images{"image_1": <final>}`, e.g. "the headline must read exactly: …" / "move the accent line to the bottom", keeping `resolution` matched to the canvas (§5b.4) | 20–100 s | only when needed |
+| **A4 post** | crop 1920×1088 → **1920×1080** (§10.5); place body copy in the deck tool | instant | always |
+
+Everything in A1–A3 is the same two profiles, so there is no model-switch cost anywhere in this
+workflow.
+
+*Optional accelerator (not required)*: the sibling checkpoint
+`qwen-image-2512-t2i-lightning-4step` (4 assets, **+31.8 GB**) is a 4-step Qwen-class model for
+draft-grade output, and `qwen-image-t2i-lightning-8step` is its 8-step sibling. They are separate
+downloads and a *different* checkpoint — 1280×720 on 2.1 at 20 s is normally cheap enough.
+
+### 10.3 Workflow B — pure imagery / photoreal slides (Z-Image Turbo only)
+
+Payload = §4. Measured: **1280×720 = 10 s**, **1920×1088 = 20 s** (4 steps, cfg 1,
+`res_multistep`/`simple`, `ModelSamplingAuraFlow` shift 3).
+
+- **Keep in-image text to a hero word or two.** For anything longer, generate the *text-free*
+  background here and set the type in the deck tool.
+- **Lock the composition** when the slide layout is fixed: use the enabled
+  `z-image-turbo-union-control` profile with a canny/depth/pose sketch of your layout outline
+  (blueprints `Canny to Image (Z-Image-Turbo)`, `Depth to Image (Z-Image-Turbo)`,
+  `Pose to Image (Z-Image-Turbo)`, `ControlNet (Z-Image-Turbo)`).
+- **No alpha**: Z-Image returns RGB. If you need a transparent subject, run Workflow A's
+  remove-background step instead.
+- Drafting is so cheap here (10 s) that "3 seeds and pick" is the normal way to work.
+
+### 10.4 Optional hybrid — Z-Image draft refined by Qwen-Image 2.1 (verified, not standard)
+
+Verified end-to-end: Z-Image Turbo draft at 1920×1088 (**20 s**) → Qwen-Image 2.1 **edit** with
+`images{"image_1": <draft>}`, `resolution 1440`, `EmptyLatentImage 1920×1088`, cfg 2.5
+(**100 s**) → the layout is preserved while the typography is redrawn cleanly.
+
+Use it **only** when you must keep an exact composition that Z-Image produced. Otherwise
+Workflow A is cheaper and simpler, and the community does not treat cross-model refinement as a
+normal practice — it costs an extra model load and does not make Qwen's typography better than
+Qwen's own output.
+
+### 10.5 The 1080p 16:9 contract (the details people get wrong)
+
+1. **Render 1920×1088** — both dimensions are multiples of 16, so nothing is padded (§5b.1).
+2. **Crop exactly 8 rows** (4 top / 4 bottom) → **1920×1080**. Do not resize; a resize blurs type.
+3. Never request 1920×1080 directly: the model pads to 1088 and a 16:9 deck letterboxes 1.7647.
+
+```bash
+# ImageMagick
+magick in_1920x1088.png -crop 1920x1080+0+4 +repage out_1920x1080.png
+
+# Python (Pillow)
+python3 -c "from PIL import Image; im=Image.open('in_1920x1088.png'); im.crop((0,4,1920,1084)).save('out_1920x1080.png')"
+
+# Windows PowerShell (.NET)
+Add-Type -AssemblyName System.Drawing
+$s=[System.Drawing.Image]::FromFile('in_1920x1088.png'); $b=New-Object System.Drawing.Bitmap 1920,1080
+$g=[System.Drawing.Graphics]::FromImage($b)
+$g.DrawImage($s,(New-Object System.Drawing.Rectangle 0,0,1920,1080),(New-Object System.Drawing.Rectangle 0,4,1920,1080),[System.Drawing.GraphicsUnit]::Pixel)
+$b.Save('out_1920x1080.png',[System.Drawing.Imaging.ImageFormat]::Png)
+```
+
+- **Hero mode B** instead renders 2752×1536 → scale to **1935×1080** → crop 8 px per side → 1920×1080.
+- **Safe area**: keep in-image text at least ~5 % from every edge (≈96 px at 1920 wide) so the
+  deck tool never clips it; reserve the area your body copy will occupy as *calm empty space* in
+  the prompt (say it explicitly: "the right two thirds is calm empty space").
+- If the image will sit behind text, ask for high contrast and a flat area behind the text zone.
+
+### 10.6 Batch and scheduling rules
+
+- **One GPU, serialized.** Jobs queue; check `GET /queue`. Do not fire parallel requests hoping
+  for speed — they run one after another.
+- **Group jobs by model.** Switching between Z-Image (~20 GB of weights) and Qwen-Image 2.1
+  (~23 GB incl. text encoder) evicts and reloads weights. Batched drafts then batched finals are
+  materially faster than alternating.
+- Budgets measured here: 10-slide deck ≈ 10 drafts @10 s + 10 finals @50 s ≈ **10 min** of GPU
+  time (plus fixes), using Workflow A at 1280×720 drafts / 1920×1088 finals.
+
+Reusable helper (queue → poll → crop → save), drop-in for an agent:
+
+```python
+import json, time, urllib.request
+BASE = "http://192.168.23.216:8188"
+
+def run(payload, out_path, timeout=1200, crop1080=True):
+    req = urllib.request.Request(BASE + "/prompt", data=json.dumps({"prompt": payload}).encode(),
+                                 headers={"Content-Type": "application/json"})
+    pid = json.load(urllib.request.urlopen(req))["prompt_id"]
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        h = json.load(urllib.request.urlopen(f"{BASE}/history/{pid}"))
+        if h:
+            status = h[pid]["status"]
+            assert status["status_str"] == "success", status.get("messages")
+            name = h[pid]["outputs"][list(h[pid]["outputs"])[0]]["images"][0]["filename"]
+            blob = urllib.request.urlopen(f"{BASE}/view?type=output&filename={name}").read()
+            open(out_path, "wb").write(blob)
+            if crop1080:
+                from PIL import Image
+                im = Image.open(out_path)                      # 1920x1088 -> 1920x1080
+                if im.size == (1920, 1088):
+                    im.crop((0, 4, 1920, 1084)).save(out_path)
+            return out_path
+        time.sleep(5)
+    raise TimeoutError(pid)
+```
+
+### 10.7 Consistency and reproducibility across a deck
+
+- Record, per slide: the **full prompt**, the **seed**, the payload's model mode (A/B/C) and the
+  crop step. Any of those missing makes the slide unreproducible.
+- Append a **fixed style block** to every prompt in one deck (palette, style, "flat vector, high
+  contrast, calm empty space on the right"), and keep the **negative prompt** identical. That is
+  what makes a deck look like one deck.
+- Keep the same **seed family** (e.g. one base seed + slide index) so re-rolls stay close.
+- Prefer fixing a near-miss with **edit** (§10.2 A3) over re-rolling the whole slide.
+
+### 10.8 Post-flight QA checklist
+
+| Check | How |
+|---|---|
+| Exact text | read the words; any error → fix with an edit, never accept a near-miss |
+| Size is exactly 1920×1080 | file properties / `PIL.Image.size` |
+| Nothing important in the outer 5 % | visual — the deck tool may crop/scale |
+| Text area still usable | is the promised empty space actually empty? |
+| Consistency | same palette/style/typography as the rest of the deck |
+| Alpha only where wanted | a cutout should show `alpha_minmax (0,255)`; t2i output is effectively opaque |
+| Provenance | prompt + seed + mode recorded |
