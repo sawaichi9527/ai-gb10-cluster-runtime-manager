@@ -302,7 +302,7 @@ Beyond speed, two further H3 capabilities exist but are **not installed**:
 | Capability | What it adds | Cost | Ready when |
 |---|---|---|---|
 | **`minimax-h3-easy` segmentation** (nodes installed; **3D latent upscaler installed ✅**) | **multi-minute video** by rendering in segments (`MiniMaxH3EasySegment*`), cross-segment context (`ContextSegments`, `SelectedVideoContext`), a **second refinement pass** (`SegmentRefine`), 3D latent upscaling, and `MiniMaxH3Easy`'s `mode` (image / reference / **digital_human**), resolution/aspect/**seconds**/fps/keyframe presets | **0 GB** (install complete) | **working ✅ — §5.2** |
-| **`minimax-h3-ref2v`** | a *different* UNET (`minimax_h3_ref2va_pruned_int8_convrot`, 20.97 GB) driven by **multiple references** — `ref_images` / `ref_videos` / `ref_video_audios` / `ref_audios` + `ref_image_size` — i.e. **character/identity consistency across shots, motion or style from a reference clip, audio-driven video** | **+20.97 GB** (text encoder and both VAEs already present) | blueprint `Reference to Video (MiniMax H3)` already resolves fully |
+| **`minimax-h3-ref2v`** ✅ installed 2026-10-15 | a *different* UNET (`minimax_h3_ref2va_pruned_int8_convrot`, 20.97 GB) driven by **multiple references** — `ref_images` / `ref_videos` / `ref_video_audios` / `ref_audios` + `ref_image_size` — i.e. **character/identity consistency across shots, motion or style from a reference clip, audio-driven video** | **20.97 GB** (installed) | **working ✅ — §5.3; measured 768 s** for 124 frames at 20 steps |
 | **H3 VDN 8-step** | linear-attention branch + DMD adapters for very fast long sequences | +5.5 GB **and a missing node pack** (`ApplyVDNH3` is not registered) | **not recommended** |
 
 So the three options are complementary, not alternatives: **turbo LoRA = speed**, **Easy =
@@ -353,6 +353,47 @@ MiniMaxH3EasyLoader(fl2va_model, ref2va_model="none", text_encoder, video_vae, a
   (690,592,672 B); it is installed under the manifest's expected name
   `latent_upscale_models/minimax_h3_latent_upscaler_3d_fp16.safetensors`, so the boot-time
   bootstrap skips it.
+
+### 5.3 Reference-driven video — `MiniMaxH3ReferenceToVideo` ✅ (installed, verified)
+
+Same graph as §5 but node 6 becomes `MiniMaxH3ReferenceToVideo` and the UNET is
+`minimax_h3_ref2va_pruned_int8_convrot.safetensors`. **Measured: 768 s** for 1344×768 / 124
+frames at **20 steps** (same tier as the plain t2v baseline of 755 s).
+
+```json
+ "1":{"class_type":"UNETLoader","inputs":{"unet_name":"minimax_h3_ref2va_pruned_int8_convrot.safetensors","weight_dtype":"default"}},
+ "2":{"class_type":"CLIPLoader","inputs":{"clip_name":"qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors","type":"minimax"}},
+ "3":{"class_type":"VAELoader","inputs":{"vae_name":"minimax_h3_video_vae_fp16.safetensors"}},
+ "4":{"class_type":"VAELoader","inputs":{"vae_name":"minimax_h3_audio_vae_fp32.safetensors"}},
+ "5":{"class_type":"LoadImage","inputs":{"image":"<REFERENCE IMAGE>"}},
+ "6":{"class_type":"MiniMaxH3ReferenceToVideo","inputs":{
+        "clip":["2",0],"prompt":"<WHAT SHOULD HAPPEN>","width":1344,"height":768,"length":124,
+        "ref_image_size":"max","vae":["3",0],"audio_vae":["4",0],
+        "ref_images":{"ref_image_0":["5",0]}}},
+ "7":{"class_type":"KSamplerSelect","inputs":{"sampler_name":"res_multistep"}},
+ "8":{"class_type":"BasicScheduler","inputs":{"model":["1",0],"scheduler":"simple","steps":20,"denoise":1}},
+ "9":{"class_type":"RandomNoise","inputs":{"noise_seed":4242}},
+ "10":{"class_type":"BasicGuider","inputs":{"model":["1",0],"conditioning":["6",0]}},
+ "11":{"class_type":"SamplerCustomAdvanced","inputs":{"noise":["9",0],"guider":["10",0],"sampler":["7",0],"sigmas":["8",0],"latent_image":["6",1]}},
+ "12":{"class_type":"VAEDecode","inputs":{"samples":["11",0],"vae":["3",0]}},
+ "13":{"class_type":"VAEDecodeAudio","inputs":{"samples":["11",0],"vae":["4",0]}},
+ "14":{"class_type":"CreateVideo","inputs":{"images":["12",0],"audio":["13",0],"fps":24}},
+ "15":{"class_type":"SaveVideo","inputs":{"video":["14",0],"filename_prefix":"h3_ref2v","format":"mp4"}}
+```
+
+Reference inputs are **autogrow** inputs, and (like §5b.4) they take a **nested object** in the
+API format with **prefix-generated names**: `ref_images` → `ref_image_0…8`, `ref_videos` →
+`ref_video_0…2`, `ref_video_audios` → `ref_video_audio_0…2`, `ref_audios` → `ref_audio_0…2`.
+A single flat key (`"ref_image_0": […]`) fails validation.
+
+⚠️ **`ref_image_size` accepts only `"match"` or `"max"`** — *not* the 1k/1.5k/2k list the Easy
+nodes use. `"max"` uses the reference pipeline's 2048 px short edge and gives the best identity
+fidelity; `"match"` scales each reference down (aspect preserved) to the generation's pixel area.
+An unsupported value fails with `value_not_in_list`.
+
+Inputs and outputs are otherwise identical to §5 (same VAEs, same `MiniMaxH3ImageToVideo`-style
+`length` grid of 17k+5 frames, same `CreateVideo`/`SaveVideo` tail). Note the same turbo LoRAs from
+§5.1 apply here as well if you want the reference-driven path to run faster.
 
 ---
 
@@ -859,7 +900,7 @@ must earn its place.
 | **FLUX.2 Klein 4B** | `flux2-klein-4b-edit` | cheap fast multi-reference edit; reuses Z-Image's text encoder | 10–20 s |
 | **Qwen-Image Layered** | `qwen-image-layered-core` (installed as fp8mixed 20.53 GB + bf16 symlink) | image → N RGBA layers, real transparency | 814 s @1920×1088, 3 layers |
 | Tools (same lane) | `seedvr2-video-upscale`, `frame-interpolation-film`, `whisper-subtitles`, `qwen3-tts-voice-design`, `lotus-depth-support`, `lucida-background-removal`, `ltx-2.5-latent-upscale` | video upscale / interpolation / subtitles / speech / depth / matting | seconds–minutes |
-| **MiniMax H3** | weights present (i2v/t2v/turbo LoRA) | video with audio, ~5 s clips | ≈13 min |
+| **MiniMax H3** | i2v/t2v weights, 3 turbo LoRAs, **ref2v UNET**, **Easy segmentation nodes** | video with audio: ~5 s clips (t2v/i2v), **reference-driven** (identity/motion/audio), **multi-minute segmented**, drafts via the turbo LoRAs | 201–768 s per clip |
 
 ### 11.3 Candidates — what each would buy, and what it costs
 

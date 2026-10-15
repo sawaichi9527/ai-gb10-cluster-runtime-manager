@@ -1877,6 +1877,48 @@ node0 非 eye 條目 0；node0 stack 215 GB、磁碟 52%（node1 54%）。
 `zb_final`（Base 1920×1088）、`klein_s1`（樣本）、`klein_slide`（簡報改字、1952×1104）、
 `layered_00001..3`（三層，含透明層）。
 
+### 2026-10-15（續九）— MiniMax H3 能力擴充：turbo LoRA 實測 + Easy 分段長片 + ref2v（指南 rev 6 續）
+
+**turbo / 4-step LoRA（0 GB，已有權重）實測**（t2v, 1344×768, 124 幀, seed 7, 暖機）：
+
+| 設定 | 耗時 | 加速 |
+|---|---|---|
+| 20 步（基準）| **755 s** | 1.0× |
+| + `fl2v_turbo_8step_v1.0` LoRA，steps=8 | **362 s** | **2.1×** |
+| + `fl2v_turbo_4step_v1.2_768p` LoRA，steps=4 | **201 s** | **3.8×** |
+
+擬合得 **每步 ≈40 s + 固定開銷 ≈40 s** → 可預測排程。
+
+**Easy 分段長片（3D latent upscaler 安裝 + 驗證）**：`minimax-h3-easy` profile 加入 `.env`；
+唯一缺檔 **3D latent upscaler** —— **套件 manifest 的 URL 是錯的（404 → 15-byte 錯誤頁）**，正確檔在
+`LBH-123-AI/Minimax_h3_latent_Upscaler` 的 `minimax_h3_latent_upscaler_3d_conv_v1/…_fp16.safetensors`
+（690,592,672 B），以 manifest 期望檔名裝入 `latent_upscale_models/`（bootstrap 之後會跳過）。
+**實測：10 秒影片（2 段 ×5 s、16:9、1344×768、480P）＝ 181 秒**，用官方配方
+`MiniMaxH3EasyLoader → ContextSegments(context_segments) → ModelAttentionBackend("comfy kitchen attention")
+→ 4 步 LoRA → BasicScheduler(beta, 4) → SegmentRender → SegmentDecode → SaveVideo`。
+兩個 API 陷阱：① **`ModelAttentionBackend.attention` 是 UI widget，API 模式必須明示**（否則
+`validate_inputs() missing 'attention'`）；② `SegmentRefine` 需要 `latent_upscale_model`（即上述 upscaler）。
+
+**ref2v（+20.97 GB）安裝與實測**：新增 `minimax_h3_ref2va_pruned_int8_convrot.safetensors`
+（20,970,379,616 B）＋ profile `minimax-h3-ref2v` 加入 `.env`（**16 個 profile**，md5 `f3525434…`）。
+**實測：`MiniMaxH3ReferenceToVideo` + 參考圖（`portrait_model_denim.png`）→ `h3_ref2v_00001_.mp4`
+（2,274,025 B），768 秒（20 步、1344×768、124 幀）** —— 與 t2v 基準同級。
+兩個 API 陷阱：① 參考輸入是 **autogrow**，API 格式為**巢狀 dict 且名稱為 `ref_image_0…8`／
+`ref_video_0…2`／`ref_video_audio_0…2`／`ref_audio_0…2`**（扁平 key 會驗證失敗）；②
+**`ref_image_size` 只接受 `match` / `max`**（不是 Easy 的 1k/2k 清單；`max` = 2048 短邊、身分保真最佳）。
+
+**下載插曲**：ref2v 下載在 3.15 GB 時遇到 **curl rc=92（HTTP/2 stream error）**、runner 因未涵蓋該錯誤類別
+而結束、`.part` 靜靜停住（log 才有跡象）→ 以 `-C -` 續傳並補上
+**`--retry-all-errors --speed-time 60 --speed-limit 1024`**；此教訓已寫進指南 §11.4。
+
+**鏡像第四次補齊**：**rc=0、21.68 GB、447 MB/s**；兩端 **114,412 / 16,320 / 9**、`.env` md5 `f3525434…`、
+ref2va 與 3D upscaler sha256 MATCH、node0 非 eye = 0；node0 stack **236 GB**、磁碟 52%。
+
+**交付**：指南新增 **§5.1**（LoRA 加速階梯 + 三個擴充選項對照）、**§5.2**（Easy 分段長片配方與參數表）、
+**§5.3**（ref2v 完整 payload 與兩個陷阱）；§0 決策表加長片列；§11.2 更新 H3 列；
+`AGENTS.md`：16 profiles、upscaler URL 缺陷、鏡像第四次事實。
+commit `04f83c6`（LoRA 階梯）→ `d26611b`（Easy）→ `a8d90d8`（預抓強化）→ 本輪 ref2v 追加。
+
 ### 2026-10-15（續六）— 簡報產線定案：兩條獨立工作流 + 模型選擇查證（指南 rev 4）
 
 **使用者指正**：我原本把「Z-Image Turbo 出草稿 → Qwen-Image 定稿」寫成一條混用管線，那是我的

@@ -244,15 +244,15 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
     on the host: the existence check uses the manifest's raw `/workspace/ComfyUI/models/…`
     paths, which only resolve inside the container — that is a false positive, not a
     real re-download.
-- **`comfyui-jdaln` has a failover mirror on Node0 (built 2026-10-14, brought level three
+- **`comfyui-jdaln` has a failover mirror on Node0 (built 2026-10-14, brought level four
   times 2026-10-15 over CX7).** Node0 holds a copy of the whole lane at
-  `~/docker-stacks/comfyui-dgx-spark/` (215 GB, 114,406 files / 16,317 dirs / 9 symlinks,
+  `~/docker-stacks/comfyui-dgx-spark/` (236 GB, 114,412 files / 16,320 dirs / 9 symlinks,
   byte-identical to node1) plus the image
   `comfyui-dgx-spark-docker-opinionated-comfy:latest`.
   - **It is a MANUAL rsync, not a scheduled job — verify before trusting it.** It fell behind
-    three times on 2026-10-15 (asset-profile expansion; Qwen-Image 2.1; then the Z-Image Base /
-    FLUX.2 Klein / Qwen-Image Layered installs — the last one: **rc=0, 33.0 GB, 653 MB/s**, both
-    ends 114,406 / 16,317 / 9, `.env` md5 `394b3c61…`). Verify the file/dir/link counts, the
+    four times on 2026-10-15 (asset-profile expansion; Qwen-Image 2.1; Z-Image Base / FLUX.2 Klein
+    / Qwen-Image Layered; then the H3 extensions — the last one: **rc=0, 21.68 GB, 447 MB/s**,
+    both ends 114,412 / 16,320 / 9, `.env` md5 `f3525434…`). Verify the file/dir/link counts, the
     `.env` md5 and one >2 GB weight's sha256 on **both** nodes before trusting a failover — never
     assume it is current just because it exists.
   - **Node0↔Node1 data movement goes over CX7, always** (`10.0.101.101`↔`10.0.101.102`,
