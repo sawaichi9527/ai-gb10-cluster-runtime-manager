@@ -1947,6 +1947,36 @@ seed family＝base+頁碼、逐頁記錄）；已驗證的完整範例與指令�
 
 **本機成品**：`C:\Users\Sawaichi\Downloads\c-slide-test\`（q21_a、q21_b、zi_a、edit、layer-1/2）。
 
+### 2026-10-16（續十一）— comfyui-jdaln 佈署殘檔清理（兩節點）
+
+**使用者指示**：清理兩節點在 comfyui-jdaln 佈署過程中的無用檔案。盤點後分三類處置（規則：**鏡像樹內的檔案
+先在 node1 刪，再由鏡像同步 node0**，否則下次 rsync 會被 node0 復原）。
+
+**刪除（合計約 1.1 GB，含鏡像兩端各一份）**
+
+| 類別 | 位置 | 大小 |
+|---|---|---|
+| **Git LFS incomplete staging**（clone 中斷殘檔）| 兩節點 `<pack>/.git/lfs/incomplete/`（333 MB `.part` + 203 MB 殘檔）| **537 MB ×2 節點** |
+| 我的測試產出 | node1 `~/Downloads/output/`：`qwen21_*`、`klein_*`、`layered_*`、`layers_*`、`h3_*`、`edit_*`、`slide_*`、`zt_*`、`zb_*` 共 32 檔 | ~50 MB |
+| 臨時 payload | node1 `/tmp/{q21,q21r,q21b,q21c,r2v,easy,k,b1,e1,e2,e3,oi}.json`（`oi.json` 4.6 MB）| ~4.7 MB |
+| 佈署 scratch 腳本 | node1 `/tmp/{phase2,phase3,phase3b,de2,de3,dh3,n1e2}.sh`、`cluster-node1.log`；node0 `/tmp/gb10-restart{,2}.pid` | ~14 KB |
+| 流程 log/runner | 兩節點 `logs/comfyui-jdaln/`（prefetch/mirror/qwen-expand/restart/zbase/z-image-base-download 共 25 檔）| node0 276 KB、node1 260 KB |
+| `.env` 中間備份 | 鏡像樹內 6 份 | ~6 KB |
+
+**刻意保留（不是無用檔，勿再清）**
+
+- **權重與模型**（`ComfyData` 218 GB）、pack 的 `.git` 主體（更新用）、`hf_cache`／`pip_cache`／`venv`。
+- `.env`、`.env.bak-orig`（上游原始版）、`.env.bak-20261015-224746`（最近一次改動前）、`.env.example`。
+- **建置／開機紀錄**：node1 `logs/comfyui-jdaln/build.log`、`build2.log`（10-12 建 image 的完整紀錄）；node0 `boot-single-node1.log`。
+- **可重用的預抓 runner**：node1 `logs/comfyui-jdaln/prefetch.run.sh`、node0 `logs/comfyui-jdaln/zbase.run.sh`（就是指南 §11.4 那支「先預抓、後重啟」的工具）。
+- **node0 `/tmp` 其他 campaign 的檔案**（`dflash-cliff.sh`、`cliff-*.json`、`gates.sh`、`hf-queue.sh`、`ab_suite.sh`、`garble_*.json` 等）—— 屬 MiMo/DeepSeek 等先前工作，且 handoff 明確引用其中數個當「臨時工具／開機紀錄」，**不在本次範圍**。
+- **使用者的產出**：`~/Downloads/output/presenton_test_0000{1,2}.png`、`secretary_z_00001_.png` 與兩個 ComfyUI 自建目錄（`exp_data/`、`qwen3-tts_voices/`）。
+- HF cache（node1 108 KB、node0 42 MB，無害）。
+
+**驗證**：鏡像 `rc=0`、傳 8 筆刪除（2 LFS 殘檔 + 6 `.env` 備份）→ 兩端 **114,404 / 16,320 / 9** 一致、
+`.git/lfs/incomplete` 兩端 **0 筆**、`.env*` 檔組兩端相同、stack 各 **235 GB**、磁碟 node0 52% / node1 55%。
+`AGENTS.md` 鏡像計數同步更新為 114,404。
+
 ### 2026-10-15（續六）— 簡報產線定案：兩條獨立工作流 + 模型選擇查證（指南 rev 4）
 
 **使用者指正**：我原本把「Z-Image Turbo 出草稿 → Qwen-Image 定稿」寫成一條混用管線，那是我的

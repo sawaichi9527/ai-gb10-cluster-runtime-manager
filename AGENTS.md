@@ -252,10 +252,12 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   `comfyui-dgx-spark-docker-opinionated-comfy:latest`.
   - **It is a MANUAL rsync, not a scheduled job — verify before trusting it.** It fell behind
     four times on 2026-10-15 (asset-profile expansion; Qwen-Image 2.1; Z-Image Base / FLUX.2 Klein
-    / Qwen-Image Layered; then the H3 extensions — the last one: **rc=0, 21.68 GB, 447 MB/s**,
-    both ends 114,412 / 16,320 / 9, `.env` md5 `f3525434…`). Verify the file/dir/link counts, the
-    `.env` md5 and one >2 GB weight's sha256 on **both** nodes before trusting a failover — never
-    assume it is current just because it exists.
+    / Qwen-Image Layered; then the H3 extensions — the last one: **rc=0, 21.68 GB, 447 MB/s**).
+    A cleanup on 2026-10-16 removed the pack's stale Git-LFS staging (537 MB) and the intermediate
+    `.env.bak-*` files, leaving **114,404 files / 16,320 dirs / 9 symlinks** on both nodes
+    (`.env` md5 `f3525434…`). Verify the file/dir/link counts, the `.env` md5 and one >2 GB
+    weight's sha256 on **both** nodes before trusting a failover — never assume it is current just
+    because it exists.
   - **Node0↔Node1 data movement goes over CX7, always** (`10.0.101.101`↔`10.0.101.102`,
     key `~/.ssh/id_gb10_cluster`, rsync 3.2.7 on both) — not through the Windows host,
     not over the `192.168.23.x` LAN. Both nodes lack passwordless sudo, so every rsync
