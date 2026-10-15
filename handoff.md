@@ -1695,4 +1695,56 @@ Runtime 行為 —— 那部分的證據見上方資產驗證段。
   node0`）依然沒跑過 —— 被動鏡像已 byte 對齊，但「切得過去」仍未被實測。
 - **另有發現（未改動文件）**：handoff「目前狀態」段宣稱 node0 live lane 為 `deepseek`／
   `deepseek-nvfp4`，但本輪 09:22 快照顯示 node0 實際跑的是 **`aeon-vllm-27b`（Up 2 days）**；
-  此落差本輪**不處理**（非本次範圍），留待使用者裁定後再校正該段。
+  此落差本輪**不處理**（非本次範圍）；使用者已裁定（2026-10-15）：現行 `gb10-single` 模式的
+  `comfyui-jdaln` 是**刻意進行中**的部署／調試狀態，TP2 `deepseek`／`deepseek-nvfp4` 為
+  **後續目標態** → 「目前狀態」該段**暫不校正**。
+
+### 2026-10-15（續四）— 外部 agent 遠端使用指南 + 三個已實測 payload（生圖／生影片）
+
+**起因**：使用者以 hermes-agent（本地 strix-halo + LM Studio 為 text provider）／presenton
+（image provider = Node1 `:8188`）呼叫 `comfyui-jdaln`，agent 回報
+「`CheckpointLoaderSimple` 是空的、要求把 Z-Image-Turbo 主模型裝進 `models/checkpoints/`」。
+
+**根因（實證，非部署故障）**：Z-Image Turbo 是**三段式**資產（UNET + text encoder + VAE），
+不是 all-in-one checkpoint。node1 上 `ComfyData/models/checkpoints/` **目錄不存在** →
+`CheckpointLoaderSimple.ckpt_name` 回傳 `[]`（**觀察正確、結論錯誤**）；正確的 loader 清單
+齊全：`UNETLoader` 有 `z_image_turbo_bf16.safetensors`、`CLIPLoader` 有 `qwen_3_4b`
+（`type=lumina2`）、`VAELoader` 有 `ae.safetensors`。機器上的官方範本
+（`custom_nodes/ComfyUI-Simple-Prompt-Batcher/examples/z-image_simple_prompt_batcher.json`）
+自己的 MarkdownNote 就寫明是 `diffusion_models/` + `text_encoders/` + `vae/`，**沒有**
+`checkpoints/`。2026-10-14 的 smoke test 用的是 `UNETLoader` 系接線，故「當時成功」與
+「現在 checkpoints 空」**不矛盾**。⚠️ **不可**把 UNET 檔複製進 `checkpoints/`：
+`CheckpointLoaderSimple` 需要檔案內同時含 CLIP+VAE，UNET-only 的 safetensors 會載入失敗。
+
+**本輪實測（node1 `spark-8095`，ComfyUI 0.38.0，`http://192.168.23.216:8188`）**
+
+| 任務 | 結果 | 耗時 | 產出 | sha256 |
+|---|---|---|---|---|
+| z-image（文生圖）| `success / completed` | **~16 s** | `z-image_check_00001_.png` 709,638 B | `70150063…b8e5` |
+| MiniMax H3 **i2v**（圖生影片）| `success / completed` | **834 s** | `MiniMax_H3_i2v_guide_00001_.mp4` 2,248,032 B | `5025954c…7a12` |
+| MiniMax H3 **t2v**（文生影片）| `success / completed` | **755 s** | `MiniMax_H3_t2v_guide_00001_.mp4` 4,627,422 B | `af32cc38…5d4a` |
+
+三個檔案以 `GET /view?type=output&filename=…`（LAN，免認證）抓到操作機 Windows `Downloads\`，
+**sha256 與節點端逐一相符**；兩支 mp4 皆為 `ftyp isom`、24 fps、124 幀（≈5.2 s）含音訊軌。
+
+**MiniMax H3 接線重點（取自原生 blueprint `ComfyUI/blueprints/Image to Video (MiniMax H3).json`
+的 subgraph 展開）**：`UNETLoader`（`minimax_h3_fl2va_pruned_int8_convrot.safetensors`）+
+`CLIPLoader`（`qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors`，`type=minimax`）+
+video/audio 兩個 `VAELoader`；`MiniMaxH3ImageToVideo` 同時輸出 `CONDITIONING` 與 `LATENT`
+（**不需要** `MiniMaxH3SigmaShift`／`MiniMaxH3AddGuide`／`EmptyMiniMaxH3LatentAV`）；
+`BasicScheduler(simple, 20, 1.0)` + `KSamplerSelect(res_multistep)` + `RandomNoise` +
+`BasicGuider` + `SamplerCustomAdvanced` → `VAEDecode`/`VAEDecodeAudio` → `CreateVideo(fps 24)`
+→ `SaveVideo(format="mp4")`。`length` 必須落在 **17k+5 格**（124 ≈ 5.2 s；訓練範圍約 124–362）。
+**文生影片＝同一張圖省略 `first_frame`**（實測通過）。預設值為**無 LoRA、20 steps**（blueprint 的
+`PrimitiveBoolean=false`）；要 8 步可掛 `loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors`。
+**一支約 13 分鐘**（暖機後仍相同），客戶端 timeout 必須放大。已知限制：
+`MiniMaxH3ReferenceToVideo` 缺 `minimax_h3_ref2va` 權重**不可用**；51 個 MiniMax 節點中 12 個是
+雲端 API 節點。
+
+**交付**：`docs/COMFYUI_JDALN_REMOTE_USAGE_GUIDE_2026-10-15.md`（端點／黃金規則／API 合約／
+兩份可直接照抄的 payload／輸出輸入位置／bash 流程／症狀對照表；repo 版另加維護規則
+「換 image 或 asset profile 後須重驗 §2/§4/§5」）；`AGENTS.md` 的 comfyui-jdaln bullet 加指標。
+
+**清理**：node1 `~/Downloads/output/` 的三個測試產出與 node1 `/tmp/{h3i2v,h3t2v,zprompt}.json`
+已刪除（該目錄現只剩 `exp_data/`、`qwen3-tts_voices/` 兩個 custom-node 空目錄；
+`~/Downloads/output/` 在鏡像範圍之外，node0 無需同步）。

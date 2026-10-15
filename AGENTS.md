@@ -180,6 +180,11 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   stack (~71 GB) + image (26.7 GB) deleted from Node1, `runtimes.d/comfyui.conf` removed.
   Do not resurrect it, and do not bring back the older `comfyui-personal` / `comfyui-work`
   split. Its HF token now lives at `~/docker-stacks/config/hf_token` (mode 600).
+  **Remote clients must load models with `UNETLoader` + `CLIPLoader` + `VAELoader` —
+  `models/checkpoints/` is intentionally absent** (`CheckpointLoaderSimple` therefore
+  returns an empty list; that is not a missing install). Verified API payloads for
+  z-image and MiniMax H3 (i2v/t2v), plus the `/prompt` → `/history` → `/view` contract, are
+  in `docs/COMFYUI_JDALN_REMOTE_USAGE_GUIDE_2026-10-15.md`.
 - **`comfyui-jdaln` asset profiles (expanded 2026-10-15).** Node1's
   `ComfyUI-DGX-Spark-Docker-opinionated/.env` (gitignored upstream) sets
   `COMFY_ASSET_PROFILES=` to **nine** profiles — up from the single `z-image-turbo-core`
