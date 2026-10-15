@@ -1,7 +1,8 @@
-# Remote usage guide — `comfyui-jdaln` (Node1 ComfyUI)
+# Remote usage guide — `comfyui-jdaln` (ComfyUI on node1, mirrored on node0)
 
-**Audience:** any external agent/tool (e.g. hermes-agent, presenton) that generates images or
-videos by calling this ComfyUI over the network.
+**Audience:** any external client — an AI agent (hermes-agent, opencode/dsh, presenton) or a
+human — that generates images or videos by calling this ComfyUI over the network.
+**If you are an AI agent: read §0 first**, then the recipe section for your job.
 
 > **Repo-tracked copy.** This is the source of truth for the deployment's *remote* API contract.
 > Evidence in it was produced in-session on 2026-10-15 against the live `comfyui-jdaln` runtime
@@ -9,12 +10,66 @@ videos by calling this ComfyUI over the network.
 > node.
 > Companion document: `docs/COMFYUI_JDALN_DEPLOYMENT_2026-10-14.md` (deployment, asset profiles,
 > retirements).
-> **Maintenance rule: if the ComfyUI image or the asset profiles change, re-verify §2/§4/§5
-> against `/object_info` before trusting the file names below.**
+> **Maintenance rule: if the ComfyUI image or the asset profiles change, re-verify
+> §2/§4/§5/§5b against `/object_info` before trusting the file names below.**
 
-**Version of this document:** 2026-10-15 (**rev 2** — adds §5b Qwen-Image 2.1 and the
-"output dimensions must be multiples of 16" rule). Everything marked ✅ was executed against the
-live service on that date, with file sizes/hashes and wall times recorded below.
+**Version of this document:** 2026-10-15 (**rev 3**). Rev 2 added §5b Qwen-Image 2.1 and the
+"output dimensions must be multiples of 16" rule; rev 3 adds §0 (agent TL;DR) and §9 (node0
+failover). Everything marked ✅ was executed against the live service on that date, with file
+sizes/hashes and wall times recorded below.
+
+---
+
+## 0. TL;DR — for an AI client (read this first)
+
+**Base URL: `http://192.168.23.216:8188` (node1).** Failover: `http://192.168.23.215:8188`
+(node0) — see §9. No auth. HTTP only.
+
+### The minimal loop (any job)
+
+```bash
+BASE=http://192.168.23.216:8188
+
+# 1) queue  (payload.json = {"prompt": {...}, "client_id": "my-agent"})
+PID=$(curl -s -X POST -H 'Content-Type: application/json' --data @payload.json \
+        "$BASE/prompt" | python3 -c 'import sys,json;print(json.load(sys.stdin)["prompt_id"])')
+
+# 2) poll — use a LONG timeout (image ≈ 20–60 s, MiniMax H3 ≈ 13 min)
+while :; do
+  H=$(curl -s "$BASE/history/$PID"); [ "$H" != "{}" ] && break; sleep 5
+done
+
+# 3) verify + fetch the artefact named in history.outputs[*].images[*].filename
+curl -s -o out.png "$BASE/view?type=output&filename=<filename>"
+```
+
+`node_errors: {}` on the POST only means **the graph was accepted**. Real failures arrive later
+inside `history[<id>].status.messages` as `execution_error`, and success is
+`status.status_str == "success"`.
+
+### Choose the model by the job
+
+| The job | Use | Wall time | Recipe |
+|---|---|---|---|
+| Image that must contain **legible text** (slides, labels, dense layouts) | **Qwen-Image 2.1** t2i | 50 s @1920×1088 | §5b.3 |
+| Sharpest possible text / hero cover image | Qwen-Image 2.1, mode B or C | 90–111 s | §5b.2 |
+| Fast image drafts; composition locked by a canny/depth/pose sketch | **Z-Image Turbo** (+ union ControlNet) | ~16–20 s | §4 |
+| Edit an existing image (rewrite text, recolour, swap object, ≤10 refs) | **Qwen-Image 2.1** edit | 20–50 s | §5b.4 |
+| Subject cutout with **real alpha** on a transparent background | **Qwen-Image 2.1** remove-background | 20 s | §5b.4 |
+| Video **with audio** (~5 s, 24 fps), from text or from a first frame | **MiniMax H3** (20 steps) | **≈13 min** | §5 |
+| Same video, faster draft | MiniMax H3 + turbo LoRA (8 or 4 steps) | less | §5 |
+| Frame interpolation / video upscale / subtitles / speech | FILM / SeedVR2 / Whisper / Qwen3-TTS | seconds | §2 inventory |
+
+### Four rules that break naive clients
+
+1. **Never `CheckpointLoaderSimple`** — `models/checkpoints/` does not exist here, and its combo
+   list is legitimately empty (§2).
+2. **Output width and height must be multiples of 16** — ask for 1920×1080 and you receive
+   1920×1088, which letterboxes in a 16:9 deck. Render 1088 and crop 8 rows (§5b.1).
+3. **Set generous client timeouts** — a MiniMax H3 clip needs ~13 min even when warm; a cold
+   first run stages ~40 GB of weights.
+4. **Fetch files with `/view`** — the model directories are not exposed over HTTP, and outputs
+   are written on the *node*, not to your machine.
 
 ---
 
@@ -365,3 +420,46 @@ curl -s -o out.png "$BASE/view?type=output&filename=z-image_00001_.png"
 | `status_str: "error"` | read `status.messages[].execution_error` | usually a wrong combo value (file name) |
 | Need a node type that seems missing | 2811 types registered; SAM3 pack blacklisted on purpose | check `GET /object_info/<NodeType>` before assuming |
 | `find .` style inspection of models | — | use `/object_info` instead; the filesystem is not exposed over HTTP |
+
+---
+
+## 9. Node0 — the same service on the other machine (failover)
+
+Node1 is the **primary**. Node0 keeps a **byte-identical passive mirror** of the whole lane
+(weights, `.env`, the same container image), refreshed **manually** by rsync over the CX7 network.
+It is **not** started automatically and there is **no automatic switch**.
+
+| | node1 (primary) | node0 (failover) |
+|---|---|---|
+| API / UI | `http://192.168.23.216:8188` | `http://192.168.23.215:8188` |
+| Host | `spark-8095` | `spark-25d5` |
+| Lane state | running | mirror present, **service stopped** |
+| Contains | everything below | the same weights and `.env` (173 GB, verified byte-identical 2026-10-15) |
+
+### Bringing it up (on node0)
+
+```bash
+gb10 stop                                   # TP2 (27B/35B cluster) owns the same GB10 GPU
+gb10-single use comfyui-jdaln node0         # node0 runs the same compose locally
+```
+
+- The node is an **argument**, not a config field (`runtimes.d/comfyui-jdaln.conf` has no `NODE`),
+  and it must be **typed explicitly** — hence "no automatic switch".
+- **TP2 must be down first**: the 27B/35B cluster and ComfyUI contend for the same GPU.
+- Same endpoint and same API contract as §1–§5b: once it is up, every payload in this document
+  works unchanged against `http://192.168.23.215:8188`.
+
+### Before trusting the mirror (do this, it has silently fallen behind twice)
+
+Compare on **both** machines: file/dir/symlink counts, the `.env` md5, and one >2 GB weight's
+sha256. Reference values as of 2026-10-15: `114,396 / 16,317 / 7` entries,
+`.env` md5 `53328eebbb8a9c8b445cbe5a2c51a4ab`, stack 173 GB,
+`qwen_image_2.1_int8_convrot.safetensors` sha256 `cb74113cb03faecd79611b01fd7fd642f0aa60d6f0b95086abee214d75eaa57d`.
+The mirror is updated with a single rsync over CX7 (see `AGENTS.md`, "failover mirror") — never
+through the Windows host or the 192.168.23.x LAN.
+
+### For an agent that does not know which node it is on
+
+Probe both URLs with `GET /system_stats`; whichever answers `200` with
+`system.comfyui_version = 0.38.0` is the node to use. Ask the operator before failing over —
+it is a manual, GPU-exclusive operation.

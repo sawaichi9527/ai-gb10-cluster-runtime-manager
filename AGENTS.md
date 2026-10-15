@@ -187,7 +187,8 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   1920×1088, which letterboxes in a 16:9 slide deck; render 1088 and crop 8 rows). Verified API
   payloads for z-image, MiniMax H3 (i2v/t2v) and Qwen-Image 2.1 (t2i/edit/background-removal,
   plus the measured resolution/quality modes), and the `/prompt` → `/history` → `/view`
-  contract, are in `docs/COMFYUI_JDALN_REMOTE_USAGE_GUIDE_2026-10-15.md` (rev 2, §5b).
+  contract, are in `docs/COMFYUI_JDALN_REMOTE_USAGE_GUIDE_2026-10-15.md` (**rev 3**: §0 agent
+  TL;DR + decision table, §2/§4/§5/§5b payloads, §9 node0 failover).
 - **`comfyui-jdaln` asset profiles (expanded 2026-10-15, now **12**).** Node1's
   `ComfyUI-DGX-Spark-Docker-opinionated/.env` (gitignored upstream) sets
   `COMFY_ASSET_PROFILES=` to twelve profiles — up from the single `z-image-turbo-core`

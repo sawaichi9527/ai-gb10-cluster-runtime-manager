@@ -1797,7 +1797,10 @@ video/audio 兩個 `VAELoader`；`MiniMaxH3ImageToVideo` 同時輸出 `CONDITION
 CFG 不可 <1）。
 
 **交付**：`docs/COMFYUI_JDALN_REMOTE_USAGE_GUIDE_2026-10-15.md` **rev 2**（新增 §5b：三 profile 表、
-`/16` 規則、A/B/C 三種品質模式與實測時間、t2i payload、edit/去背的兩個陷阱、巢狀 autogrow 範例）；
+`/16` 規則、A/B/C 三種品質模式與實測時間、t2i payload、edit/去背的兩個陷阱、巢狀 autogrow 範例）
+→ 同日再 **rev 3**（新增 **§0「給 AI client 的 TL;DR」**：最小迴圈 bash、依任務選模型對照表、
+四條會讓 naive client 失敗的規則；新增 **§9 node0 failover**：`gb10 stop` → `gb10-single use
+comfyui-jdaln node0`、兩節點對照表、信任鏡像前的驗證值）；
 `AGENTS.md` 的 comfyui-jdaln bullet 更新（12 profiles、/16 規則、指南指標）。使用者已確認 A（直接渲 1088
 裁成 1080）為預設、B 為 hero 用、C 為文字加強。
 
