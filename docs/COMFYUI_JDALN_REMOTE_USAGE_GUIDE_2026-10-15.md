@@ -13,11 +13,12 @@ human — that generates images or videos by calling this ComfyUI over the netwo
 > **Maintenance rule: if the ComfyUI image or the asset profiles change, re-verify
 > §2/§4/§5/§5b against `/object_info` before trusting the file names below.**
 
-**Version of this document:** 2026-10-15 (**rev 4**). Rev 2 added §5b Qwen-Image 2.1 and the
+**Version of this document:** 2026-10-15 (**rev 5**). Rev 2 added §5b Qwen-Image 2.1 and the
 "output dimensions must be multiples of 16" rule; rev 3 added §0 (agent TL;DR) and §9 (node0
-failover); rev 4 adds §10 (presentation-deck workflow: two independent model workflows, the
-optional hybrid, the 1080p crop contract, batching and QA). Everything marked ✅ was executed
-against the live service on that date, with file sizes/hashes and wall times recorded below.
+failover); rev 4 added §10 (presentation-deck workflow); rev 5 expands §10.3 into the Z-Image
+Turbo+Base family pairing and adds §11 (model portfolio, candidate costs, and the procedure for
+adding a family). Everything marked ✅ was executed against the live service on that date, with
+file sizes/hashes and wall times recorded below.
 
 ---
 
@@ -532,20 +533,43 @@ workflow.
 draft-grade output, and `qwen-image-t2i-lightning-8step` is its 8-step sibling. They are separate
 downloads and a *different* checkpoint — 1280×720 on 2.1 at 20 s is normally cheap enough.
 
-### 10.3 Workflow B — pure imagery / photoreal slides (Z-Image Turbo only)
+### 10.3 Workflow B — pure imagery / photoreal slides: the **Z-Image family pairing**
 
-Payload = §4. Measured: **1280×720 = 10 s**, **1920×1088 = 20 s** (4 steps, cfg 1,
-`res_multistep`/`simple`, `ModelSamplingAuraFlow` shift 3).
+Z-Image ships as **two checkpoints of the same 6B architecture that share one text encoder
+(`qwen_3_4b`, `lumina2`) and one VAE (`ae.safetensors`)** — only the UNET file differs:
 
-- **Keep in-image text to a hero word or two.** For anything longer, generate the *text-free*
-  background here and set the type in the deck tool.
-- **Lock the composition** when the slide layout is fixed: use the enabled
-  `z-image-turbo-union-control` profile with a canny/depth/pose sketch of your layout outline
-  (blueprints `Canny to Image (Z-Image-Turbo)`, `Depth to Image (Z-Image-Turbo)`,
-  `Pose to Image (Z-Image-Turbo)`, `ControlNet (Z-Image-Turbo)`).
-- **No alpha**: Z-Image returns RGB. If you need a transparent subject, run Workflow A's
-  remove-background step instead.
-- Drafting is so cheap here (10 s) that "3 seeds and pick" is the normal way to work.
+| | **Z-Image Turbo** (installed ✅) | **Z-Image Base** (NOT installed — see below) |
+|---|---|---|
+| UNET file | `z_image_turbo_bf16.safetensors` (12.31 GB) | `z_image_bf16.safetensors` (≈12 GB) |
+| Steps / CFG | **4–8 steps, CFG 1** (official `guidance_scale 0.0`) | **30–50 steps, CFG 3–5** (4–5 optimal) |
+| Negative prompts | effectively **ignored** at CFG 1 (ComfyUI only re-introduces negative subtraction above CFG 1, with Turbo side effects) | **highly responsive** |
+| Character | speed + photorealism | richer detail, higher artistic ceiling, **more diversity across seeds** |
+| Measured here | **1280×720 = 10 s**, 1920×1088 = 20 s | not installed |
+
+So Workflow B is itself a **complete two-stage pairing inside one family** — same idea as
+Qwen-Image 2.1's t2i+edit, and the official/community framing is explicitly
+*"Z-Image Base: A Partner for Z-Image Turbo"*:
+
+| Stage | What to do | Cost |
+|---|---|---|
+| **B1 draft** | **Turbo**, 4–8 steps, CFG 1, 1280×720–1920×1088 → pick the look | 10–20 s |
+| **B2 final** | **Base**, 30–50 steps, CFG 3–5, same prompt/seed, keep the same resolution → detail + diversity | ~1–3 min (est.) |
+| **B3 post** | same 1080p crop contract as §10.5 — **Z-Image outputs RGB, so no alpha** | instant |
+
+⚠️ **Seed diversity caveat**: Turbo produces *similar* images even with different seeds — vary the
+**prompt** when drafting, not just the seed. Base is the model you switch to when you need genuine
+variation.
+
+**Install gap**: the enable-able pack profiles are only `z-image-turbo-core` and
+`z-image-turbo-union-control` — there is **no `z-image-base` profile**, although the blueprint
+`Text to Image (Z-Image-Base)` ships and expects `z_image_bf16.safetensors`. Because Base shares
+the encoder and VAE with Turbo that are already on disk, enabling it means adding **one ~12 GB
+UNET file** to `ComfyData/models/diffusion_models/` (manual placement, not an `.env` profile) —
+then it appears in `UNETLoader` and the blueprint runs. Ask the operator before doing it.
+
+Also usable in this family: `z-image-turbo-union-control` (canny/depth/pose ControlNet Union) to
+lock a layout — blueprints `Canny/Depth/Pose to Image (Z-Image-Turbo)`, `ControlNet
+(Z-Image-Turbo)`, `Image Upscale(Z-image-Turbo)`.
 
 ### 10.4 Optional hybrid — Z-Image draft refined by Qwen-Image 2.1 (verified, not standard)
 
@@ -645,3 +669,87 @@ def run(payload, out_path, timeout=1200, crop1080=True):
 | Consistency | same palette/style/typography as the rest of the deck |
 | Alpha only where wanted | a cutout should show `alpha_minmax (0,255)`; t2i output is effectively opaque |
 | Provenance | prompt + seed + mode recorded |
+
+---
+
+## 11. Model portfolio — what exists, what to add, and how to mix
+
+This service is expected to grow beyond z-image and Qwen-Image (FLUX.2, Krea 2, Ideogram …), often
+for purposes other than slides. This section is the **selection framework** and the **repeatable
+procedure** for adding a family; §10 stays the slide-specific workflow.
+
+### 11.1 The rule that keeps this manageable
+
+**Every family should be a complete workflow inside itself**: `<family> t2i` +
+`<family> edit` + `<family> draft/turbo/Lightning variant`, all sharing one core. Then "which
+model?" becomes a family choice, and inside the family you only change resolution, steps and mode
+— exactly like Qwen-Image 2.1 (t2i + edit, one checkpoint) and the Z-Image pairing
+(Turbo draft + Base final, one encoder, one VAE).
+
+**Mixing across families is allowed, but only with a stated reason** — e.g. lock a composition
+(§10.4), super-resolve, cut out, or transfer a style. It is *not* the default and is not a
+published practice; treat every cross-family hop as a cost (model reload + extra wall time) that
+must earn its place.
+
+### 11.2 Installed today
+
+| Family | Profiles / files | Strength | Measured |
+|---|---|---|---|
+| **Qwen-Image 2.1** | `qwen-image-2.1-t2i`, `-edit`, `-remove-background` | text-in-image champion; generate + edit + cutouts on one checkpoint | 20–111 s |
+| **Z-Image Turbo** | `z-image-turbo-core`, `z-image-turbo-union-control` | speed + photorealism; ControlNet Union for layout | 10–20 s |
+| Tools (same lane) | `seedvr2-video-upscale`, `frame-interpolation-film`, `whisper-subtitles`, `qwen3-tts-voice-design`, `lotus-depth-support`, `lucida-background-removal`, `ltx-2.5-latent-upscale` | video upscale / interpolation / subtitles / speech / depth / matting | seconds–minutes |
+| **MiniMax H3** | weights present (i2v/t2v/turbo LoRA) | video with audio, ~5 s clips | ≈13 min |
+
+### 11.3 Candidates — what each would buy, and what it costs
+
+"Sizes" are the real per-file numbers the pack's planner fetched from Hugging Face; "incremental"
+accounts for assets already on disk.
+
+| Family / profile | Purpose it would cover | Size | Status |
+|---|---|---|---|
+| **Z-Image Base** (blueprint `Text to Image (Z-Image-Base)`) | Z-Image quality/diversity pass; negative-prompt control; LoRA training base | **≈12 GB** (UNET only — encoder+VAE shared) | **blueprint-only**: no pack profile → manual file add |
+| **FLUX.2 Klein 4B** (`flux2-klein-4b-edit`) | cheap photoreal + multi-reference **editing**; low latency | **+2.8 GB** incremental (10.85 GB total; `qwen_3_4b` shared) | profile-backed, 1-line `.env` — the cheapest real upgrade |
+| **FLUX.2 Dev** (`Text to Image (Flux.2 Dev)`, `Image Edit (Flux.2 Dev)`) | strongest prompt adherence / photorealism tier | large (not measured) | **blueprint-only**: no pack profile → manual add |
+| **Krea 2 Turbo / RAW** (`krea-2-turbo-nvfp4`, `krea-2-raw`, style LoRAs) | aesthetics/hero imagery, style-reference workflows | 13.16 / 18.63 GB (shared encoder+VAE) | profile-backed |
+| **Ideogram v4** (`ideogram-4`, `ideogram-4-nvfp4`) | typography/graphic-design look (logos, poster type) | 21.91 GB | profile-backed |
+| **Qwen-Image 2512 Lightning** (`qwen-image-2512-t2i-lightning-4step`, `-8step`) | 4/8-step Qwen-class *drafts* (same family as 2.1) | 31.76 GB | profile-backed |
+| **Mage-Flow Edit Turbo** (`mage-flow-edit-turbo`) | instruction editing (pack's own "use for quality edits" pick) | 17.46 GB | profile-backed |
+| **Qwen-Image tooling** (`qwen-image-layered-core`, `qwen-image-inpaint-lightning-4step`, `qwen-image-edit-2511-core`) | layer decomposition (editable slide layers!), inpainting | 3–6 assets each | profile-backed |
+| **Others in the manifest** | Wan 2.2 (video), LTX-2.5 (video, **gated → needs a one-time licence click**), 3D (pixal3d/Hunyuan3D), audio (ACE-Step, YuE2, VibeVoice, MiniMax Music 3, HeartMuLa) | 10–60 GB each | 82 profiles not yet installed |
+
+Full list on the node: `asset-profiles.json` (91 profiles) and the pack's own
+`docs/workflows.md` (per-profile disk + expected run time), plus the bundled ComfyUI templates.
+
+### 11.4 How to add a family (procedure that has worked twice)
+
+1. **Dry-run the planner on the host** (read-only, asks Hugging Face for real sizes, exits
+   non-zero on any 401/403):
+   `python3 scripts/smoke/plan_downloads.py <profiles…>` — run it in the pack directory.
+2. **Add the profile to `.env`** (`COMFY_ASSET_PROFILES=`, comma-separated, one line) **on node1**;
+   back the file up first. *(Blueprint-only items skip this step: the file is placed by hand.)*
+3. **Restart the lane**: `gb10-single restart node1 comfyui-jdaln` — the entrypoint downloads the
+   new assets **before** starting ComfyUI, so `:8188` is down for the whole download. Budget
+   **≈8 MB/s** (33 GB took ~1 h).
+4. **Verify**: the counts in `ComfyData/models`, then `GET /object_info/<Loader>` shows the new
+   file names. `docker ps` health is a **false positive** during the download — use a real
+   `:8188/system_stats` probe.
+5. **Smoke-render one image** and measure the wall time, then:
+6. **Mirror to node0** over CX7 (`rsync`, ~620 MB/s) and verify both ends — node1 is the source of
+   truth; node0 is a passive mirror (§9).
+
+### 11.5 Selection cheat-sheet (extends §0/§10.1)
+
+| You need… | Reach for |
+|---|---|
+| Text/numbers legible in the image | **Qwen-Image 2.1** (any variant) |
+| A design/typography *look* (travel-poster, logo-ish) | Ideogram v4 (to add) |
+| Aesthetic hero image, style consistency | Krea 2 Turbo/RAW (to add), style-reference templates |
+| Photoreal product/person, prompt adherence | FLUX.2 Dev (to add) / Z-Image Base (to add) / Z-Image Turbo (tier below) |
+| Fast, cheap, good-enough imagery | **Z-Image Turbo** (10 s) — or a Lightning/Turbo variant of the chosen family |
+| Edit an existing image | **Qwen-Image 2.1 edit** (best text fidelity) / FLUX.2 Klein edit (cheap) / Mage-Flow (quality) |
+| Cutout with alpha | **Qwen-Image 2.1 remove-background** (Z-Image cannot — RGB only) |
+| Editable layers for a deck | `qwen-image-layered-core` (to add) |
+| Video with audio | **MiniMax H3** |
+
+When a new family lands, extend §0's decision table and this cheat-sheet in the same commit —
+that is what keeps this document usable as the portfolio grows.

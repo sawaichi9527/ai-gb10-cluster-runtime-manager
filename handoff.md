@@ -1854,3 +1854,29 @@ A3 用 edit 改字改版面 → A4 裁 1080p；全程同一模型、無切換成
 hero 模式 2752×1536 → 1935×1080 → 裁邊）、§10.6 批次與排程（單 GPU 序列化、**依模型分組**避免權重反覆載入、
 10 張簡報 ≈ 10 分鐘 GPU 時間、可直接用的 python helper）、§10.7 一致性與可重現（記錄 prompt/seed/模式、
 固定 style block 與負面詞、同一 seed family）、§10.8 交稿前 QA 清單。
+
+### 2026-10-15（續七）— Z-Image「Base + Turbo」同家族配對 + 模型組合擴充框架（指南 rev 5）
+
+**使用者指正（第二次）**：z-image / z-image turbo 本身也是「一個組合」——快速簡單純圖像時的另一個選擇；
+不排除與 qwen-image 混用，但要看需求目的與工作流；且未來會擴充 FLUX.2 / Krea 2 / Ideogram 等別的
+圖像生成路徑（目的不一定是簡報，也可能混用）。查證後全部成立，已改寫指南 §10.3 並新增 §11。
+
+**Z-Image 查證重點**（ComfyUI 官方部落格 + 評測）
+
+- **Base 與 Turbo 是同一個 6B 架構、共用同一個 text encoder（`qwen_3_4b`, lumina2）與 VAE（`ae.safetensors`），
+  只差一顆 UNET**（Base = `z_image_bf16.safetensors`，Turbo = `z_image_turbo_bf16.safetensors`）。
+- **Turbo**：4–8 步、**CFG 1**（官方 `guidance_scale 0.0`，**負面提示詞等於無效**；ComfyUI 只有 CFG>1 才會
+  重新引入負面減除，並開始出現 Turbo 副作用）；**不同 seed 會生出很相似的圖**（已知缺點 → 草稿要多變 prompt）。
+- **Base**：**30–50 步、CFG 3–5**（官方部落格原文）、細節/藝術上限更高、**seed 多樣性高**、**負面提示詞有效**、
+  也是 LoRA 訓練的基礎；官方定位兩者為搭檔（*"Z-Image Base: A Partner for Z-Image Turbo"*）。
+- **本機現況**：只有 `z-image-turbo-core` 與 `z-image-turbo-union-control` 兩個 profile，**沒有 base profile**，
+  但藍圖 `Text to Image (Z-Image-Base)` 已內建並期待 `z_image_bf16.safetensors` → 要開 Base 只需**手動放一顆
+  ~12 GB 的 UNET**（encoder/VAE 已共用），不需 .env profile。
+
+**擴充框架（§11）**：定調「**每個家族都要能自成完整流程**（t2i + edit + turbo/lightning 變體共用核心）」，
+跨家族混用**必須有理由**（鎖構圖、超解析、去背、風格轉移），不是預設。候選清單含實測下載量：
+FLUX.2 Klein 4B **+2.8 GB**（最便宜的實質升級）、Krea 2 Turbo 13.16 GB／RAW 18.63 GB、Ideogram v4 NVFP4
+21.91 GB、Qwen-Image 2512 Lightning 31.76 GB、Mage-Flow Edit Turbo 17.46 GB、Z-Image Base ≈12 GB（單顆 UNET）、
+FLUX.2 Dev（**只有藍圖、無 profile** → 手動放檔）；另註明 LTX-2.5 是 `gated`（需一次性授權）。
+並寫入「新增家族的六步程序」（plan_downloads 乾跑 → 改 node1 `.env` → 重啟（下載期間 `:8188` 是關的、
+約 8 MB/s）→ 驗證 `/object_info` → 實測一張 → rsync 鏡像回 node0）與選型對照表。
