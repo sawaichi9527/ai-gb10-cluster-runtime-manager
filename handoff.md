@@ -2,6 +2,7 @@
 
 > 本檔是本機中繼 checkout 的交接摘要。主要開發在 **node0**（`~/workspace/ai-gb10-cluster-runtime-manager`，branch **`main`**；2026-09-29 實測 node0 為 `main`／upstream `origin/main`、工作區乾淨 —— 舊文件寫的 `keystone` 已於 `496c9b1` 併入 main、**非**現役 checkout）＋ Forgejo `829522`；本機僅作中繼存取，修改前先確認是否應改在 node0。
 > 建立：2026-09-18；更新：**2026-09-20**（DeepSeek V4 Flash **Vision-Exp** lane 上線：同一顆 Anemll image + 啟動 wrapper；bench-c / bench-ctx / bench-mm 實測；`cluster-up` 新增 `SYNC_DIRS` 自動同步 patch 目錄；**vision 開 prefix caching + `dspark-swa-prefix` hotfix**、長上下文邊界 261K/262144、圖片高併發 C=8/16；本檔納入版控並同步三方）；**2026-09-29** 上游查核（Anemll 無新 image/tag、MiaAI-Lab main 未動且 23 檔 byte 全同）→ 見「定期檢討追蹤」；**2026-09-29（後續）** qwen38flash 對齊上游 `2c86a1d0`（GMU 0.80／prefix caching ON／block-drop backport／index share）並完成冷啟驗證（READY、KV 29.88 GiB、無回歸）→ 見「qwen38flash 對齊上游 + 冷啟驗證」；**2026-09-29（後續之二）** DeepSeek-V4.1-Flash **EXL3 2×GB10 選型查核**（取得兩顆可下載 arm64 image 的 digest、證實 sfxnz image 未發佈、TP=2 對 3.5bpw 不可行、各線 benchmark 與 NVIDIA 論壇口碑）→ **本輪不新增 lane**（維持 `deepseek-vision` 為 2-Spark 多模態），詳見 `docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md`；**2026-09-30** 上游再查核（deepseek 與 deepseek-vision 的 **image／配方／官方權重皆無更新** → 兩 lane 現行設定即為最新、無需變更，含首度補查官方權重 commit 比較，見 `docs/DEEPSEEK_UPSTREAM_REVERIFY_2026-09-30.md`）；**2026-09-30（續）** 27b／35b 上游再查核（兩 lane 共用的 `ghcr.io/aeon-7/aeon-vllm-ultimate` 最新 dated tag 仍 `2026-09-18-v0.29.0-omni`＝現行 pin、digest 不變；27B/35B 四個 HF 來源 body/drafter 最後 commit 為 09-18／08-19／07-15／06-28，**皆無 09-19 後更新** → 無需變更，見 `docs/QWEN_27B_35B_UPSTREAM_REVERIFY_2026-09-30.md`）；**2026-10-03** `mimo26flash` lane 上線（MiMo V2.6 Flash MOPD，TP2 vLLM+DFlash，見同名章節）；**2026-10-05** `mimo26flash` NVFP4 變體 A/B + DFlash cliff 探測（兩變體皆過）→ **定案 MXFP4**、延後調優 C/D/E 註記於 docs §7、**服務切回 `deepseek`**、README 同步 → 見「2026-10-05」章節；**2026-10-07** DeepSeek **V4 Flash Vision** 同 image 調優 A/B（V0–V5 + V-win，獨立 `deepseek-vision-tune` lane）→ **只升一個旋鈕 `--long-prefill-token-threshold 1024→0`（V3）**，`deepseek.conf` 全程未動、生產 gate 全過；記錄 production lane boot 散佈 8.1% 無法驗證 2.7% 效應、cold prefill 32K 判為噪聲、garble soak `thinking:true` false alarm → 見「2026-10-07 — DeepSeek V4 Flash Vision」章節；**2026-10-07（續）** `deepseek-nvfp4` lane **建置**（NVIDIA NVFP4 0731 checkpoint + `eugr/spark-vllm-b12x`，Phase 1–2：下載/傳輸 + profile/白名單/文件，**Phase 3 開機另排**）→ 見「2026-10-07 — deepseek-nvfp4 lane 建置」章節；**2026-10-08（續）** `deepseek-nvfp4` **Phase 3 完成**（boot ×4：seccomp/safetensors 兩個啟動修復 → DSpark acceptance 垃圾 draft 根因＝共享 NVFP4 quant dict 把原生 MXFP4 draft 建成 ModelOptNvFp4（上游 #49133 closed）→ `hotfix-dspark-draft-mxfp4` 容器啟動補丁 → **全 gate PASS**：acceptance 2%→**27%**（temp0，pos0 0.629）／**49–59%**（temp0.7）、單流 16→**33.6 tok/s**、prefix-hit 44.8×、garble 3/3、compose-verify 過）→ 見同章節「Phase 3」；**2026-10-08（三）** C1–C8 完整併發 benchmark（47.1→**129.9 tok/s**、**2.76×**、accept 41–50% 全程不崩）+ `bench-c.sh` metrics scrape auth 修正（`/metrics` 401）、**NVFP4 KV（`nvfp4_ds_mla`）A/B 負結果**（三重硬閘、回退 fp8）→ README「已部署服務」正式列入 `deepseek-nvfp4`（**現役**）+ benchmark 區塊重寫，tag **`v1.5.0`** → 見 Phase 3 第 6/7 項與「版本標記」
+> **2026-10-19**：**三份文件現況校正 ＋ DeepSeek-V4.1-Flash-1017 初步評估** —— 盤點發現 `handoff.md`／`AGENTS.md`／`README.md` 的「現況」區塊仍停在 2026-10-09 配方繼承之前（Anemll 配方寫成現役、`deepseek-nvfp4` 寫成未開機、缺 `mimo26flash`／`deepseek-nvfp4-tune`），本輪**只校正現況區塊**、已定案歷史章節一字不動。另新增 1017 評估與**凍結決策**：路線＝**MiaAI-Lab vLLM kit（免 build）＋ 1017 EXL3 2.9bpw**、**場外試跑、暫不整合 `gb10`**；stack 目錄 `~/docker-stacks/mia-vllm-dsv41flash/`，模型放共用池 `deepseek-v4.1-flash-1017-exl3-2.9bpw/`＋`deepseek-v4.1-flash-1017-engram/`；下載只在 node0、串列、`nohup`、完成後經 CX7 rsync 到 Node1；去審查待 2.9bpw sidecar。詳見「定期檢討追蹤」的 DSV4.1-1017 小節與 `### 2026-10-19` 章節。
 > **2026-10-14**：**`comfyui-jdaln` 上線（Node1 唯一 ComfyUI runtime）** —— clone `ef7a677b`、建置 144 s、`:8188` 200、ComfyUI 0.38.0、2812 node types；過程中修掉 **17.5 h 掛死**（404 的 `ComfyUI-VDN-H3` clone 卡 credential prompt）與 **`gb10-single-boot` 假 READY**（commit `537c64e`），並依使用者裁定**裁剪 asset 範圍**（allowlist 置空：預設 93 GiB + workflow-asset 階段 +174 GiB 起跳 → 只保留 `z-image-turbo-core`，`use`→READY 46 秒）。詳見 `docs/COMFYUI_JDALN_DEPLOYMENT_2026-10-14.md`。
 > **2026-10-14（續）**：**兩條 Node1 runtime 同日退役**（使用者裁定）—— ① `comfyui`／aeon：HF token 先搬至 `~/docker-stacks/config/hf_token` 再刪 stack（71 GB）+ image（26.7 GB），flux2 權重**無備份**；② `minimaxh3`：**先驗證後拆** —— jdaln 的原生 MiniMax H3 節點跑通 i2v（`prompt_id d91692b7`、`status=success`、204.5 s、產出合法 MP4）才拆 stack（135 GB）+ image（32 GB）+ 輸出目錄；repo 側 `git rm` 兩個 conf 與 `src/minimax-h3/`（45 檔）；③ **同日稍後追加：`minimax-h3-sglang` 也一併清除**（依使用者追加指示）—— 目錄 **56 GB**（全在 `models/quantized`）+ 2 個 image **≈105 GB**，各 `Untagged`+`Deleted` rc=0，image 總數 11→9；其 `FAILURE_ANALYSIS.md` 內容已於刪除前擷取、留存於下方「`FAILURE_ANALYSIS.md` 原文留存」。三者合計磁碟 `used 2.1T→1.8T`、`avail 1.5T→1.8T`、59%→51%。詳見 `docs/COMFYUI_JDALN_DEPLOYMENT_2026-10-14.md` §11–§12。④ **同日再追加（續二）**：盤點發現退役只做一半 —— Node0 還留著 `minimax-h3` 135 GB + `comfyui-aeon` 54 GB + image 16.8 GB（~204 GB），已全數清除；並依使用者指示「經 CX7 用 rsync」把 `comfyui-jdaln` 鏡像到 Node0（stack 124 GB／114,316 檔 rsync 335 s ~396 MB/s，image `docker save|load` 128 s，**byte 驗證通過**；Node0 端**未實測 boot**）→ 見「2026-10-14（續二）」。
 > **2026-10-09**：`deepseek-vision` **配方繼承（promote）**——對決 `eugr/spark-vllm-b12x:latest` + `deepseek-v4-flash-vision-exp-ablit`（候選 lane `deepseek-vision-b12x`，B0/B1/B2 三 boot）vs README 舊配方記錄：decode Σ 535.3/545.9 vs 538.1（−0.5%/+1.4%，持平）、prefill 131K–261K 全欄 **+9~14%**、accept +1pp、prefix-hit 正確性 gate **無需任何 hotfix 即過**（HIT 50.9×、輸出位元組一致）→ 條件成立。**唯一升版旋鈕 `CUDAGRAPH_CAPTURE 48→56`**（上游 verbatim 48 於 C7/C8 掉 capture range，Σ −6%）。新 `deepseek-vision.conf` 已改寫（原生 vision、無 `CMD_WRAPPER`/`SYNC_DIRS`）；舊 Anemll 配方 byte-identical 封存於 `_overdue_recipe/deepseek-vision_anemll-dspark-vllm-gx10-011_20261009/`（conf+compose+patches+`recipe_README.md` 自帶、含還原步驟）；**舊官方模型 `models/deepseek-v4-flash-vision-exp` 依使用者決定兩節點暫留、後續再議**。詳見 `docs/DEEPSEEK_VISION_B12X_RECIPE_AB_2026-10-09.md`。另依使用者決定，舊配方的 A/B lane `deepseek-vision-tune{,.conf.base}` 同日**歸檔**至同一 `_overdue_recipe/` 目錄（白名單移除；未來 vision 調優需從新配方另立 lane）。
@@ -12,8 +13,9 @@
 
 ## 目前狀態（本機 checkout）
 
-- 分支：`main`，HEAD = 本檔所在的 commit（`git log -1`）；最新正式版本 tag = **`v1.7.0`**（`32e79c4`；`v1.6.0`→`84f343c`、`v1.5.0`→`3201363`、`v1.4.1`→`cc76cbd`、`v1.4.0`→`6aff00d`、`v1.3.4`→`a92d2bc`、`v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、`v1.3.3`→`9bb2006`）。早期：2026-09-20 session 共 22 個 commit `a1cba34`…`79a79cb`，其後為本檔的 sync commit。live lane = **`deepseek-nvfp4`**（**2026-10-08** Phase 3 完成上線，README/handoff 詳載；主線 `deepseek` 待命 —— 使用者裁定「先不恢復」，`gb10 use deepseek` 隨時切回；`mimo26flash` 自 10-03 上線做 NVFP4 A/B + cliff 探測，**權重定案 MXFP4** 待命，見 `docs/…2026-10-03.md` §11）
-- 同步狀態：**本機＝Forgejo（origin，`829522`）＝GitHub（`sawaichi9527`）＝node0 已 pull**（四方同一 commit；node0 live lane = **`deepseek`**（10-05 切回）；`mimo26flash` 定案 **MXFP4**、一鍵可切回）
+- 分支：`main`，HEAD = 本檔所在的 commit（`git log -1`）；最新正式版本 tag = **`v1.7.0`**（`32e79c4`；`v1.6.0`→`84f343c`、`v1.5.0`→`3201363`、`v1.4.1`→`cc76cbd`、`v1.4.0`→`6aff00d`、`v1.3.4`→`a92d2bc`、`v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、`v1.3.3`→`9bb2006`）。早期：2026-09-20 session 共 22 個 commit `a1cba34`…`79a79cb`，其後為本檔的 sync commit。
+- **cluster profile 現況（2026-10-19 校正）**：`cluster-profiles.d/` 有 7 條服務 lane（`27b`/`35b`/`deepseek`/`deepseek-vision`/`deepseek-nvfp4`/`qwen38flash`/`mimo26flash`）＋ 1 條 A/B 專用（`deepseek-nvfp4-tune`）；`deepseek-nvfp4` 於 **2026-10-08** Phase 3 完成上線。**2026-10-09 兩次配方繼承（promote）**：`deepseek`（mainline）與 `deepseek-vision` 皆改為 `eugr/spark-vllm-b12x:latest` ＋ dspark-ablit 系 checkpoint（舊 Anemll 配方 byte-identical 封存於 `_overdue_recipe/`，僅為備份）。`mimo26flash` 自 10-03 上線做 NVFP4 A/B ＋ cliff 探測後**定案 MXFP4**、待命（見 `docs/…2026-10-03.md` §11）。body/image 詳見下方「Profile 現況」表。
+- 同步狀態：**本機＝Forgejo（origin，`829522`）＝GitHub（`sawaichi9527`）**，本次文件校正即為最新 commit。**node0 live lane 依使用者裁定不校正**：2026-10-15 09:22 快照實際為 `aeon-vllm-27b`（`comfyui-jdaln` 調試態）；使用者已裁定此為**刻意進行中**的 `gb10-single` 部署／調試狀態，TP2 `deepseek`／`deepseek-nvfp4` 為**後續目標態**（詳見 2026-10-15 章節）。
 - `handoff.md` 已納版控（`37bee4c` 起；本次更新亦將 commit）
 - `.gitignore` 已覆蓋 `config/cluster.env`、`state/last-runtime`、logs、`*.bak-*`
 
@@ -43,16 +45,16 @@ node0 對 node1 的連線（由 node0 發起）走 CX7 區網：`ssh -i ~/.ssh/i
 
 - **`cluster-common.sh` 自動解析 `REPO_DIR`**，腳本可攜；保持此方式。
 - **Compose＝合約，CLI＝便利層**；發展合約在 `~/docker-stacks/`。
-- **Node-local 佈局**：每個 runtime 的節點側產物在 `~/docker-stacks/<stack>/`（stack 名＝image 來源）：`aeon-vllm-omni`(27b/35b)、`anemll-dspark-vllm-gx10`(deepseek)、`anemll-dspark-vllm-gx10-miaFlaver`(deepseek-vision)、`mia-vllm-openai-qwen38flashNext`(qwen38flash)。stack 內含 materialize 的 compose 與 `patches/`。**`~/` 根不得有佈署產物**。同時跑 cluster+single 的 lane（27b/35b）compose 加 `-cluster`/`-single`；cluster-only 用 `docker-compose.<profile>.yml`。
+- **Node-local 佈局**：每個 runtime 的節點側產物在 `~/docker-stacks/<stack>/`（stack 名＝image 來源）：`aeon-vllm-omni`(27b/35b)、`eugr-spark-vllm-b12x-deepseek`(deepseek)、`eugr-spark-vllm-b12x-vision`(deepseek-vision)、`eugr-spark-vllm-b12x`(deepseek-nvfp4)、`mia-vllm-openai-qwen38flashNext`(qwen38flash)、`tonyd2wild-vllm-mimo26flash`(mimo26flash)、`comfyui-dgx-spark`(comfyui-jdaln)。stack 內含 materialize 的 compose 與 `patches/`。**`~/` 根不得有佈署產物**。同時跑 cluster+single 的 lane（27b/35b）compose 加 `-cluster`/`-single`；cluster-only 用 `docker-compose.<profile>.yml`。
 - **Cache 每 lane 獨立**：`~/.cache/vllm-<profile>`（cluster-only）或 `~/.cache/vllm-<profile>-{cluster,single}`；各 conf 的 `AUTOTUNE_CACHE_REL` 指向自己的根。**Log 統一** `~/docker-stacks/logs/<profile>/`（boot + compose/container）。
 - **統一 AEON stack**：`~/docker-stacks/aeon-vllm-omni/`（`docker-compose-27b-single.yml` + `docker-compose-35b-single.yml` + `docker-compose-{27b,35b}-cluster.yml` + `models/` + `*_029_patched.py`）；27b/35b 皆 v0.29.0-omni image。`aeon-vllm-reasoning-eos` 已退休。
-- **Profiles 資料驅動**：`cluster-profiles.d/`（27b / 35b / deepseek / **deepseek-vision** / **qwen38flash** / **mimo26flash** / **deepseek-nvfp4**（2026-10-07 建置、**未開機**）），由 `cluster-common.sh` 載入；勿在 `cluster-*` 重寫死 profile 資料。
+- **Profiles 資料驅動**：`cluster-profiles.d/`（27b / 35b / deepseek / **deepseek-vision** / **deepseek-nvfp4**（2026-10-08 上線）/ **qwen38flash** / **mimo26flash**，另 **deepseek-nvfp4-tune{,.conf.base}** 僅供 A/B），由 `cluster-common.sh` 載入；勿在 `cluster-*` 重寫死 profile 資料。
 - **統一 LLM endpoint**：所有 runtime 走 OpenAI API **port 1234**，共用一組 `VLLM_API_KEY`。TP2 與 node0 single 共用 port → **互斥**（`gb10 use` 釋放 singles；`gb10-single use/start` 先拆 TP2）。
 - **Lazy sudo**：`sudo_pass()` 重用 `SUDO_PASS`，無 prompt；unset 時互動或報錯，不 hang。
 - **Placeholder**：`PLACEHOLDER=true` 的 conf 只印 "not deployed yet"。
 - **Exclusive groups**：`runtimes.d/*.conf` 用 `MODE=exclusive` + `GROUP`（llm/image/video）；`use` 在同 group 內切換；`start` 對 exclusive 等同 `use`。
-- **DeepSeek 僅叢集**：single `deepseek.conf` 已退休；`cluster-profiles.d/deepseek.conf` 為主線（official fp8 checkpoint + `ghcr.io/anemll/dspark-vllm-gx10:0.1.1`，pool 權重）。
-- **`deepseek` 與 `deepseek-vision` 共用同一顆 image**（Anemll `dspark-vllm-gx10:0.1.1`，digest `a8394849…`），互斥切換；vision 支援來自**啟動 wrapper**（見下節）。
+- **DeepSeek 僅叢集**：single `deepseek.conf` 已退休；`cluster-profiles.d/deepseek.conf` 為主線，自 **2026-10-09 配方繼承**起跑 `eugr/spark-vllm-b12x:latest` ＋ `deepseek-v4-flash-0731-dspark-ablit`（權重於共用池 `~/docker-stacks/models`；舊「官方 fp8 ＋ Anemll」配方封存於 `_overdue_recipe/`，僅為備份）。
+- **三條 DeepSeek lane 共用同一顆 image**（`eugr/spark-vllm-b12x:latest`）：`deepseek`（0731-dspark-ablit）、`deepseek-vision`（vision-exp-ablit，**原生 vision、無 `CMD_WRAPPER`/`SYNC_DIRS`**）、`deepseek-nvfp4`（0731-nvfp4）；互斥切換。
 - **新增（2026-09-20）兩個預設關閉的 profile hook，勿以為沒用**：
   - `CMD_WRAPPER`（`_compose_service`）：設定時改以 `entrypoint: []` + `bash -lc "<wrapper>; exec vllm serve <args>"` 啟動；未設＝輸出 **byte 不變**。
   - `SYNC_DIRS`（`cluster-up`，`"SRC:DEST"`）：boot 前把 SRC（Node0，repo）佈署到兩節點 DEST；未設＝no-op。
@@ -830,10 +832,15 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
 
 | Profile | body | drafter | image | 備註 |
 |---|---|---|---|---|
-| 27b | `qwen3.8-27b-aeon-ultimate-uncensored-nvfp4-mixed` | `qwen3.8-27b-dflash2` | `2026-09-18-v0.29.0-omni` | dflash n=7, maxlen 262144, GMU 0.85, num_seqs 8, :1234；prefix cache OFF；`HEALTH_TIMEOUT=3600` |
-| 35b | `qwen3.6-35b-a3b-heretic-nvfp4` | `qwen3.6-35b-a3b-dflash` | `2026-09-18-v0.29.0-omni` | n=6, maxlen 262144, GMU 0.80, num_seqs 8；prefix cache ON |
-| deepseek | `deepseek-v4-flash-0731-official` | — (內建 DSpark n=7) | `anemll/dspark-vllm-gx10:0.1.1` | 主線；池化權重；262144/8；nvfp4_ds_mla + flashinfer_b12x |
-| **deepseek-vision** | `deepseek-v4-flash-vision-exp` | — (內建 DSpark k=6) | **同上（同 image/digest）** | 多模態；`CMD_WRAPPER` 裝 encoder+hotfix；262144/8；`SYNC_DIRS` 佈署 patches |
+| 27b | `qwen3.8-27b-aeon-ultimate-uncensored-nvfp4-mixed` | `qwen3.8-27b-dflash2` | `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-09-18-v0.29.0-omni` | dflash n=7, maxlen 262144, GMU 0.85, num_seqs 8, :1234；prefix cache OFF；`HEALTH_TIMEOUT=3600` |
+| 35b | `qwen3.6-35b-a3b-heretic-nvfp4` | `qwen3.6-35b-a3b-dflash` | 同上 | n=6, maxlen 262144, GMU 0.80, num_seqs 8；prefix cache ON |
+| deepseek | `deepseek-v4-flash-0731-dspark-ablit` | — (內建 DSpark k=7) | `eugr/spark-vllm-b12x:latest` | 主線；**2026-10-09 配方繼承**；池化權重；262144/8；KV fp8、capture 64；無 hotfix |
+| deepseek-vision | `deepseek-v4-flash-vision-exp-ablit` | — (內建 DSpark) | 同上 | 多模態、**原生 vision**；262144/8；capture 56；無 `CMD_WRAPPER`/`SYNC_DIRS` |
+| deepseek-nvfp4 | `deepseek-v4-flash-0731-nvfp4` | — (內建 DSpark k=5) | 同上 | NVIDIA NVFP4；**2026-10-08 上線**；KV fp8、capture 48；需 `seccomp=unconfined`；`patches/eugr-spark-vllm-b12x/` hotfix |
+| qwen38flash | `qwen3.8-flash-next-nvfp4` | — (內建 MTP3) | `vllm/vllm-openai:qwen38-flash-next` | TP2+EP；`COMPILATION_JSON {"mode":0}`；`patches/qwen38flash/`（AGPL-3.0） |
+| mimo26flash | `mimo-v2.6-flash-mopd` | — (內建 DFlash) | `ghcr.io/tonyd2wild/vllm-glm53-flash:sm121-v11-dflash2` | 定案 **MXFP4**；256K/8；3 patch（`patches/mimo26flash/`） |
+
+> A/B 專用（非服務，`gb10 list` 另列）：`deepseek-nvfp4-tune{,.conf.base}`。單節點（`runtimes.d/`）：`27b`、`35b`、`comfyui-jdaln`（Node1）。`deepseek`／`deepseek-vision`／`deepseek-nvfp4` 為 **cluster-only**。
 
 ### 09-18 image benchmark（`bench-c` C1-C8 tok/s；245k 純 prefill）
 
@@ -852,7 +859,12 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
 - `image-workstream/dspark-k5-topk256-backport`（`e2fe3a9`）
 - `master` / `transport-docs-1634`（`5de82c2`）
 
-## 現役狀態（session 結束時）
+## 現役狀態（2026-10-07／09-29 歷史快照）
+
+> 本節是 **2026-10-07（vision campaign 收尾）與 2026-09-29（切回 mainline）** 的歷史快照。
+> 其後 **2026-10-09 兩次配方繼承**已把 `deepseek`／`deepseek-vision` 改為
+> `eugr/spark-vllm-b12x:latest` ＋ dspark-ablit，故下方 image／model 欄位為**當時值**；
+> 最新現況見「目前狀態」與「Profile 現況」表。
 
 - **2026-10-07 vision campaign 已收尾**：當日 13:53–15:05 TP2 由 vision 調優 campaign
   佔用（現役 profile 一度為 `deepseek-vision`，已套 V3 升版
@@ -880,6 +892,8 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
 - ~~**GitHub remote 未推**~~（已完成 2026-09-20：三方已同步 `fd9adf2`，`ls-remote` 驗證）。
 - ~~**`handoff.md` 未追蹤**~~（已完成：已納版控，見「目前狀態」）。
 - **驗證 27b/35b 未受影響**（暫緩，見「定期檢討追蹤」#3）：本次改了共用 `cluster-common.sh`（`CMD_WRAPPER`/`SYNC_DIRS` 加入 unset 清單）與 `cluster-up`（新增 `SYNC_DIRS` 區塊，預設 no-op）。已驗證 deepseek 渲染 byte-identical，但**尚未再 boot 27b/35b 實測**（低風險，兩者走 docker-run 路徑）。
+- **文件同步（2026-10-19）**：本輪已把 `handoff.md`／`AGENTS.md`／`README.md` 的**現況區塊**校正到 2026-10-09 配方繼承後的事實（見下方 `### 2026-10-19` 章節）。
+- **DeepSeek-V4.1-Flash-1017 lane（規劃中，見「定期檢討追蹤」）**：路線已定 **MiaAI-Lab vLLM kit（免 build）＋ 1017 EXL3 2.9bpw**，**場外試跑、暫不整合 `gb10`**；下載在 node0（`nohup`、串列、`HF_MAX_WORKERS=1`）完成後再經 CX7 rsync 到 Node1。去審查待 2.9bpw sidecar 出現再做。
 - （可選）長圖文混搭、`--limit-mm-per-prompt` 上限（目前 8）、多輪 agent chain 長時間穩定性（見「定期檢討追蹤」#2）。
 - **benchmark 工具**：`scripts/bench-c.sh <C> [MAX_TOKENS]`（C=1 時 exit 1 為邊緣狀況，數值仍有效）、`scripts/bench-ctx.sh <NUM_WORDS> [MAX_TOKENS]`（`max_tokens=1`＝純 prefill）、**`scripts/bench-mm.sh [NUM_IMAGES] [C] [MAX_TOKENS]`（圖片；預設用 deepseek-vision profile 的測試圖，可用 `MM_IMAGE=` 覆寫）**。
 - 若有跨節點／部署問題，先在 node0 確認，勿在本機直接改。
@@ -983,6 +997,67 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
 - **為何不採用**：免 build 的成熟 image 只有 ~26 tok/s；要 42–50 tok/s 就得用 sfxnz stack（＝要 build）。兩者在「不自行 build」約束下無法同時成立 → 維持 2-Spark 多模態由 `deepseek-vision` 承接。
 - **重啟最短路徑**：① 直接用 Mia 那顆（`IMG_SHA256` 可沿用現有 registry gate）② 探針「Mia image + sfxnz 2.0bpw-mcg-viterbi pack」是否可載入（mul1 vs mcg、per-tensor K-map、`exllamav3 v1.4.5` 相容性**未知**）→ 成功即「免 build + 44 tok/s」。
 - **授權**：sfxnz scripts MIT／權重 MIT／`vllm-exl3` **AGPL-3.0**；tonyd2wild patch Apache-2.0 vLLM 衍生；MiaAI-Lab 系列 AGPL-3.0。未來採用須比照 `patches/qwen38flash/NOTICE.md` 慣例（pin + sha256），且不得再散布衍生 image。
+
+### DeepSeek-V4.1-Flash-1017（2× GB10）— 初步評估與凍結決策（2026-10-19）
+
+> 觸發：使用者提供 NVIDIA 論壇《DeepSeek-V4.1-Flash-1017 (EXL3 2.9bpw) on 2x DGX Spark with
+> TensorFold》（<https://forums.developer.nvidia.com/t/…/386125>，2026-10-18）。**本輪未變更任何
+> runtime 檔**，未 pull image、未下載權重；唯一變更是本紀錄。此節與上方 2026-09-29 那份
+> （`docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md`，V4.1-**0909**）**不同代**：1017 是
+> 2026-10-17 的新版，**Engram 表已更新**。
+
+- **模型**：`deepseek-ai/DeepSeek-V4.1-Flash-1017`（MIT，763B，`image-text-to-text`，1M context，
+  新的 Engram shards 47/48）。官方相對自家 V4.1-Flash 的躍升：HLE 42.6 vs 36.8、
+  Terminal-Bench 42.3 vs 31.2、ProgramBench 29.1 vs 20.3。
+- **兩條引擎、同一批權重**（第三方 `x00byte/DeepSeek-V4.1-Flash-1017-Dual-Spark` 有雙 profile
+  C1–C8 交叉驗證）：
+  - **vLLM（本次採用的路線）**：decode C1 **36.9**（thinking off）／41.4（effort 75）；
+    effective prefill 最佳 **850.8**（C6）。**vLLM 在 prefill 與高併發反而勝出。**
+  - **TensorFold**（bertholomus／Elevatormusic，原生 Zig TP2）：decode C1 **58.1**／77.5，
+    但**需自行 build 引擎** ＋ `host_tuning.sh`（sudo、earlyoom／關 THP／no-swap slice），
+    且其 `KNOWN-LIMITS.md` 明載 **vision 未量測**、**無自動重啟**（故障時兩 rank 一起 exit 75，
+    需手動重啟）。
+- **免 build 路線可行（關鍵發現）**：`LibertAIDAI/DeepSeek-V4.1-Flash-1017-EXL3-2.9bpw`
+  的 model card 明言其張量／dtype／per-tensor bitrate **與 Mia 的 0909 版逐一致**，故
+  **MiaAI-Lab 的 kit 免改 K-map 即可服務 1017**，只改 `.env`：
+  `HF_MODEL_REPO=LibertAIDAI/DeepSeek-V4.1-Flash-1017-EXL3-2.9bpw`、`EXPECTED_SHARDS=43`、
+  `HF_ENGRAM_REPO=deepseek-ai/DeepSeek-V4.1-Flash-1017`、`ENGRAM_DIR=…-engram`。
+  → **不必自行 build**（不違反 2026-09-29 的「不自行 docker build」約束）。
+  Image：`ghcr.io/miaai-lab/deepseek-v4.1-flash-exl3-2x-dgx-sparks:2.9bpw`（公開、約 9 GiB、無需登入）。
+- **來源（已確認）**：
+  - 量化本體 `LibertAIDAI/DeepSeek-V4.1-Flash-1017-EXL3-2.9bpw`：**43 shards、210.7 GB（196.3 GiB）**，
+    EXL3 trellis / `mul1` / `out_scales=always`，含 **vision tower（BF16）**、MTP/DSpark（4 bpw）、
+    全部 experts；**不含 Engram**。perplexity vs 未量化：code +1.8% / prose +0.4%。
+    權重 commit `afc7aa0a`、卡片 HEAD `c178a012`。兄弟：`…-EXL3-3.5bpw`、`…-NVFP4`。
+  - Engram **只取** `deepseek-ai/DeepSeek-V4.1-Flash-1017` 的 **shards 47+48 ＋ index ＋ config.json**
+    （各約 95 GiB，**合計約 190 GiB**；base commit `1bae0e10`）。**鐵則：不可沿用舊 V4.1-Flash 的表。**
+- **資源需求（Mia vLLM kit）**：權重 99.5 GiB/rank（另 Engram 走 file-backed row store，NVMe-resident）；
+  `MAX_NUM_SEQS=2`（**併發上限 2，低於現行 lane 的 8**）；KV pool 2.5 GiB/rank（774,400 tok @600K）；
+  head `MemAvailable` 低點約 **2.1–2.9 GiB**（GB10 統一記憶體，長 prefill 時最緊）；
+  兩節點曾於 2026-09-11 因 kernel OOM killer 誤殺桌面程序而**硬重啟**（kit 以 `--oom-score-adj 1000` 自保）。
+  每節點需約 **500 GB 磁碟**（權重 ~196 GiB ＋ Engram ~190 GiB；`pack` 另需 ~94 GiB/節點）。
+- **多模態**：**原生支援文字＋圖像**（保留完整 vision tower／aligner；官方卡片有 Chartography /
+  BabyVision / ZeroBench 視覺評測）。**無音訊／視訊輸入。** Mia 路線預設 `LANGUAGE_MODEL_ONLY=0`，
+  需 `MAX_NUM_BATCHED_TOKENS>=1536`；因 SM12x 無 1152-wide kernel，`patch_sm120_block64.py` 把
+  `max_image_tokens` 釘為 0、影像視窗維持 128 → **圖內雙向注意力關閉**（OCR／多圖實測無損，
+  但密集文件工作未有 parity 探針）。
+- **去審查**：**官方版未去審查**。第三方有 1017 專用 overlay（`drowzeys/keys-DeepSeek-V4.1-Flash-1017-Abliterated`，
+  gated、只改 L10–35 `attn.wo_b`，Refusal32 32/32、Cyber 22/22；anchors 全保留）**但只出 FP8 與
+  `…-EXL3-3.5bpw` 兩種 sidecar**，官方「不要用」清單明列 Mia 2.9bpw K=5 的九月側檔 →
+  **目前沒有 2.9bpw 的 1017 sidecar**。**決定：先跑原版，等 2.9bpw sidecar 出現再併入。**
+- **凍結決策**：
+  1. 路線＝**MiaAI-Lab vLLM kit（免 build）**；**場外試跑、暫不整合 `gb10`**（先 `gb10 stop` 才起服務）。
+  2. stack 目錄＝`~/docker-stacks/mia-vllm-dsv41flash/`（放 kit checkout／`.env`／patch／記錄）。
+  3. 模型＝共用池獨立子目錄：`~/docker-stacks/models/deepseek-v4.1-flash-1017-exl3-2.9bpw/`
+     與 `~/docker-stacks/models/deepseek-v4.1-flash-1017-engram/`（日後去審查再加 `…-ablit/`）。
+  4. 下載＝**只在 node0**、**串列**、`nohup`、`HF_MAX_WORKERS=1`，完成後經 **CX7 rsync** 到 Node1
+     （`WEIGHT_SYNC=rsync`；image 用 `docker save | ssh docker load`）；期間**不影響現行服務**
+     （只 `hf download` ＋ `docker pull`，不跑 `./start.sh`）。
+  5. `MAX_NUM_SEQS=2` 是否可接受 → **先實測再說**。
+- **授權**：模型 MIT；LibertAI 量化 MIT；Mia kit launcher **AGPL-3.0**（比照 `patches/qwen38flash/NOTICE.md`
+  的 pin + sha256 慣例）。
+- **再查觸發（檢討時點）**：① `drowzeys` 釋出 **2.9bpw 的 1017 sidecar**；② TensorFold 引擎穩定且
+  vision 有量測數據；③ Mia kit 更新到 1017 原生 tag（免 `.env` 覆寫）。
 
 ### gb10 `state/last-cluster-profile` 修正（2026-09-29）
 
@@ -1976,6 +2051,36 @@ seed family＝base+頁碼、逐頁記錄）；已驗證的完整範例與指令�
 **驗證**：鏡像 `rc=0`、傳 8 筆刪除（2 LFS 殘檔 + 6 `.env` 備份）→ 兩端 **114,404 / 16,320 / 9** 一致、
 `.git/lfs/incomplete` 兩端 **0 筆**、`.env*` 檔組兩端相同、stack 各 **235 GB**、磁碟 node0 52% / node1 55%。
 `AGENTS.md` 鏡像計數同步更新為 114,404。
+
+### 2026-10-19 — handoff／AGENTS／README 現況校正（＋ DSV4.1-1017 初步評估）
+
+**觸發**：session 起始盤點發現三份文件的「現況」區塊仍停在 **2026-10-09 配方繼承之前**
+（把 Anemll 配方寫成現役、`deepseek-nvfp4` 寫成未開機、缺 `mimo26flash`／`deepseek-nvfp4-tune`）。
+本輪**只校正現況區塊**，已定案的歷史章節一字不動。
+
+**改動**
+
+- `handoff.md`：`## 目前狀態`、`## 關鍵事實`（Node-local 佈局 stack 名、Profiles 清單、
+  DeepSeek 僅叢集、三條 DeepSeek lane 共用 image）、`## Profile 現況` 表（補 `deepseek-nvfp4`／
+  `qwen38flash`／`mimo26flash`，改正 body/image）、`## 現役狀態`（加註為 2026-10-07／09-29 歷史快照）、
+  `## 下一步`（新增本輪與 1017 條目）。
+- `handoff.md` 新增 `### DeepSeek-V4.1-Flash-1017 …` 評估紀錄（見上方「定期檢討追蹤」），
+  含來源/revision、雙引擎交叉驗證、資源需求、凍結佈局與下載策略、去審查與多模態結論。
+- `AGENTS.md`：註冊區塊把 `deepseek-nvfp4` 由「boot PENDING」改為 **2026-10-08 booted**，
+  補 `mimo26flash.conf`／`deepseek-nvfp4-tune.conf`；TP2-refactor 段落的「2026-09-07 官方 fp8 ＋
+  Anemll」補註 *(superseded 2026-10-09 → eugr b12x + dspark-ablit)*。
+- `README.md`：`deepseek` 現行配方段（官方 fp8 ＋ Anemll → eugr b12x ＋ dspark-ablit）與
+  node-local 佈局清單（`anemll-dspark-vllm-gx10 (deepseek)` → `eugr-spark-vllm-b12x-deepseek`）。
+- **附帶發現（僅記錄）**：`cluster-profiles.d/_backup/` 目錄**仍存在但目前為空且未被 git 追蹤**
+  （2026-10-09 的封存已移入 repo 根 `_overdue_recipe/`）；先前章節寫的「已不存在」指的是**內容**
+  已不存在。目錄本身留著無害，未刪。
+
+**Validation evidence（本輪純文件）**
+
+- `git status`：只動 `handoff.md`／`AGENTS.md`／`README.md` 三份 tracked 文件。
+- Markdown fence 數為偶數、CRLF = 0、TAB = 0（repo 規則）。
+- diff 掃描無憑證**值**（HF token、密碼、金鑰）；路徑一律以 `<…>` 佔位描述。
+- **Runtime test = N/A**：未變更任何 runtime／profile／compose，未連線節點、未起停任何服務。
 
 ### 2026-10-15（續六）— 簡報產線定案：兩條獨立工作流 + 模型選擇查證（指南 rev 4）
 

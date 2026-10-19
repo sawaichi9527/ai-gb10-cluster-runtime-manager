@@ -362,8 +362,11 @@ cluster-profiles.d/
   qwen38flash.conf   # Qwen3.8 Flash-Next 125B NVFP4 TP2+EP (2026-09-20); official
                      # vllm/vllm-openai:qwen38-flash-next + vendored MiaAI patchers
   deepseek-nvfp4.conf   # DeepSeek-V4-Flash-0731-NVFP4 on eugr/spark-vllm-b12x (built
-                        # 2026-10-07, boot PENDING); same name as a retired unrelated
-                        # AEON experiment — not a revival
+                        # 2026-10-07, booted 2026-10-08); same name as a retired
+                        # unrelated AEON experiment — not a revival
+  mimo26flash.conf      # MiMo V2.6 Flash MOPD (MXFP4) TP2 + in-checkpoint DFlash
+  deepseek-nvfp4-tune.conf  # single-knob A/B lane for deepseek-nvfp4 (NOT a service;
+                            # also has a .conf.base sibling)
 ```
 
 Key rules:
@@ -390,6 +393,8 @@ Key rules:
   lane (since 2026-09-07): official deepseek-ai fp8 checkpoint + public Anemll runtime
   `ghcr.io/anemll/dspark-vllm-gx10:0.1.1` (manifest revision 9e165c…, SHA256SUMS-gated;
   gate-passed 40K reference, retuned to the 256KB + DSpark + 8-stream production contract).
+  **(superseded 2026-10-09 → `eugr/spark-vllm-b12x:latest` + `deepseek-v4-flash-0731-dspark-ablit`;
+  the Anemll recipe is archived in `_overdue_recipe/` as a backup only.)**
 
 ## Conventions
 

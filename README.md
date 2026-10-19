@@ -683,16 +683,16 @@ TP2 orchestration / networking
 ```
 
 DeepSeek V4 Flash 0731 is deployed as a **TP2 cluster profile** (the legacy single-node
-`runtimes.d/deepseek.conf` placeholder was retired 2026-09-05). The mainline uses the
-official fp8 checkpoint (`deepseek-v4-flash-0731-official`, weights under
-`~/docker-stacks/models`) with the public Anemll runtime
-`ghcr.io/anemll/dspark-vllm-gx10:0.1.1`, SHA256SUMS-gated and validated with a real
-generation. It serves the unified :1234 API at 256K context (same-model DSpark draft,
-8 concurrent streams). The retired NVFP4 AEON lane is archived to
-`~/_archieve/cluster-profiles.d/deepseek-nvfp4.conf` — **name collision warning**: the
-active `deepseek-nvfp4` profile (2026-10-07, `nvidia/DeepSeek-V4-Flash-0731-NVFP4` on
-`eugr/spark-vllm-b12x`) is a **different, unrelated lane** that reuses the name; the
-archived one was an AEON-image experiment and is not being revived.
+`runtimes.d/deepseek.conf` placeholder was retired 2026-09-05). Since the **2026-10-09
+recipe succession** the mainline runs `deepseek-v4-flash-0731-dspark-ablit` on
+`eugr/spark-vllm-b12x:latest` (weights under `~/docker-stacks/models`), validated with a
+real generation; the older official fp8 checkpoint + public Anemll
+`ghcr.io/anemll/dspark-vllm-gx10:0.1.1` recipe is archived in `_overdue_recipe/` as a
+**backup only**. It serves the unified :1234 API at 256K context (same-model DSpark draft,
+8 concurrent streams). **Name collision warning**: the active `deepseek-nvfp4` profile
+(booted 2026-10-08, `nvidia/DeepSeek-V4-Flash-0731-NVFP4` on `eugr/spark-vllm-b12x`) is a
+**separate, unrelated lane**; an earlier AEON-image experiment reused the name and is not
+being revived.
 
 ## Single-node CLI — `gb10-single`
 
@@ -785,7 +785,7 @@ cluster.env.example cluster/site config template (NEVER commit real values)
 
 ~/docker-stacks/    node-local deploy artifacts (NOT in this repo):
   <stack>/          one dir per lane, named after the image source —
-                    aeon-vllm-omni (27b/35b) · anemll-dspark-vllm-gx10 (deepseek)
+                    aeon-vllm-omni (27b/35b) · eugr-spark-vllm-b12x-deepseek (deepseek)
                     eugr-spark-vllm-b12x (deepseek-nvfp4)
                     eugr-spark-vllm-b12x-vision (deepseek-vision, since 10-09;
                       the old anemll-dspark-vllm-gx10-miaFlaver is retired —
