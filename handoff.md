@@ -5,6 +5,7 @@
 > **2026-10-20（續）**：**1017 首啟實測 —— 可用，但 DSpark speculative decoding 在此 pack 上是負收益**。首啟 ~11 分鐘；`17*19=323`、600K context、vision、prefix cache（同 prompt 17.62s→0.48s ≈37×）皆正常。**decode C1**：DSpark k=3 **13.8 tok/s**（接受率 20.7%）、k=5 **11.5**（14.5%，per-pos 39.8/20.4/6.9/3.5/1.7%）、**no-spec 24.5–24.7**；C2 聚合 36.2；冷 prefill 1,110–1,183 tok/s。**定案 `SPEC_METHOD=none`**（另已套 1017 的 MTP dense K6 修正：k=3 22.5%、k=5 13.3%，仍不足）。
 已套 x00byte 旋鈕 → **C1 24.2／C2 36.9／C8 79.3 tok/s**（262144 context、8 seqs、1 GiB KV）。
 服務介面＝**`http://192.168.23.215:1234/v1`**（CX7 僅叢集內部，非服務介面）。node0 `27b` 與 node1 `comfyui-jdaln` 已停。
+**已成為正式 TP2 lane**：`gb10 use dsv41flash-exl3-vllm`（`LAUNCH_STYLE="kit"`，READY 約 5.5 分鐘）。
 > **2026-10-20**：**DSV4.1-Flash-1017 下載與 Node0→Node1 鏡像完成（Phase 0/1）** —— 走 **MiaAI-Lab vLLM kit（免 build）**；權重 **385.5 GiB**（EXL3 43 shards 196.3 GiB ＋ 1017 Engram shards 47/48 189.1 GiB）下載於 node0（`nohup`、串列、`HF_MAX_WORKERS=1`、約 12 小時 @ ~9–10 MB/s），再經 **CX7 rsync** 到 node1（quant 377.6 MB/s、engram 364.4 MB/s，各約 9 分）。Image `…-exl3-2x-dgx-sparks:2.9bpw` digest **`sha256:2f0cf3ad…1dce`**（與 09-29 記錄的 `:latest` 相同），`docker save|ssh docker load` rc=0。**尚未開機**（需先 `gb10 stop`）。詳見 `handoff.md` 同日章節。
 > **2026-10-19**：**三份文件現況校正 ＋ DeepSeek-V4.1-Flash-1017 初步評估** —— 盤點發現 `handoff.md`／`AGENTS.md`／`README.md` 的「現況」區塊仍停在 2026-10-09 配方繼承之前（Anemll 配方寫成現役、`deepseek-nvfp4` 寫成未開機、缺 `mimo26flash`／`deepseek-nvfp4-tune`），本輪**只校正現況區塊**、已定案歷史章節一字不動。另新增 1017 評估與**凍結決策**：路線＝**MiaAI-Lab vLLM kit（免 build）＋ 1017 EXL3 2.9bpw**、**場外試跑、暫不整合 `gb10`**；stack 目錄 `~/docker-stacks/mia-vllm-dsv41flash/`，模型放共用池 `deepseek-v4.1-flash-1017-exl3-2.9bpw/`＋`deepseek-v4.1-flash-1017-engram/`；下載只在 node0、串列、`nohup`、完成後經 CX7 rsync 到 Node1；去審查待 2.9bpw sidecar。詳見「定期檢討追蹤」的 DSV4.1-1017 小節與 `### 2026-10-19` 章節。
 > **2026-10-14**：**`comfyui-jdaln` 上線（Node1 唯一 ComfyUI runtime）** —— clone `ef7a677b`、建置 144 s、`:8188` 200、ComfyUI 0.38.0、2812 node types；過程中修掉 **17.5 h 掛死**（404 的 `ComfyUI-VDN-H3` clone 卡 credential prompt）與 **`gb10-single-boot` 假 READY**（commit `537c64e`），並依使用者裁定**裁剪 asset 範圍**（allowlist 置空：預設 93 GiB + workflow-asset 階段 +174 GiB 起跳 → 只保留 `z-image-turbo-core`，`use`→READY 46 秒）。詳見 `docs/COMFYUI_JDALN_DEPLOYMENT_2026-10-14.md`。
@@ -2176,6 +2177,20 @@ per-position 顯示只有第一顆還可（pos0 39.8%），往後急速衰減 �
 
 **Runtime test**：是（上方全部為 node0/node1 實跑）；**未做的**：600K 近上限、工具呼叫、
 多圖併發、長時間 soak。
+
+**gb10 整合（同日稍晚，已上線）**
+
+- 新增 `cluster-profiles.d/dsv41flash-exl3-vllm.conf`，並在 cluster 層加入**通用**
+  `LAUNCH_STYLE="kit"`（預設 `compose`）：profile 以 `KIT_DIR`／`KIT_START`／`KIT_STOP`
+  （＋`KIT_HEAD_CONTAINER`／`KIT_WORKER_CONTAINER`、`SERVED_MODEL`）宣告自己的兩節點啟動器；
+  `cluster-up` 改為執行該啟動器並等 `/health`，跳過 compose render／image gate／autotune reset。
+  所有 kit 欄位都由 `load_profile` 重置，不會滲漏到 compose lane。
+- `cluster-down` 依 `state/last-cluster-profile` 執行該 lane 的 `KIT_STOP`；
+  `cluster-status` 用 kit 的容器名；`cluster-smoke`／`cluster-load` 改用解析出的 `SERVED_MODEL`。
+- **實測**：`gb10 use dsv41flash-exl3-vllm` → **READY 約 5.5 分鐘**；`gb10 status` = ready
+  （image/model/KV 296,846 tokens 正確、Node1 worker 可見）；`gb10 smoke` = `HELLO-TP2-OK`；
+  `gb10 stop` 正確停 head+worker（health 000）。
+- 文件：`AGENTS.md` 記錄 `LAUNCH_STYLE=kit` 與新 profile；`README.md` 部署表新增 1017 列。
 
 **與論壇／x00byte 的配置差異查核（2026-10-20 後續）**
 
