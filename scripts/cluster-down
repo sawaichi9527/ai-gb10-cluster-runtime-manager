@@ -7,6 +7,25 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/cluster-common.sh"
 
+# Kit lanes are torn down by their own launcher (KIT_STOP), not by the
+# compose container rm below. Resolve whichever lane was selected last; a
+# compose lane falls through unchanged.
+_ACTIVE="$(cat "${REPO_DIR}/state/last-cluster-profile" 2>/dev/null || true)"
+if [[ -n "${_ACTIVE}" && -f "${PROFILE_DIR}/${_ACTIVE}.conf" ]]; then
+  IFS='|' read -r _style _kdir _kstop < <(
+    set +u
+    # shellcheck disable=SC1090
+    source "${PROFILE_DIR}/${_ACTIVE}.conf" 2>/dev/null || true
+    echo "${LAUNCH_STYLE:-compose}|${KIT_DIR:-}|${KIT_STOP:-./start.sh stop}"
+  )
+  if [[ "${_style}" == "kit" && -n "${_kdir}" && -d "${_kdir}" ]]; then
+    echo "== stopping kit lane ${_ACTIVE} (${_kstop}) =="
+    ( cd "${_kdir}" && bash -c "${_kstop}" ) || true
+    rm -f "${REPO_DIR}/state/kit.${_ACTIVE}.pid"
+  fi
+  unset _style _kdir _kstop
+fi
+
 echo "== stopping Node1 (headless) =="
 n1 bash -s <<EOF
 $(printf 'export SUDO_PASS=%q\n' "$(sudo_pass)")

@@ -130,11 +130,19 @@ load_profile(){
         EXTRA_ARGS EXTRA_ENV EXTRA_MOUNTS CMD_WRAPPER SYNC_DIRS CAP_ADD ULIMITS \
         SECURITY_OPT \
         AUTOTUNE_CACHE_REL STACK_DIR COMPOSE_FILE HEALTH_TIMEOUT \
+        KIT_DIR KIT_START KIT_STOP KIT_LOG_NAME KIT_HEAD_CONTAINER KIT_WORKER_CONTAINER \
+        SERVED_MODEL \
         DISABLE_CUSTOM_ALL_REDUCE SHM_SIZE ENGINE MODELS_BASE 2>/dev/null || true
   # shellcheck disable=SC1090
   source "$conf"
   MODELS_BASE="${MODELS_BASE:-${_DEFAULT_MODELS_BASE}}"
   ENGINE="${ENGINE:-vllm}"   # vllm is the only engine (the SGLang launcher was removed 2026-09-20)
+  # Launch mechanism. compose = render a compose file from this profile (the
+  # default, used by every model lane). kit = the profile names its own
+  # two-node launcher via KIT_DIR/KIT_START (e.g. an upstream recipe kit);
+  # cluster-up runs it instead of rendering compose. Unset => unchanged.
+  LAUNCH_STYLE="${LAUNCH_STYLE:-compose}"
+  SERVED_MODEL="${SERVED_MODEL:-aeon}"   # model id used by cluster-smoke
   PROFILE="${PROFILE_ID:?cluster profile missing PROFILE_ID}"
   if [[ "${PLACEHOLDER:-false}" == "true" ]]; then
     PROFILE_PLACEHOLDER="true"

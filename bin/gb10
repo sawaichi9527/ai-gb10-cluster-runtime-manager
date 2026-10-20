@@ -37,7 +37,7 @@ cat <<'HELP'
 gb10 - DGX Spark GB10 2-node cluster (TP2) helper
 
   gb10 list
-  gb10 use <profile>          # 27b (default) | 35b | deepseek | deepseek-nvfp4 | deepseek-vision | qwen38flash | mimo26flash
+  gb10 use <profile>          # 27b (default) | 35b | deepseek | deepseek-nvfp4 | deepseek-vision | qwen38flash | mimo26flash | dsv41flash-exl3-vllm
   gb10 start <profile>        # same as use (cluster profiles are exclusive)
   # A/B evaluation only (NOT services): deepseek-nvfp4-tune
   #   (deepseek-vision-tune + deepseek-tune archived to
@@ -57,7 +57,7 @@ Boot is backgrounded by default: `use/start` returns immediately,
 boot continues in the background.  Poll status with `gb10 status`,
 or foreground-wait with `gb10 wait <profile>`.
 
-Auto-protection: `use/start 27b|35b|deepseek|deepseek-nvfp4|deepseek-vision|deepseek-nvfp4-tune|qwen38flash|mimo26flash` frees node1
+Auto-protection: `use/start 27b|35b|deepseek|deepseek-nvfp4|deepseek-vision|deepseek-nvfp4-tune|qwen38flash|mimo26flash|dsv41flash-exl3-vllm` frees node1
 of any active single-node runtime (gb10-single free node1) before TP2
 comes up.  Placeholder profiles (PLACEHOLDER=true, not in the boot set)
 short-circuit in gb10 itself: they print "not deployed yet" and never
@@ -67,7 +67,7 @@ Single-node runtimes are managed with the sibling command: gb10-single
 HELP
 }
 
-PROFILES_BY_NAME="27b:35b:deepseek:deepseek-nvfp4:deepseek-vision:deepseek-nvfp4-tune:qwen38flash:mimo26flash"
+PROFILES_BY_NAME="27b:35b:deepseek:deepseek-nvfp4:deepseek-vision:deepseek-nvfp4-tune:qwen38flash:mimo26flash:dsv41flash-exl3-vllm"
 
 valid_profile(){
   case ":$PROFILES_BY_NAME:" in
@@ -133,6 +133,7 @@ case "${1:-help}" in
     echo "  deepseek-vision  DeepSeek-V4-Flash-Vision-EXP-ablit (eugr b12x, multimodal, 256K)"
     echo "  qwen38flash     Qwen3.8 Flash-Next 125B NVFP4 (MTP3, TP2+EP, 256K)"
     echo "  mimo26flash     MiMo V2.6 Flash MOPD (vLLM TP2 + DFlash, 256K)"
+    echo "  dsv41flash-exl3-vllm  DeepSeek-V4.1-Flash-1017 EXL3 2.9bpw (Mia vLLM kit, no-spec, 256K)"
     echo ""
     echo "A/B evaluation only - NOT services:"
     echo "  deepseek-nvfp4-tune"
@@ -149,7 +150,7 @@ case "${1:-help}" in
     P="${2:-27b}"
     valid_profile "$P" || die "unknown profile: $P"
     case "$P" in
-      27b|35b|deepseek|deepseek-nvfp4|deepseek-vision|deepseek-nvfp4-tune|qwen38flash|mimo26flash)
+      27b|35b|deepseek|deepseek-nvfp4|deepseek-vision|deepseek-nvfp4-tune|qwen38flash|mimo26flash|dsv41flash-exl3-vllm)
         # prevent concurrent boots (any cluster profile shares port 1234 + GPUs)
         if cluster_boot_alive; then
           pid="$(cat "$(ls -t "${STATE}"/boot-cluster.*.pid 2>/dev/null | head -n1)")"
@@ -231,7 +232,7 @@ case "${1:-help}" in
     P="${2:-$(cat "${STATE}/last-cluster-profile" 2>/dev/null || echo 27b)}"
     valid_profile "$P" || die "unknown profile: $P"
     case "$P" in
-      27b|35b|deepseek|deepseek-nvfp4|deepseek-vision|deepseek-nvfp4-tune|qwen38flash|mimo26flash)
+      27b|35b|deepseek|deepseek-nvfp4|deepseek-vision|deepseek-nvfp4-tune|qwen38flash|mimo26flash|dsv41flash-exl3-vllm)
         _kill_boot
         down
         # launch background boot (same as use|start)
@@ -264,7 +265,23 @@ case "${1:-help}" in
     exec "${SCRIPTS}/cluster-status"
     ;;
   logs)
-    docker logs -f --tail=150 cluster-node0
+    # Kit lanes log to <LOG_BASE>/<profile>/<KIT_LOG_NAME>; compose lanes log
+    # to the cluster-node0 container. Pick the target from the last selection.
+    _P="$(cat "${STATE}/last-cluster-profile" 2>/dev/null || true)"
+    _C="cluster-node0"
+    if [[ -n "${_P}" && -f "${REPO_DIR}/cluster-profiles.d/${_P}.conf" ]]; then
+      IFS='|' read -r _st _hc _kl < <(
+        set +u
+        # shellcheck disable=SC1090
+        source "${REPO_DIR}/cluster-profiles.d/${_P}.conf" 2>/dev/null || true
+        echo "${LAUNCH_STYLE:-compose}|${KIT_HEAD_CONTAINER:-cluster-node0}|${LOG_BASE}/${_P}/${KIT_LOG_NAME:-kit.log}"
+      )
+      if [[ "${_st}" == "kit" ]]; then
+        exec tail -n 200 -f "${_kl}"
+      fi
+      _C="${_hc}"
+    fi
+    docker logs -f --tail=150 "${_C}"
     ;;
   smoke)
     exec "${SCRIPTS}/cluster-smoke"

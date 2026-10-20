@@ -16,7 +16,7 @@ MAX_TOKENS="${SMOKE_MAX_TOKENS:-500}"
 api_curl "http://localhost:${API_PORT}/v1/chat/completions" \
   -m 180 \
   -H 'Content-Type: application/json' \
-  -d "{\"model\":\"aeon\",\"messages\":[{\"role\":\"user\",\"content\":\"${PROMPT}\"}],\"max_tokens\":${MAX_TOKENS},\"temperature\":0}" \
+  -d "{\"model\":\"${SERVED_MODEL}\",\"messages\":[{\"role\":\"user\",\"content\":\"${PROMPT}\"}],\"max_tokens\":${MAX_TOKENS},\"temperature\":0}" \
   -o /tmp/cluster-resp.json -w "http=%{http_code}\n"
 
 python3 - <<'PY'

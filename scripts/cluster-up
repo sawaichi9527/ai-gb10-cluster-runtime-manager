@@ -37,6 +37,42 @@ fi
 
 node_up
 
+# ------------------------------------------------------------------
+# Launch mechanism: kit. The profile owns the two-node launcher
+# (KIT_DIR/KIT_START), so there is nothing to render and the compose-only
+# gates (image manifest, FlashInfer autotune cache) do not apply — the kit
+# does its own preflight, weight staging and rank start. Unset => compose.
+# ------------------------------------------------------------------
+if [[ "${LAUNCH_STYLE}" == "kit" ]]; then
+  : "${KIT_DIR:?kit profile ${PROFILE} requires KIT_DIR}"
+  KIT_START="${KIT_START:-./start.sh}"
+  [[ -d "${KIT_DIR}" ]] || die "kit dir not found: ${KIT_DIR}"
+  if [[ -n "${IMAGE:-}" ]] && ! docker image inspect "${IMAGE}" >/dev/null 2>&1; then
+    die "kit image not present on node0: ${IMAGE}"
+  fi
+  mkdir -p "${LOG_BASE}/${PROFILE}"
+  KIT_LOG="${LOG_BASE}/${PROFILE}/${KIT_LOG_NAME:-kit.log}"
+  echo "== kit lane ${PROFILE}: '${KIT_START}' in ${KIT_DIR} (log ${KIT_LOG}) =="
+  ( cd "${KIT_DIR}" && setsid nohup bash -c "${KIT_START}" </dev/null >"${KIT_LOG}" 2>&1 & \
+    echo $! > "${REPO_DIR}/state/kit.${PROFILE}.pid" )
+  sleep 1
+  echo "== waiting for API health on :${API_PORT} (kit cold start can take ~15 min) =="
+  begin=$SECONDS
+  until curl -fsS -m 5 "http://localhost:${API_PORT}/health" >/dev/null 2>&1; do
+    if ((SECONDS-begin > ${HEALTH_TIMEOUT:-2400})); then
+      echo "ERROR: health timeout (${HEALTH_TIMEOUT:-2400}s); last kit log lines:" >&2
+      tail -n 60 "${KIT_LOG}" >&2 || true
+      exit 1
+    fi
+    sleep 10
+  done
+  echo "$(date '+%F %T') TP2 profile=${PROFILE} (kit) READY on :${API_PORT}"
+  mkdir -p "${REPO_DIR}/state"
+  echo "$(date '+%F %T')" > "${REPO_DIR}/state/boot-ready.${PROFILE}"
+  docker ps --filter "name=${KIT_HEAD_CONTAINER:-dsv41-exl3-head}" --format '{{.Names}} {{.Status}}' 2>/dev/null || true
+  exit 0
+fi
+
 # Per-profile image manifest gate (opt-in: deepseek pins IMG_SHA256; 27b/35b skip).
 # Fail-fast before any container is launched.
 verify_profile_image_gate
