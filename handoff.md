@@ -2270,6 +2270,16 @@ TensorFold family／patches）＋ **ashhart/TensorFold `c4646171`**（Apache-2.0
 - **DSpark 判定**：drafts on 反而慢（C1 27.5 vs 39.3、C8 60.8 vs 120.7）→ 與 vLLM lane 的
   **6-bit dense MTP** 症狀一致；`tensorfold-1017.patch` 只改 bias_vl／tool-turn／memory，**未處理 MTP 位寬**。
   **定案 `TF_DSV41_DSPARK=0` ＋ `TF_DSV41_SPEC_DRAFT=0`**。
+- **DSpark 深挖（同日續）**：depth 掃描（1／2／3）全部劣於 off（C1 **28.3／24.5／27.5**、C8 **69.8／48.4／60.8** vs off 39.3／120.7）→ 與 depth 無關。
+  以 `TF_DSV41_DRAFT_LOG=/state/draftlog` 記錄真實 draft 並用 `draftsim` 離線分析（1534 passes）：
+  **第一顆 draft token 接受率 57.5%**、chain **2.11 tokens/round**、conditional 0.575/0.472/0.524/0.532/0.646；
+  replay `chain` = 1.98 tok/round @ 44.8 ms → **44.1 tok/s**；`ngram` 權重 1.0 → 2.21（+5%）；
+  26.9% 被拒絕的 draft 是 target 的第二選擇（near-tie）。
+  **結論：drafter 本身健康（與 vLLM 的 ~20% 不同），瓶頸在 verify 成本** ——
+  calibration verify(1 row)=22.4 ms、(4 rows)=46.8 ms，2.0 tokens/round 僅 ~42–44 tok/s，
+  與 no-draft 理論上限 44.6 幾乎相同（實測 live 27.5 更低，差額來自每輪的 engram/ring 開銷，replay 未計入）。
+  → 在這對 GB10 上 speculative 是「打平偏虧」，**維持 drafts off**；x00byte 的 59.1 需要更高接受率
+  （~2.6/round）＋更低每輪成本，非單一旋鈕可補。
 - 本機 `cluster.py` 加一行：優先讀 `config/tensorfold-knobs.env`（存在才用，否則回退 `.example`）。
 
 **gb10 整合**：`cluster-profiles.d/dsv41flash-tensorfold.conf`（`LAUNCH_STYLE="kit"`、
