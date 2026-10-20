@@ -131,7 +131,7 @@ load_profile(){
         SECURITY_OPT \
         AUTOTUNE_CACHE_REL STACK_DIR COMPOSE_FILE HEALTH_TIMEOUT \
         KIT_DIR KIT_START KIT_STOP KIT_LOG_NAME KIT_HEAD_CONTAINER KIT_WORKER_CONTAINER \
-        SERVED_MODEL \
+        SERVED_MODEL EXTRA_MODEL_DIRS \
         DISABLE_CUSTOM_ALL_REDUCE SHM_SIZE ENGINE MODELS_BASE 2>/dev/null || true
   # shellcheck disable=SC1090
   source "$conf"
@@ -143,6 +143,9 @@ load_profile(){
   # cluster-up runs it instead of rendering compose. Unset => unchanged.
   LAUNCH_STYLE="${LAUNCH_STYLE:-compose}"
   SERVED_MODEL="${SERVED_MODEL:-aeon}"   # model id used by cluster-smoke
+  # Normalise the optional extra-integrity array so `${#EXTRA_MODEL_DIRS[@]}`
+  # is safe under `set -u` even when a profile does not declare it.
+  EXTRA_MODEL_DIRS=("${EXTRA_MODEL_DIRS[@]+"${EXTRA_MODEL_DIRS[@]}"}")
   PROFILE="${PROFILE_ID:?cluster profile missing PROFILE_ID}"
   if [[ "${PLACEHOLDER:-false}" == "true" ]]; then
     PROFILE_PLACEHOLDER="true"

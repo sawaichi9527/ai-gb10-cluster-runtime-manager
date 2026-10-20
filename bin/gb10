@@ -310,11 +310,21 @@ case "${1:-help}" in
     if [[ -n "${DRAF:-}" ]]; then
       verify_model_checksum "$DRAF" 0 || exit 1
     fi
+    if [[ ${#EXTRA_MODEL_DIRS[@]} -gt 0 ]]; then
+      for _d in "${EXTRA_MODEL_DIRS[@]}"; do
+        verify_model_checksum "$_d" 0 || exit 1
+      done
+    fi
     echo ""
     echo "=== Node1: ${NODE1_SSH_USER}@${NODE1_IP} ==="
     _verify_remote_checksum "$BODY" 0 || exit 1
     if [[ -n "${DRAF:-}" ]]; then
       _verify_remote_checksum "$DRAF" 0 || exit 1
+    fi
+    if [[ ${#EXTRA_MODEL_DIRS[@]} -gt 0 ]]; then
+      for _d in "${EXTRA_MODEL_DIRS[@]}"; do
+        _verify_remote_checksum "$_d" 0 || exit 1
+      done
     fi
     echo ""
     echo "PASS: $P — all model checksums OK on both nodes"
