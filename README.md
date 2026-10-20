@@ -76,6 +76,7 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 | Qwen3.8 Flash-Next **125B** cluster (TP2+EP) | `qwen3.8-flash-next-nvfp4`（ModelOpt NVFP4）+ 內建 MTP n=3 | `vllm/vllm-openai:qwen38-flash-next` | `http://192.168.23.215:1234/v1` | deployed（09-29 重新驗證）：GMU 0.80／prefix caching ON／determinism 預設 ON |
 | MiMo V2.6 Flash **MOPD** cluster (TP2) | `mimo-v2.6-flash-mopd`（官方 MXFP4 QAT）+ DFlash2 n=7 | `tonyd2wild/vllm-glm53-flash:sm121-v11-dflash2` | `http://192.168.23.215:1234/v1` | deployed（10-03 上線；**10-05 定案 MXFP4**，NVFP4 A/B + cliff 探測見下） |
 | DeepSeek-V4.1-Flash **1017** cluster (TP2) | `deepseek-v4.1-flash-1017-exl3-2.9bpw`（EXL3 43 shards + 1017 Engram 47/48）+ **no-spec** | `ghcr.io/miaai-lab/deepseek-v4.1-flash-exl3-2x-dgx-sparks:2.9bpw`（`LAUNCH_STYLE=kit`，Mia kit） | `http://192.168.23.215:1234/v1` | deployed（2026-10-20 首啟）：C1 24.9 / C2 36.9 / **C8 79.3** tok/s、262144、vision on；DSpark 在此 pack 為負收益（接受率 ~22%）故關閉 |
+| DeepSeek-V4.1-Flash **1017 TensorFold** cluster (TP2) | 同一份 1017 權重 + packed Engram（95 GiB/rank）+ **drafts off** | `deepseek41-tensorfold:1017`（自建，基底 `nvcr.io/nvidia/pytorch:26.07-py3`） | `http://192.168.23.215:1234/v1` | deployed（2026-10-20）：**C1 39.3 / C2 61.7 / C4 88.2 / C8 120.7** tok/s、prefill 848–916、vision on；DSpark 同樣負收益故關閉 |
 
 > **現役（2026-10-08）＝ deepseek-nvfp4**（NVIDIA NVFP4 0731 checkpoint on
 > `eugr/spark-vllm-b12x`；`:1234` READY、smoke `HELLO-TP2-OK`、KV 344,195 tok。

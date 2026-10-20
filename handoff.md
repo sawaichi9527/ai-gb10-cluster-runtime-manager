@@ -2,6 +2,7 @@
 
 > 本檔是本機中繼 checkout 的交接摘要。主要開發在 **node0**（`~/workspace/ai-gb10-cluster-runtime-manager`，branch **`main`**；2026-09-29 實測 node0 為 `main`／upstream `origin/main`、工作區乾淨 —— 舊文件寫的 `keystone` 已於 `496c9b1` 併入 main、**非**現役 checkout）＋ Forgejo `829522`；本機僅作中繼存取，修改前先確認是否應改在 node0。
 > 建立：2026-09-18；更新：**2026-09-20**（DeepSeek V4 Flash **Vision-Exp** lane 上線：同一顆 Anemll image + 啟動 wrapper；bench-c / bench-ctx / bench-mm 實測；`cluster-up` 新增 `SYNC_DIRS` 自動同步 patch 目錄；**vision 開 prefix caching + `dspark-swa-prefix` hotfix**、長上下文邊界 261K/262144、圖片高併發 C=8/16；本檔納入版控並同步三方）；**2026-09-29** 上游查核（Anemll 無新 image/tag、MiaAI-Lab main 未動且 23 檔 byte 全同）→ 見「定期檢討追蹤」；**2026-09-29（後續）** qwen38flash 對齊上游 `2c86a1d0`（GMU 0.80／prefix caching ON／block-drop backport／index share）並完成冷啟驗證（READY、KV 29.88 GiB、無回歸）→ 見「qwen38flash 對齊上游 + 冷啟驗證」；**2026-09-29（後續之二）** DeepSeek-V4.1-Flash **EXL3 2×GB10 選型查核**（取得兩顆可下載 arm64 image 的 digest、證實 sfxnz image 未發佈、TP=2 對 3.5bpw 不可行、各線 benchmark 與 NVIDIA 論壇口碑）→ **本輪不新增 lane**（維持 `deepseek-vision` 為 2-Spark 多模態），詳見 `docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md`；**2026-09-30** 上游再查核（deepseek 與 deepseek-vision 的 **image／配方／官方權重皆無更新** → 兩 lane 現行設定即為最新、無需變更，含首度補查官方權重 commit 比較，見 `docs/DEEPSEEK_UPSTREAM_REVERIFY_2026-09-30.md`）；**2026-09-30（續）** 27b／35b 上游再查核（兩 lane 共用的 `ghcr.io/aeon-7/aeon-vllm-ultimate` 最新 dated tag 仍 `2026-09-18-v0.29.0-omni`＝現行 pin、digest 不變；27B/35B 四個 HF 來源 body/drafter 最後 commit 為 09-18／08-19／07-15／06-28，**皆無 09-19 後更新** → 無需變更，見 `docs/QWEN_27B_35B_UPSTREAM_REVERIFY_2026-09-30.md`）；**2026-10-03** `mimo26flash` lane 上線（MiMo V2.6 Flash MOPD，TP2 vLLM+DFlash，見同名章節）；**2026-10-05** `mimo26flash` NVFP4 變體 A/B + DFlash cliff 探測（兩變體皆過）→ **定案 MXFP4**、延後調優 C/D/E 註記於 docs §7、**服務切回 `deepseek`**、README 同步 → 見「2026-10-05」章節；**2026-10-07** DeepSeek **V4 Flash Vision** 同 image 調優 A/B（V0–V5 + V-win，獨立 `deepseek-vision-tune` lane）→ **只升一個旋鈕 `--long-prefill-token-threshold 1024→0`（V3）**，`deepseek.conf` 全程未動、生產 gate 全過；記錄 production lane boot 散佈 8.1% 無法驗證 2.7% 效應、cold prefill 32K 判為噪聲、garble soak `thinking:true` false alarm → 見「2026-10-07 — DeepSeek V4 Flash Vision」章節；**2026-10-07（續）** `deepseek-nvfp4` lane **建置**（NVIDIA NVFP4 0731 checkpoint + `eugr/spark-vllm-b12x`，Phase 1–2：下載/傳輸 + profile/白名單/文件，**Phase 3 開機另排**）→ 見「2026-10-07 — deepseek-nvfp4 lane 建置」章節；**2026-10-08（續）** `deepseek-nvfp4` **Phase 3 完成**（boot ×4：seccomp/safetensors 兩個啟動修復 → DSpark acceptance 垃圾 draft 根因＝共享 NVFP4 quant dict 把原生 MXFP4 draft 建成 ModelOptNvFp4（上游 #49133 closed）→ `hotfix-dspark-draft-mxfp4` 容器啟動補丁 → **全 gate PASS**：acceptance 2%→**27%**（temp0，pos0 0.629）／**49–59%**（temp0.7）、單流 16→**33.6 tok/s**、prefix-hit 44.8×、garble 3/3、compose-verify 過）→ 見同章節「Phase 3」；**2026-10-08（三）** C1–C8 完整併發 benchmark（47.1→**129.9 tok/s**、**2.76×**、accept 41–50% 全程不崩）+ `bench-c.sh` metrics scrape auth 修正（`/metrics` 401）、**NVFP4 KV（`nvfp4_ds_mla`）A/B 負結果**（三重硬閘、回退 fp8）→ README「已部署服務」正式列入 `deepseek-nvfp4`（**現役**）+ benchmark 區塊重寫，tag **`v1.5.0`** → 見 Phase 3 第 6/7 項與「版本標記」
+> **2026-10-20（續三）**：**`dsv41flash-tensorfold` 上線（第二條 1017 路線，TensorFold TP2）** —— 自建 image `deepseek41-tensorfold:1017`（基底 `nvcr.io/nvidia/pytorch:26.07-py3`，18/18 擴充 prebuild）＋ 共用權重／packed Engram。`gb10 use dsv41flash-tensorfold` **READY ~6 分鐘**、`cluster.py check` PASS。實測 decode **C1 39.3／C2 61.7／C4 88.2／C8 120.7 tok/s**（**drafts off**；drafts on 只有 27.5／60.8）、prefill 848–916 tok/s、vision ✅。DSpark 在 1017 上同樣是負收益（MTP 位寬）→ 定案關閉。
 > **2026-10-20（續）**：**1017 首啟實測 —— 可用，但 DSpark speculative decoding 在此 pack 上是負收益**。首啟 ~11 分鐘；`17*19=323`、600K context、vision、prefix cache（同 prompt 17.62s→0.48s ≈37×）皆正常。**decode C1**：DSpark k=3 **13.8 tok/s**（接受率 20.7%）、k=5 **11.5**（14.5%，per-pos 39.8/20.4/6.9/3.5/1.7%）、**no-spec 24.5–24.7**；C2 聚合 36.2；冷 prefill 1,110–1,183 tok/s。**定案 `SPEC_METHOD=none`**（另已套 1017 的 MTP dense K6 修正：k=3 22.5%、k=5 13.3%，仍不足）。
 已套 x00byte 旋鈕 → **C1 24.2／C2 36.9／C8 79.3 tok/s**（262144 context、8 seqs、1 GiB KV）。
 服務介面＝**`http://192.168.23.215:1234/v1`**（CX7 僅叢集內部，非服務介面）。node0 `27b` 與 node1 `comfyui-jdaln` 已停。
@@ -2230,6 +2231,56 @@ per-position 顯示只有第一顆還可（pos0 39.8%），往後急速衰減 �
   `vllm/model_executor/layers/quantization/exl3.py` 兩份都含 marker；`k_for_prefix` 回傳 dense=6／routed=4）。
   **drafter 在此 1017 pack ＋ 2026-09-12 image 上不可用**；重測條件＝Mia 出 1017 對齊 image，
   或移植 x00byte 的完整重建流程。
+
+### 2026-10-20（續三）— `dsv41flash-tensorfold` lane 上線（TensorFold TP2，第二條 1017 路線）
+
+**來源（不是 x00byte 自研引擎）**：x00byte 的整合配方 ＋ **jayleaton `2dcce030`**（DeepSeek-V4.1
+TensorFold family／patches）＋ **ashhart/TensorFold `c4646171`**（Apache-2.0；Zig 原生引擎，本路線
+走 **Python 0.6.0**）＋ MiaAI kit `6f7d159`（runtime 元件）。「TensorFold 是 Google 的」是把
+**TensorFlow** 混進來 — 兩者無關。
+
+**建置**
+- 基底 `nvcr.io/nvidia/pytorch:26.07-py3`（NGC，需 API key；digest `sha256:2140e699…`，**24.3 GB**）
+  → 實測構成：Ubuntu 24.04.4、Python 3.12.3、torch `2.13.0a0+…nv26.07`、Triton **3.7.1**、CUDA **13.3**。
+- `docker build -t deepseek41-tensorfold:1017`（24.5 GB，`tensorfold-0.6.0`）→ `docker save | ssh docker load`
+  到 node1（兩端 `Created+RootFS.Layers` 雜湊相同）。
+- 離線 prebuild：**18/18** CUDA 擴充 → volume `deepseek41-1017-tf-cache`（210 MB）→ 同步到 node1。
+
+**資料**
+- 共用既有權重：`dsv41flash-1017-bundle/{checkpoint,engram-src-1017}`（symlink 進模型池）；
+  新增 `chat_template.jinja`（Mia 1017 版）到 checkpoint（兩節點）。
+- `verified.json` 自行產生（schema 取自 `scripts/download.py`；pins 用 x00byte manifest，files 45 筆帶真實 sha256）。
+- **Packed Engram**：`deepseek-v4.1-flash-1017-engram-packed/{head,worker}`，各 **95 GiB**（l1/l14 各 47.2 GiB），
+  兩條 lane **共用**（同一 hash-head 分割）。
+
+**驗證與量測（node0/node1 實跑）**
+- `scripts/cluster.py check` → **PASS**（metadata/tokenizer/template/grammar/vision、40 個 image-router
+  biases、43 個 inline tensors、兩端 image 與 Engram）。
+- 首啟：`gb10 use dsv41flash-tensorfold` → **READY 約 6 分鐘**。
+
+| decode（thinking off、temp 0、250 tok） | TF（drafts **off**） | TF（drafts on） | 本機 vLLM lane | x00byte 公布 |
+|---|---|---|---|---|
+| C1 | **39.3** | 27.5 | 24.2 | 59.1 |
+| C2 | **61.7** | 37.5 | 36.9 | 85.0 |
+| C4 | **88.2** | 50.8 | — | 110.1 |
+| C8 | **120.7** | 60.8 | 79.3 | 139.1 |
+
+- prefill（cold、唯一 nonce）：**916 tok/s @27.5K**、**848 tok/s @103.6K**（首個 7K 請求 264 tok/s，含 warmup）。
+- vision：原生影像 ✅（658 prompt tok、3.3 s、描述正確）。
+- **DSpark 判定**：drafts on 反而慢（C1 27.5 vs 39.3、C8 60.8 vs 120.7）→ 與 vLLM lane 的
+  **6-bit dense MTP** 症狀一致；`tensorfold-1017.patch` 只改 bias_vl／tool-turn／memory，**未處理 MTP 位寬**。
+  **定案 `TF_DSV41_DSPARK=0` ＋ `TF_DSV41_SPEC_DRAFT=0`**。
+- 本機 `cluster.py` 加一行：優先讀 `config/tensorfold-knobs.env`（存在才用，否則回退 `.example`）。
+
+**gb10 整合**：`cluster-profiles.d/dsv41flash-tensorfold.conf`（`LAUNCH_STYLE="kit"`、
+`KIT_START="python3 scripts/cluster.py start"`、`SERVED_MODEL=deepseek-flash`、`API_PORT=1234`）。
+`gb10 use dsv41flash-tensorfold` ↔ `gb10 use dsv41flash-exl3-vllm` 可互切（同權重、互斥）。
+
+**取捨（實測）**：TensorFold **decode 明顯快**（C1 39.3 vs 24.2、C8 120.7 vs 79.3）；
+**vLLM prefill 較快**（1,110–1,183 vs 848–916）。兩者共用同一份權重與 packed Engram。
+
+**未做**：1M context 壓力、tool-call／structured output、長時間 soak；`gb10 restart` 在本 lane
+觀察到一次「只停未啟動」（boot log 未更新、容器未重建）→ 以 `gb10 use` 可正常啟動，待查。
 
 ### 2026-10-15（續六）— 簡報產線定案：兩條獨立工作流 + 模型選擇查證（指南 rev 4）
 

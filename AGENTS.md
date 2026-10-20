@@ -377,6 +377,8 @@ cluster-profiles.d/
                             # also has a .conf.base sibling)
   dsv41flash-exl3-vllm.conf # DeepSeek-V4.1-Flash-1017 EXL3 2.9bpw via the MiaAI-Lab
                             # kit (LAUNCH_STYLE=kit; SPEC_METHOD=none; 256K/8)
+  dsv41flash-tensorfold.conf # the same 1017 checkpoint on TensorFold TP2 (self-built
+                             # image; LAUNCH_STYLE=kit; drafts off; 256K/8)
 ```
 
 Key rules:
