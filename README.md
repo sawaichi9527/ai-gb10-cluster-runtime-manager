@@ -11,6 +11,13 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 
 ## Deployed services & benchmark results (latest image)
 
+> **2026-10-20 現況。** 新增**兩條 DeepSeek-V4.1-Flash-1017 lane**：
+> `dsv41flash-exl3-vllm`（MiaAI vLLM kit、`SPEC_METHOD=none`）與
+> `dsv41flash-tensorfold`（TensorFold TP2、drafts off）。兩者**共用同一份 1017 權重與
+> packed Engram**、互斥；**現役＝`dsv41flash-tensorfold`**（C1 39.3／C2 61.7／C4 88.2／
+> **C8 120.7** tok/s）。同時新增通用 **`LAUNCH_STYLE="kit"`**，讓 profile 自帶啟動器
+> （`cluster-up` 只負責執行、等 `/health`、標記 READY），見下方章節。
+>
 > **2026-10-08 現況。** **現役 lane 切換為 `deepseek-nvfp4`**（NVFP4 0731 on eugr b12x）。
 > Phase 3 完成：4 次 boot 依序修復 **seccomp/io_uring**（`SECURITY_OPT`）→ **b12x loader
 > strided scale**（改 `--load-format safetensors`）→ **DSpark draft MXFP4 根因 hotfix**
@@ -71,21 +78,46 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 | 35B single (TP1) | `qwen3.6-35b-a3b-heretic-nvfp4` + DFlash n=6 | `2026-09-18-v0.29.0-omni` | `:1234/v1` | deployed（09-19 實測） |
 | 35B cluster (TP2) | 同上 | `2026-09-18-v0.29.0-omni` | `http://192.168.23.215:1234/v1` | deployed（09-19 實測） |
 | DeepSeek V4 Flash cluster (TP2) | `deepseek-v4-flash-0731-dspark-ablit` + DSpark n=7 | `eugr/spark-vllm-b12x:latest`（**10-09 配方繼承**；舊 Anemll 配方封存 `_overdue_recipe/`） | `http://192.168.23.215:1234/v1` | deployed（10-09 對決勝出：decode **+3.4%**、prefill +16~18%、accept +2.3pp、無需 hotfix；舊官方模型保留備援） |
-| DeepSeek V4 Flash **0731 NVFP4** cluster (TP2) | `DeepSeek-V4-Flash-0731-NVFP4`（MoE routed experts NVFP4，~172 GB／48 shards）+ DSpark n=5（in-checkpoint `mtp.*`，draft MXFP4 hotfix） | `eugr/spark-vllm-b12x:latest`（**2026-10-06** nightly，雙節點 digest pin） | `http://192.168.23.215:1234/v1` | **← 現役（2026-10-08 Phase 3 完成）**：C8 129.9 tok/s、accept 41–50%、KV 344,195 tok、smoke `HELLO-TP2-OK` |
+| DeepSeek V4 Flash **0731 NVFP4** cluster (TP2) | `DeepSeek-V4-Flash-0731-NVFP4`（MoE routed experts NVFP4，~172 GB／48 shards）+ DSpark n=5（in-checkpoint `mtp.*`，draft MXFP4 hotfix） | `eugr/spark-vllm-b12x:latest`（**2026-10-06** nightly，雙節點 digest pin） | `http://192.168.23.215:1234/v1` | deployed（2026-10-08 Phase 3 完成；2026-10-20 起非現役）：C8 129.9 tok/s、accept 41–50%、KV 344,195 tok、smoke `HELLO-TP2-OK` |
 | DeepSeek V4 Flash **Vision-Exp** cluster (TP2) | `deepseek-v4-flash-vision-exp-ablit` + DSpark n=6 (multimodal) | `eugr/spark-vllm-b12x:latest`（**10-09 配方繼承**；舊 Anemll 配方封存 `_overdue_recipe/`） | `http://192.168.23.215:1234/v1` | deployed（10-09 對決勝出：decode 持平、prefill +9~14%） |
 | Qwen3.8 Flash-Next **125B** cluster (TP2+EP) | `qwen3.8-flash-next-nvfp4`（ModelOpt NVFP4）+ 內建 MTP n=3 | `vllm/vllm-openai:qwen38-flash-next` | `http://192.168.23.215:1234/v1` | deployed（09-29 重新驗證）：GMU 0.80／prefix caching ON／determinism 預設 ON |
 | MiMo V2.6 Flash **MOPD** cluster (TP2) | `mimo-v2.6-flash-mopd`（官方 MXFP4 QAT）+ DFlash2 n=7 | `tonyd2wild/vllm-glm53-flash:sm121-v11-dflash2` | `http://192.168.23.215:1234/v1` | deployed（10-03 上線；**10-05 定案 MXFP4**，NVFP4 A/B + cliff 探測見下） |
 | DeepSeek-V4.1-Flash **1017** cluster (TP2) | `deepseek-v4.1-flash-1017-exl3-2.9bpw`（EXL3 43 shards + 1017 Engram 47/48）+ **no-spec** | `ghcr.io/miaai-lab/deepseek-v4.1-flash-exl3-2x-dgx-sparks:2.9bpw`（`LAUNCH_STYLE=kit`，Mia kit） | `http://192.168.23.215:1234/v1` | deployed（2026-10-20 首啟）：C1 24.9 / C2 36.9 / **C8 79.3** tok/s、262144、vision on；DSpark 在此 pack 為負收益（接受率 ~22%）故關閉 |
 | DeepSeek-V4.1-Flash **1017 TensorFold** cluster (TP2) | 同一份 1017 權重 + packed Engram（95 GiB/rank）+ **drafts off** | `deepseek41-tensorfold:1017`（自建，基底 `nvcr.io/nvidia/pytorch:26.07-py3`） | `http://192.168.23.215:1234/v1` | deployed（2026-10-20）：**C1 39.3 / C2 61.7 / C4 88.2 / C8 120.7** tok/s、prefill 848–916、vision on；DSpark 同樣負收益故關閉 |
 
-> **現役（2026-10-08）＝ deepseek-nvfp4**（NVIDIA NVFP4 0731 checkpoint on
-> `eugr/spark-vllm-b12x`；`:1234` READY、smoke `HELLO-TP2-OK`、KV 344,195 tok。
-> Phase 3 四次 boot 修復 seccomp → safetensors → DSpark draft 根因 hotfix；使用者裁定
-> **先不恢復主線**，`gb10 use deepseek` 隨時切回——TP2 各 lane **互斥**，同一時間只有一條
-> 在線，切換由 `gb10 use` 自動拆）。其他列的 `deployed`
-> 表示**已部署並實測過**，非同時運行。
-> **2026-10-09**：mainline `deepseek` 完成 **eugr-b12x 配方繼承**（對決全勝，見下），
-> `gb10 use deepseek` 即 promoted 主線；`deepseek-nvfp4` / `deepseek-vision` 仍部署可切。
+> **現役（2026-10-20）＝ `dsv41flash-tensorfold`**（DeepSeek-V4.1-Flash-1017 EXL3 2.9bpw，
+> TensorFold TP2，drafts off）。同權重的 vLLM 版本 `dsv41flash-exl3-vllm` 隨時可切
+> （`gb10 use dsv41flash-exl3-vllm`）——TP2 各 lane **互斥**，同一時間只有一條在線，
+> 切換由 `gb10 use` 自動拆。其他列的 `deployed` 表示**已部署並實測過**，非同時運行。
+>
+> 歷史：**2026-10-08～10-20 的現役是 `deepseek-nvfp4`**（NVIDIA NVFP4 0731 checkpoint on
+> `eugr/spark-vllm-b12x`；`:1234` READY、smoke `HELLO-TP2-OK`、KV 344,195 tok。Phase 3 四次
+> boot 修復 seccomp → safetensors → DSpark draft 根因 hotfix；使用者裁定先不恢復主線）。
+> **2026-10-09** mainline `deepseek` 完成 eugr-b12x 配方繼承（對決全勝，見下）。
+
+### DeepSeek-V4.1-Flash 1017 — 兩條 lane（同一份權重，不同引擎）
+
+同一份 `LibertAIDAI/DeepSeek-V4.1-Flash-1017-EXL3-2.9bpw`（43 shards）＋官方 1017 Engram
+shards 47/48，**互斥**的兩條 TP2 lane：
+
+| | `dsv41flash-exl3-vllm` | `dsv41flash-tensorfold` |
+|---|---|---|
+| 引擎 | MiaAI vLLM kit（`SPEC_METHOD=none`） | TensorFold（Python 0.6.0，x00byte recipe） |
+| image | `ghcr.io/miaai-lab/…:2.9bpw`（digest `2f0cf3ad…`） | `deepseek41-tensorfold:1017`（**自建**，基底 `nvcr.io/nvidia/pytorch:26.07-py3`） |
+| decode C1/C2/C4/C8 | 24.2 / 36.9 / — / 79.3 | **39.3 / 61.7 / 88.2 / 120.7** |
+| cold prefill | **1,110–1,183 tok/s** | 848–916 tok/s |
+| vision | on（SM12x 128-wide window） | on（native，`TF_DSV41_BIAS_VL=/model`） |
+| 特點 | prefill 較快、單一 image、免自建 | decode 較快（尤其 C8）、需自建 image |
+
+- 切換：`gb10 use dsv41flash-tensorfold` ↔ `gb10 use dsv41flash-exl3-vllm`。
+- 共用資料：`~/docker-stacks/models/dsv41flash-1017-bundle/{checkpoint,engram-src-1017}`
+  （symlink）、`…-engram-packed/{head,worker}`（各 95 GiB，兩條 lane 同格式）、
+  以及 `…-exl3-2.9bpw`／`…-engram` 原始權重。
+- **DSpark 在兩邊都關閉**：vLLM 的接受率只有 ~20%（6-bit dense MTP 未被正確解出）；
+  TensorFold 的 drafter 正常（第一顆 57.5%、~2.1 tokens/round），但 verify 成本
+  （1 row 22.4 ms、4 rows 46.8 ms）讓 speculative 打平偏虧。詳見 `handoff.md`。
+- 資料完整性：兩個模型目錄都有 `SHA256SUMS`（量化 52 檔、Engram 3 檔），
+  `gb10 verify-models dsv41flash-exl3-vllm` 兩節點全數 PASS。
 
 ### 27B v0.29.0-omni (bench-c C1-C8, MAX_TOKENS=2048; 245k cold prefill) — 2026-09-19
 
@@ -631,19 +663,22 @@ gb10 stop                     # cluster-down (both nodes)
 gb10 restart [profile]        # no arg = last used profile (state/last-cluster-profile)
 gb10 status                   # both nodes, RDMA, KV, health
 gb10 inspect <profile>        # sanitized resolved-profile report (dry-run)
-gb10 logs                     # follow cluster-node0
+gb10 logs                     # follow the lane's log (compose: cluster-node0; kit: its kit.log)
 gb10 smoke                    # chat smoke
 gb10 load                     # concurrent load
 gb10 doctor
 ```
 
 Current deployed TP2 profiles are 27B, 35B, DeepSeek (mainline 0731), **DeepSeek NVFP4
-(0731 on eugr b12x)**, DeepSeek Vision-Exp, **qwen38flash** and **mimo26flash** (all
-data-driven from `cluster-profiles.d/`). The last two plus deepseek-nvfp4 are
-**cluster-only** — no single-node lane (the `runtimes.d/qwen38flash.conf` placeholder was removed
-2026-09-20, and so was `glm53flash.conf`; `mimo26flash` never had one — its weights are TP2-only;
-`deepseek-nvfp4` is TP2-only by design). **deepseek-nvfp4 completed Phase 3 on 2026-10-08 and
-is the current live lane** — see its section for boot fixes and benchmarks.
+(0731 on eugr b12x)**, DeepSeek Vision-Exp, **qwen38flash**, **mimo26flash** and the two
+1017 lanes **`dsv41flash-exl3-vllm`** / **`dsv41flash-tensorfold`** (all data-driven from
+`cluster-profiles.d/`). The 1017 lanes and the two MiMo/qwen lanes are **cluster-only** — no
+single-node lane (the `runtimes.d/qwen38flash.conf` placeholder was removed 2026-09-20, and
+so was `glm53flash.conf`; `mimo26flash` never had one — its weights are TP2-only;
+`deepseek-nvfp4` is TP2-only by design). The 1017 lanes are the first profiles using
+**`LAUNCH_STYLE="kit"`**: they name their own two-node launcher (`KIT_DIR`/`KIT_START`), and
+`cluster-up` runs it, waits for `/health` and writes `state/boot-ready.<profile>` instead of
+rendering compose — see their section above.
 
 ### TP2 profile registry (completed 2026-09-05)
 
@@ -664,6 +699,10 @@ cluster-profiles.d/
                     # cluster-only; BODY_REL flips MXFP4/NVFP4 — see its section)
   deepseek-nvfp4.conf   # deployed + live-validated (2026-10-08 Phase 3; NVFP4 0731 on
                         # eugr spark-vllm-b12x; draft MXFP4 hotfix, see its README section)
+  dsv41flash-exl3-vllm.conf  # LAUNCH_STYLE=kit — DeepSeek-V4.1-Flash-1017 EXL3 2.9bpw on
+                        # the MiaAI vLLM kit (SPEC_METHOD=none, 256K/8, vision on)
+  dsv41flash-tensorfold.conf # LAUNCH_STYLE=kit — the same 1017 checkpoint on TensorFold TP2
+                        # (self-built image; drafts off; 256K/8; vision on)
 ```
 
 Each conf carries the **profile-scoped image** and per-model vLLM arguments, loaded once by
@@ -794,6 +833,11 @@ cluster.env.example cluster/site config template (NEVER commit real values)
                       recipe archived in repo _overdue_recipe/)
                     mia-vllm-openai-qwen38flashNext (qwen38flash)
                     tonyd2wild-vllm-mimo26flash (mimo26flash)
+                    mia-vllm-dsv41flash (dsv41flash-exl3-vllm; Mia kit checkout +
+                      .env + overlay patch; 2026-10-20)
+                    x00byte-TensorFold-dsv41flash (dsv41flash-tensorfold; x00byte
+                      recipe checkout, build sources, config/cluster.env, state/;
+                      engram-slim; 2026-10-20)
                     comfyui-dgx-spark/ComfyUI-DGX-Spark-Docker-opinionated
                       (comfyui-jdaln, since 2026-10-12, live 2026-10-14; git
                        clone of jdaln/ComfyUI-DGX-Spark-Docker-opinionated —
@@ -807,6 +851,14 @@ cluster.env.example cluster/site config template (NEVER commit real values)
     patches/                                SYNC_DIRS staging (lanes that need it)
   logs/<profile>/   unified boot + compose/container logs (not per-stack)
   config/           cluster.env / standalone.env (secrets, gitignored)
+  models/           shared weight pool (per-model subdirs)
+                    deepseek-v4.1-flash-1017-exl3-2.9bpw/    (196 GiB, 43 EXL3 shards)
+                    deepseek-v4.1-flash-1017-engram/         (189 GiB, official 47/48)
+                    deepseek-v4.1-flash-1017-engram-packed/  (head/ r0 + worker/ r1,
+                                                             95 GiB each; shared by both
+                                                             1017 lanes)
+                    dsv41flash-1017-bundle/                  (checkpoint + engram-src-1017
+                                                             symlinks + verified.json)
 ~/.cache/vllm-<profile>[-cluster|-single]   per-lane compile/autotune cache
 ```
 
