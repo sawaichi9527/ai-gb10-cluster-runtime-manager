@@ -2,6 +2,7 @@
 
 > 本檔是本機中繼 checkout 的交接摘要。主要開發在 **node0**（`~/workspace/ai-gb10-cluster-runtime-manager`，branch **`main`**；2026-09-29 實測 node0 為 `main`／upstream `origin/main`、工作區乾淨 —— 舊文件寫的 `keystone` 已於 `496c9b1` 併入 main、**非**現役 checkout）＋ Forgejo `829522`；本機僅作中繼存取，修改前先確認是否應改在 node0。
 > 建立：2026-09-18；更新：**2026-09-20**（DeepSeek V4 Flash **Vision-Exp** lane 上線：同一顆 Anemll image + 啟動 wrapper；bench-c / bench-ctx / bench-mm 實測；`cluster-up` 新增 `SYNC_DIRS` 自動同步 patch 目錄；**vision 開 prefix caching + `dspark-swa-prefix` hotfix**、長上下文邊界 261K/262144、圖片高併發 C=8/16；本檔納入版控並同步三方）；**2026-09-29** 上游查核（Anemll 無新 image/tag、MiaAI-Lab main 未動且 23 檔 byte 全同）→ 見「定期檢討追蹤」；**2026-09-29（後續）** qwen38flash 對齊上游 `2c86a1d0`（GMU 0.80／prefix caching ON／block-drop backport／index share）並完成冷啟驗證（READY、KV 29.88 GiB、無回歸）→ 見「qwen38flash 對齊上游 + 冷啟驗證」；**2026-09-29（後續之二）** DeepSeek-V4.1-Flash **EXL3 2×GB10 選型查核**（取得兩顆可下載 arm64 image 的 digest、證實 sfxnz image 未發佈、TP=2 對 3.5bpw 不可行、各線 benchmark 與 NVIDIA 論壇口碑）→ **本輪不新增 lane**（維持 `deepseek-vision` 為 2-Spark 多模態），詳見 `docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md`；**2026-09-30** 上游再查核（deepseek 與 deepseek-vision 的 **image／配方／官方權重皆無更新** → 兩 lane 現行設定即為最新、無需變更，含首度補查官方權重 commit 比較，見 `docs/DEEPSEEK_UPSTREAM_REVERIFY_2026-09-30.md`）；**2026-09-30（續）** 27b／35b 上游再查核（兩 lane 共用的 `ghcr.io/aeon-7/aeon-vllm-ultimate` 最新 dated tag 仍 `2026-09-18-v0.29.0-omni`＝現行 pin、digest 不變；27B/35B 四個 HF 來源 body/drafter 最後 commit 為 09-18／08-19／07-15／06-28，**皆無 09-19 後更新** → 無需變更，見 `docs/QWEN_27B_35B_UPSTREAM_REVERIFY_2026-09-30.md`）；**2026-10-03** `mimo26flash` lane 上線（MiMo V2.6 Flash MOPD，TP2 vLLM+DFlash，見同名章節）；**2026-10-05** `mimo26flash` NVFP4 變體 A/B + DFlash cliff 探測（兩變體皆過）→ **定案 MXFP4**、延後調優 C/D/E 註記於 docs §7、**服務切回 `deepseek`**、README 同步 → 見「2026-10-05」章節；**2026-10-07** DeepSeek **V4 Flash Vision** 同 image 調優 A/B（V0–V5 + V-win，獨立 `deepseek-vision-tune` lane）→ **只升一個旋鈕 `--long-prefill-token-threshold 1024→0`（V3）**，`deepseek.conf` 全程未動、生產 gate 全過；記錄 production lane boot 散佈 8.1% 無法驗證 2.7% 效應、cold prefill 32K 判為噪聲、garble soak `thinking:true` false alarm → 見「2026-10-07 — DeepSeek V4 Flash Vision」章節；**2026-10-07（續）** `deepseek-nvfp4` lane **建置**（NVIDIA NVFP4 0731 checkpoint + `eugr/spark-vllm-b12x`，Phase 1–2：下載/傳輸 + profile/白名單/文件，**Phase 3 開機另排**）→ 見「2026-10-07 — deepseek-nvfp4 lane 建置」章節；**2026-10-08（續）** `deepseek-nvfp4` **Phase 3 完成**（boot ×4：seccomp/safetensors 兩個啟動修復 → DSpark acceptance 垃圾 draft 根因＝共享 NVFP4 quant dict 把原生 MXFP4 draft 建成 ModelOptNvFp4（上游 #49133 closed）→ `hotfix-dspark-draft-mxfp4` 容器啟動補丁 → **全 gate PASS**：acceptance 2%→**27%**（temp0，pos0 0.629）／**49–59%**（temp0.7）、單流 16→**33.6 tok/s**、prefix-hit 44.8×、garble 3/3、compose-verify 過）→ 見同章節「Phase 3」；**2026-10-08（三）** C1–C8 完整併發 benchmark（47.1→**129.9 tok/s**、**2.76×**、accept 41–50% 全程不崩）+ `bench-c.sh` metrics scrape auth 修正（`/metrics` 401）、**NVFP4 KV（`nvfp4_ds_mla`）A/B 負結果**（三重硬閘、回退 fp8）→ README「已部署服務」正式列入 `deepseek-nvfp4`（**現役**）+ benchmark 區塊重寫，tag **`v1.5.0`** → 見 Phase 3 第 6/7 項與「版本標記」
+> **2026-10-20**：**DSV4.1-Flash-1017 下載與 Node0→Node1 鏡像完成（Phase 0/1）** —— 走 **MiaAI-Lab vLLM kit（免 build）**；權重 **385.5 GiB**（EXL3 43 shards 196.3 GiB ＋ 1017 Engram shards 47/48 189.1 GiB）下載於 node0（`nohup`、串列、`HF_MAX_WORKERS=1`、約 12 小時 @ ~9–10 MB/s），再經 **CX7 rsync** 到 node1（quant 377.6 MB/s、engram 364.4 MB/s，各約 9 分）。Image `…-exl3-2x-dgx-sparks:2.9bpw` digest **`sha256:2f0cf3ad…1dce`**（與 09-29 記錄的 `:latest` 相同），`docker save|ssh docker load` rc=0。**尚未開機**（需先 `gb10 stop`）。詳見 `handoff.md` 同日章節。
 > **2026-10-19**：**三份文件現況校正 ＋ DeepSeek-V4.1-Flash-1017 初步評估** —— 盤點發現 `handoff.md`／`AGENTS.md`／`README.md` 的「現況」區塊仍停在 2026-10-09 配方繼承之前（Anemll 配方寫成現役、`deepseek-nvfp4` 寫成未開機、缺 `mimo26flash`／`deepseek-nvfp4-tune`），本輪**只校正現況區塊**、已定案歷史章節一字不動。另新增 1017 評估與**凍結決策**：路線＝**MiaAI-Lab vLLM kit（免 build）＋ 1017 EXL3 2.9bpw**、**場外試跑、暫不整合 `gb10`**；stack 目錄 `~/docker-stacks/mia-vllm-dsv41flash/`，模型放共用池 `deepseek-v4.1-flash-1017-exl3-2.9bpw/`＋`deepseek-v4.1-flash-1017-engram/`；下載只在 node0、串列、`nohup`、完成後經 CX7 rsync 到 Node1；去審查待 2.9bpw sidecar。詳見「定期檢討追蹤」的 DSV4.1-1017 小節與 `### 2026-10-19` 章節。
 > **2026-10-14**：**`comfyui-jdaln` 上線（Node1 唯一 ComfyUI runtime）** —— clone `ef7a677b`、建置 144 s、`:8188` 200、ComfyUI 0.38.0、2812 node types；過程中修掉 **17.5 h 掛死**（404 的 `ComfyUI-VDN-H3` clone 卡 credential prompt）與 **`gb10-single-boot` 假 READY**（commit `537c64e`），並依使用者裁定**裁剪 asset 範圍**（allowlist 置空：預設 93 GiB + workflow-asset 階段 +174 GiB 起跳 → 只保留 `z-image-turbo-core`，`use`→READY 46 秒）。詳見 `docs/COMFYUI_JDALN_DEPLOYMENT_2026-10-14.md`。
 > **2026-10-14（續）**：**兩條 Node1 runtime 同日退役**（使用者裁定）—— ① `comfyui`／aeon：HF token 先搬至 `~/docker-stacks/config/hf_token` 再刪 stack（71 GB）+ image（26.7 GB），flux2 權重**無備份**；② `minimaxh3`：**先驗證後拆** —— jdaln 的原生 MiniMax H3 節點跑通 i2v（`prompt_id d91692b7`、`status=success`、204.5 s、產出合法 MP4）才拆 stack（135 GB）+ image（32 GB）+ 輸出目錄；repo 側 `git rm` 兩個 conf 與 `src/minimax-h3/`（45 檔）；③ **同日稍後追加：`minimax-h3-sglang` 也一併清除**（依使用者追加指示）—— 目錄 **56 GB**（全在 `models/quantized`）+ 2 個 image **≈105 GB**，各 `Untagged`+`Deleted` rc=0，image 總數 11→9；其 `FAILURE_ANALYSIS.md` 內容已於刪除前擷取、留存於下方「`FAILURE_ANALYSIS.md` 原文留存」。三者合計磁碟 `used 2.1T→1.8T`、`avail 1.5T→1.8T`、59%→51%。詳見 `docs/COMFYUI_JDALN_DEPLOYMENT_2026-10-14.md` §11–§12。④ **同日再追加（續二）**：盤點發現退役只做一半 —— Node0 還留著 `minimax-h3` 135 GB + `comfyui-aeon` 54 GB + image 16.8 GB（~204 GB），已全數清除；並依使用者指示「經 CX7 用 rsync」把 `comfyui-jdaln` 鏡像到 Node0（stack 124 GB／114,316 檔 rsync 335 s ~396 MB/s，image `docker save|load` 128 s，**byte 驗證通過**；Node0 端**未實測 boot**）→ 見「2026-10-14（續二）」。
@@ -893,7 +894,7 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
 - ~~**`handoff.md` 未追蹤**~~（已完成：已納版控，見「目前狀態」）。
 - **驗證 27b/35b 未受影響**（暫緩，見「定期檢討追蹤」#3）：本次改了共用 `cluster-common.sh`（`CMD_WRAPPER`/`SYNC_DIRS` 加入 unset 清單）與 `cluster-up`（新增 `SYNC_DIRS` 區塊，預設 no-op）。已驗證 deepseek 渲染 byte-identical，但**尚未再 boot 27b/35b 實測**（低風險，兩者走 docker-run 路徑）。
 - **文件同步（2026-10-19）**：本輪已把 `handoff.md`／`AGENTS.md`／`README.md` 的**現況區塊**校正到 2026-10-09 配方繼承後的事實（見下方 `### 2026-10-19` 章節）。
-- **DeepSeek-V4.1-Flash-1017 lane（規劃中，見「定期檢討追蹤」）**：路線已定 **MiaAI-Lab vLLM kit（免 build）＋ 1017 EXL3 2.9bpw**，**場外試跑、暫不整合 `gb10`**；下載在 node0（`nohup`、串列、`HF_MAX_WORKERS=1`）完成後再經 CX7 rsync 到 Node1。去審查待 2.9bpw sidecar 出現再做。
+- **DeepSeek-V4.1-Flash-1017 lane（Phase 0/1 完成，待開機）**：路線已定 **MiaAI-Lab vLLM kit（免 build）＋ 1017 EXL3 2.9bpw**，**場外試跑、暫不整合 `gb10`**。**2026-10-20 已完成**：權重 385.5 GiB 下載（node0）＋ CX7 rsync 到 Node1＋image 傳輸（見同日章節）。**下一步是 `gb10 stop` 後 `./start.sh` 首啟**。去審查待 2.9bpw sidecar 出現再做。
 - （可選）長圖文混搭、`--limit-mm-per-prompt` 上限（目前 8）、多輪 agent chain 長時間穩定性（見「定期檢討追蹤」#2）。
 - **benchmark 工具**：`scripts/bench-c.sh <C> [MAX_TOKENS]`（C=1 時 exit 1 為邊緣狀況，數值仍有效）、`scripts/bench-ctx.sh <NUM_WORDS> [MAX_TOKENS]`（`max_tokens=1`＝純 prefill）、**`scripts/bench-mm.sh [NUM_IMAGES] [C] [MAX_TOKENS]`（圖片；預設用 deepseek-vision profile 的測試圖，可用 `MM_IMAGE=` 覆寫）**。
 - 若有跨節點／部署問題，先在 node0 確認，勿在本機直接改。
@@ -1058,6 +1059,8 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
   的 pin + sha256 慣例）。
 - **再查觸發（檢討時點）**：① `drowzeys` 釋出 **2.9bpw 的 1017 sidecar**；② TensorFold 引擎穩定且
   vision 有量測數據；③ Mia kit 更新到 1017 原生 tag（免 `.env` 覆寫）。
+- **進度（2026-10-20）**：Phase 0 查核、385.5 GiB 下載、CX7 鏡像與 image 傳輸**皆已完成**；**尚未開機**。
+  詳見 `### 2026-10-20 — DSV4.1-Flash-1017 …` 章節。
 
 ### gb10 `state/last-cluster-profile` 修正（2026-09-29）
 
@@ -2081,6 +2084,46 @@ seed family＝base+頁碼、逐頁記錄）；已驗證的完整範例與指令�
 - Markdown fence 數為偶數、CRLF = 0、TAB = 0（repo 規則）。
 - diff 掃描無憑證**值**（HF token、密碼、金鑰）；路徑一律以 `<…>` 佔位描述。
 - **Runtime test = N/A**：未變更任何 runtime／profile／compose，未連線節點、未起停任何服務。
+
+### 2026-10-20 — DSV4.1-Flash-1017：Phase 0 查核 ＋ 下載／CX7 鏡像／image 傳輸（未開機）
+
+**範圍**：只做「不影響現行服務」的下載與搬運（使用者 a/b/c 指示）。全程**未停任何 `gb10`／`gb10-single`**、未佔 GPU／port；node0 的 `aeon-vllm-27b`（Up）未觸碰。純下載／搬運，**Runtime test = N/A**。
+
+**Phase 0（唯讀查核，2026-10-19 11:43 CST）**
+
+- node0 `spark-25d5`：`/` 3.7T（可用 **1.7T／52%**）；**MemAvailable 僅 14 GiB**（27b 佔用 → 開機前必須先停）；Docker 29.2.1；20 core。
+- CX7：`enp1s0f0np0`=**10.0.101.101**、`enP2p1s0f0np0`=**10.0.102.101**（**兩條 rail 皆 Up**）；node1 同名 `enp1s0f0np0`=**10.0.101.102**。
+- RoCE：`rocep1s0f0`、`roceP2p1s0f0` Up；**GID index 3 = `::ffff:10.0.101.101`（RoCEv2 IPv4）** → 採 `NCCL_IB_GID_INDEX=3`（Mia 預設；bertholomus 文件的 5 不適用本 NIC）。
+- `hf` **已安裝於 `~/.local/bin`**（1.28.0），但非互動 ssh 的 PATH 不含它 → 下載時需 `export PATH="$HOME/.local/bin:$PATH"`。
+- node1：`/` 可用 1.7T（55%）、`~/docker-stacks/models` 已存在、node0→node1 免密碼 ssh 正常。
+
+**下載（node0）**
+
+- kit clone 至 `~/docker-stacks/mia-vllm-dsv41flash/`，釘 commit **`6f7d1590`**；`.env` 覆寫成 1017（`HF_MODEL_REPO=LibertAIDAI/…-1017-EXL3-2.9bpw`、`HF_ENGRAM_REPO=deepseek-ai/DeepSeek-V4.1-Flash-1017`、`EXPECTED_SHARDS=43`、`HF_MAX_WORKERS=1`、`WEIGHT_SYNC=rsync`）。
+- 落地：`~/docker-stacks/models/deepseek-v4.1-flash-1017-exl3-2.9bpw/`（43 shards）＋ `…-engram/`（shards 47/48 + index + config）。
+- 規模與時間：**385.5 GiB**，11:46 → 23:32（約 **11h46m**），平均 **~9.1–10.4 MB/s**；串列（EXL3 → Engram）、`nohup`、每小時輪詢寫 `logs/progress.tsv`。
+- 完成校驗：Engram 4 檔大小與 HF 預期**逐位元組相符**（47=`101,535,150,936`、48=`101,537,926,640`、index=`7,470,294`、config=`3,311`）；各 shard 數 43/43。
+- 附註：`hf` 1.28 對 `HF_HUB_ENABLE_HF_TRANSFER` 發 deprecation 警告（改用 Xet）；`download.sh` 結尾訊息硬寫 `WEIGHT_SYNC=nfs`，實際 `.env` 為 `rsync`（純文案）。
+
+**CX7 鏡像（node0 → node1）**
+
+- `rsync -aHAX --no-o --no-g --delete --exclude='.cache/'`：
+  - quant **210,819,043,909 B**、**377.6 MB/s**、08:35:34→08:44:52（rc=0）
+  - engram **203,080,551,181 B**、**364.4 MB/s**、08:44:52→08:54:09（rc=0）
+- 兩端 payload 大小**完全一致**；node0 多出的 135 檔／24 KB 為排除的 `.cache/`（HF 下載暫存）。
+- sha256 抽驗（兩端相同）：quant `model-00043` = **`c5b94d51…62bc5`**；engram `model-00047` = **`76a05106…8a2af5`**。
+
+**Image**
+
+- node0 `docker pull ghcr.io/miaai-lab/deepseek-v4.1-flash-exl3-2x-dgx-sparks:2.9bpw` rc=0 → digest **`sha256:2f0cf3adc0f989c1d446be274df864eb799630175f604c3b22b71b7205971dce`**（＝2026-09-29 記錄的 `:latest`，兩 tag 同內容）。
+- `docker save | ssh docker load` → node1 rc=0（08:59:02）。
+- **ID／大小不同不是 bug**：node0 overlay2 `4cdba4e9…` 22.5 GB vs node1 containerd `956467d3…` 45.7 GB；`RootFS.Layers` **101 層**的 sha256 **兩端相同 `79486f8c…`**，`Created 2026-09-12T23:55:17`、`arm64`、`Entrypoint ["vllm","serve"]` 一致。
+
+**現況／磁碟**
+
+- node0：2.2T used／**1.4T avail（63%）**；node1：2.3T used／**1.2T avail（67%）**。
+- **尚未開機**：起服務前必須 `gb10 stop`（釋放 27b 與 GPU／記憶體）；第二條 CX7 rail（10.0.102.x）尚未納入 `NCCL_IB_HCA`，開機前再決定。
+- 待辦：`./start.sh` 首啟（預期 ~15 分鐘、每節點 +~100 GiB rank cache）、`/health`、`17*19`、32K prefill、單張影像、MemAvailable 低點；之後才談 `MAX_NUM_SEQS=2` 是否可接受與是否整合 `gb10`。
 
 ### 2026-10-15（續六）— 簡報產線定案：兩條獨立工作流 + 模型選擇查證（指南 rev 4）
 
