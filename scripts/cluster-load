@@ -10,15 +10,23 @@ source "${SCRIPT_DIR}/cluster-common.sh"
 ROUNDS="${LOAD_ROUNDS:-3}"
 WORKERS="${LOAD_WORKERS:-8}"
 
-python3 - "$API_PORT" "$ROUNDS" "$WORKERS" "${VLLM_API_KEY:-}" <<'PY'
+# Model id of the lane selected last (compose lanes: aeon; kit lanes: their own).
+_ACTIVE="$(cat "${REPO_DIR}/state/last-cluster-profile" 2>/dev/null || true)"
+if [[ -n "${_ACTIVE}" && -f "${PROFILE_DIR}/${_ACTIVE}.conf" ]]; then
+  load_profile "${_ACTIVE}" >/dev/null 2>&1 || true
+fi
+MODEL_ID="${SERVED_MODEL:-aeon}"
+
+python3 - "$API_PORT" "$ROUNDS" "$WORKERS" "${VLLM_API_KEY:-}" "$MODEL_ID" <<'PY'
 import json, sys, urllib.request, concurrent.futures, time
 port, rounds, workers = int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3])
 api_key = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] and sys.argv[4] != "EMPTY" else ""
+model_id = sys.argv[5] if len(sys.argv) > 5 and sys.argv[5] else "aeon"
 URL = f"http://localhost:{port}/v1/chat/completions"
 
 def mkreq(i):
     body = json.dumps({
-        "model": "aeon",
+        "model": model_id,
         "messages": [{"role": "user", "content": f"Count from 1 to 10 (round {i})."}],
         "max_tokens": 80, "temperature": 0.7,
     }).encode()

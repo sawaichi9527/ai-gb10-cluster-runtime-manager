@@ -80,10 +80,18 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   `qwen3.6-35b-a3b-heretic-nvfp4` + drafter `qwen3.6-35b-a3b-dflash` (n=6, maxlen
   262144, GMU 0.80, num_seqs 8). Both on `:1234` through Node0. Do NOT re-hard-code
   profile data in `cluster-*` scripts — the registry is the only authoritative set.
-- **Single launch lane = compose (since 2026-09-20).** `scripts/cluster-up` renders
-  `docker-compose.yml` per launch from the same profile data
-  (`build_vllm_args`/`build_docker_env`); the old docker-run branch was removed. Every
-  profile declares `LAUNCH_STYLE="compose"`. Four generic, model-agnostic profile
+- **Single launch lane = compose (since 2026-09-20) — plus one opt-in `kit` style.**
+  `scripts/cluster-up` renders `docker-compose.yml` per launch from the same profile data
+  (`build_vllm_args`/`build_docker_env`); the old docker-run branch was removed. The
+  default `LAUNCH_STYLE` is `compose`. A profile may instead declare
+  `LAUNCH_STYLE="kit"` (added 2026-10-20 for `dsv41flash-exl3-vllm`), meaning it names
+  its own two-node launcher via `KIT_DIR`/`KIT_START`/`KIT_STOP` (and
+  `KIT_HEAD_CONTAINER`/`KIT_WORKER_CONTAINER` for status); `cluster-up` then runs that
+  launcher, waits for `/health` and writes the ready marker, skipping the compose render,
+  the image-manifest gate and the FlashInfer autotune reset. `cluster-down` runs the
+  lane's `KIT_STOP` for the last selected kit profile. `SERVED_MODEL` names the id used
+  by `gb10 smoke`/`gb10 load`. All kit fields are reset by `load_profile`, so they can
+  never leak into a compose lane. Four generic, model-agnostic profile
   fields exist for things the shared builders do not cover: `COMPILATION_JSON` (raw
   `--compilation-config` override), `CAP_ADD=(...)` and `ULIMITS=(NAME=VALUE ...)`
   (compose `cap_add` / `ulimits` extras), and `SECURITY_OPT=(...)` (compose
@@ -367,6 +375,8 @@ cluster-profiles.d/
   mimo26flash.conf      # MiMo V2.6 Flash MOPD (MXFP4) TP2 + in-checkpoint DFlash
   deepseek-nvfp4-tune.conf  # single-knob A/B lane for deepseek-nvfp4 (NOT a service;
                             # also has a .conf.base sibling)
+  dsv41flash-exl3-vllm.conf # DeepSeek-V4.1-Flash-1017 EXL3 2.9bpw via the MiaAI-Lab
+                            # kit (LAUNCH_STYLE=kit; SPEC_METHOD=none; 256K/8)
 ```
 
 Key rules:

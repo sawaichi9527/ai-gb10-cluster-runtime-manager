@@ -54,12 +54,13 @@ fi
 KV_LINE=""
 WORLD=""
 if [[ "${NODE0_UP}" == "up" ]]; then
-  KV_LINE=$(docker logs "${NODE0_C}" 2>/dev/null | grep -a "Available KV cache memory" | tail -1 || true)
+  KV_LINE=$(docker logs "${NODE0_C}" 2>/dev/null | grep -aE "Available KV cache memory|GPU KV cache size" | tail -1 || true)
   WORLD=$(docker logs "${NODE0_C}" 2>/dev/null | grep -aoE 'world_size=[0-9]+' | head -1 || true)
 fi
 KV_VAL=""
 if [[ -n "${KV_LINE:-}" ]]; then
-  KV_VAL=$(printf '%s' "$KV_LINE" | sed -E 's/.*Available KV cache memory: ([0-9.]+ [A-Za-z]+).*/\1/')
+  KV_VAL=$(printf '%s' "$KV_LINE" | sed -nE 's/.*Available KV cache memory: ([0-9.]+ [A-Za-z]+).*/\1/p')
+  [[ -n "${KV_VAL}" ]] || KV_VAL=$(printf '%s' "$KV_LINE" | sed -nE 's/.*GPU KV cache size: ([0-9,]+ tokens).*/\1/p')
 fi
 
 # --- Node1 container status over ssh ---
