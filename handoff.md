@@ -2192,6 +2192,19 @@ per-position 顯示只有第一顆還可（pos0 39.8%），往後急速衰減 �
   `gb10 stop` 正確停 head+worker（health 000）。
 - 文件：`AGENTS.md` 記錄 `LAUNCH_STYLE=kit` 與新 profile；`README.md` 部署表新增 1017 列。
 
+**SHA256SUMS／完整性（2026-10-20）**
+
+- 已為兩個模型目錄生成 `SHA256SUMS` 並複製到 node1（兩端檔案雜湊相同）：
+  **量化 52 檔**（43 shards ＋ config／K-map／LICENSE／README／encoding／assets）、
+  **Engram 3 檔**（shards 47/48 ＋ config.json）。
+- `gb10 verify-models` 新增通用 `EXTRA_MODEL_DIRS`（profile 宣告；未宣告＝不變），
+  讓 Engram 目錄也能一併校驗。
+- **刻意排除** Engram 的 `model.safetensors.index.json`：kit 啟動時會把它改寫成
+  **403 B 的 embed-only 索引**（head 在 `~/.cache/vllm-dsv41-flash-exl3/engram-src/`、
+  worker 在模型目錄各產生一份），屬**可變執行期中繼資料**；納入會造成 node1 誤報
+  （原始 7,470,294 B vs 改寫後 403 B）。
+- 結果：量化 52/52、Engram 3/3，**兩節點全數 PASS**。
+
 **與論壇／x00byte 的配置差異查核（2026-10-20 後續）**
 
 - **文章（NVIDIA 論壇 `386125`）的 vLLM 基準 27.0 text／39.9 code 不是 1017 實測**：那是 Mia kit 的
