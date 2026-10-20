@@ -8,6 +8,7 @@ state/last-cluster-profile
 state/boot-cluster.*.pid
 state/boot-ready.*
 state/boot-single.*.pid
+state/kit.*.pid
 
 # Logs / transient
 *.log
