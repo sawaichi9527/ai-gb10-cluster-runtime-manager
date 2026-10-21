@@ -2402,6 +2402,49 @@ boot／kit logs 於 `~/docker-stacks/logs/dsv41flash-tensorfold/`；
 3. 1M context（C2）依使用者裁定**不做**，維持 262144。
 4. `state/` 在 `git status` 的 untracked 噪音：`.gitignore` 已由逐檔改為 `state/`（本次）。
 
+#### 2026-10-21 A/B/C/D：session close Validation evidence
+
+**範圍**：commit `74ca594`（restart／kit 修正）、`29ed5b0`（`scripts/bench-1017.py`）、
+`7997257`（文件 + `aeon` 對齊 + 證據）。以下為 **2026-10-21 14:11 CST 重新執行**的可重現證據。
+
+| # | 檢查 | 命令 | 時間／Duration | 結果 |
+|---|---|---|---|---|
+| 1 | Repo 同步閘門 | `scripts/check-git-sync.sh --block`（node0） | 14:11:10／**0.018 s** | **rc=0**（clean、0 ahead／0 behind） |
+| 2 | Shell 語法 | `bash -n` × **22**（`bin/gb10`、`bin/gb10-single`、`scripts/cluster-*`、`cluster-common.sh`、`check-git-sync.sh`、`gb10-boot-cluster`、`cluster-profiles.d/*.conf`） | ／**0.036 s** | **0 failures** |
+| 3 | Python 語法 | `python3 -m py_compile scripts/bench-1017.py` | ／**0.034 s** | **rc=0** |
+| 4 | 叢集狀態 | `gb10 status` | ／**1.26 s** | **rc=0**：`ready`、image `deepseek41-tensorfold:1017`、health ready |
+| 5 | Smoke | `gb10 smoke` | ／**0.87 s** | **rc=0**：`HELLO-TP2-OK` |
+| 6 | 對外 id | `POST /v1/chat/completions` `model=aeon` | ／<1 s | **http=200** |
+| 7 | 文件內容 | `grep` 檢查（`v1.8.0`／`SERVED_NAME=deepseek-flash` 殘留／`.gitignore` `state/`／evidence 檔數） | 14:11 | v1.8.0 ×4、殘留 **0**、`state/` 存在、evidence **9** 檔 |
+
+**同日較早的實跑證據（本次未重跑，屬同日同 checkout 的完成證據，非重複宣稱）**
+
+| 項目 | 觀察 |
+|---|---|
+| `gb10 restart` ×2（kit） | **335 s / 335 s** READY；每次 boot 僅 1 次 stop、**0** 次 `No such container` |
+| `gb10 use`（kit） | **330 s** READY |
+| `gb10 restart 27b`（compose） | **235 s** READY、`cluster-down skipped` 生效、smoke 200 |
+| 27b / 35b boot | **261 s / 380 s** READY、smoke 200、KV 3,188,624／3,303,154、`bench-c 1` 34.5／93.9 tok/s |
+| compose 渲染迴歸 | 27b `0a3947c4…`／35b `d30753fb…`／deepseek `526b7868…` **前後完全相同** |
+| 1017 prefill 255K | TensorFold **1,029.3** tok/s；vLLM kit **1,250.1** tok/s |
+| 1017 併發 32K C4／C8 | 0 error（C8 = 256,384 prompt tok／307 s） |
+| 結構化＋tool-call | TensorFold 20/20＋20/20；vLLM kit 10/10＋10/10 |
+| 2 小時 soak | **120 輪、0 failure**、中位每輪 13.64 s、`/health` 每輪 200 |
+| `aeon` 對齊 | exl3 lane 重啟後 `/v1/models`=`["aeon"]`、`model=aeon` 200、smoke 200 |
+| 強制 kit 失敗 | 測試 profile → **2 s** 內 exit 1（原為 120 s timeout 才報錯） |
+
+**環境**：node0 `spark-25d5`（10.0.101.101）／node1 `spark-8095`（10.0.101.102）；
+DGX OS（Ubuntu 24.04 系列）、Docker 29.2.1；live lane `dsv41flash-tensorfold`
+（TensorFold 0.6.0、image `deepseek41-tensorfold:1017`、drafts off、thinking on）。
+
+**Artifacts**：`docs/evidence/dsv41-1017-validation-2026-10-21/`（`c-soak.jsonl` 120 筆
+`soak_round` ＋ `soak_summary`、`soak.log`、prefill／conc／tools／smoke JSONL）；
+node0 `/tmp/sc-status.txt`、`/tmp/sc-smoke.txt`、`/tmp/sc-aeon.json`。
+
+**Runtime test**：是（status／smoke／aeon probe；restart／boot／bench 見上表）。
+**未驗證**：1M context（C2，使用者裁定不做）、node0 冷開機、`gb10 verify-models`
+本次未重跑（沿用 2026-10-20 13:31 PASS）、TensorFold `/v1/models` 仍廣告
+`deepseek-flash`（上游寫死，不影響 `aeon` 可用性）。
 
 ### 2026-10-15（續六）— 簡報產線定案：兩條獨立工作流 + 模型選擇查證（指南 rev 4）
 
