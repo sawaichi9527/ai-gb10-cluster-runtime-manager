@@ -69,6 +69,22 @@ mean **1.538** (min 1.259, max 1.691).
 six-prompt medians. Throughput alone would not be enough — this lane's
 boot-to-boot drift is large (below).
 
+## Vocabulary integrity (checked locally, 2026-10-21)
+
+Every vendored file was parsed before the A/B, because a malformed draft list
+would show up as a mysterious acceptance change rather than an error:
+
+| file | ids | unique | min id | max id | contains all 47k ids |
+|---|---|---|---|---|---|
+| `draft_vocab_en_code_47k.txt` | 47,149 | 47,149 | 0 | 248,076 | — |
+| all seven `*_65k.txt` | 65,536 | 65,536 | 0 | 248,076 | **yes, 0 missing** |
+
+Every id is below the model's 248,320-token vocabulary, and each language file is
+a strict superset of the 47k file. That is the structural reason the earlier
+"English regression" could not have been caused by the larger candidate set: the
+subset argmax over a superset can only agree with the full-vocabulary argmax
+*more* often, never less.
+
 ## Caveats (read before quoting the numbers)
 
 1. **Boot-to-boot drift is bigger than upstream's ±12 % claim.** Same 47k config,
