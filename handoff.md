@@ -2645,6 +2645,12 @@ acceptance 74.8→38.7%」。那是**假訊號**：C=1 永遠送 `prompts[0]`，
 **證據**：`docs/evidence/qwen38-draft-vocab-2026-10-21/`（4 個 JSONL，node0 與本機 sha256
 一致；決策用 `-b` 那一對，舊的一對保留作為 harness 假訊號的證據）。
 
+**上線（2026-10-21 18:56 CST，node0）**：`gb10 restart qwen38flash` 18:43:35 → **READY 18:56:01
+（746 s）**；`docker inspect` mount = `…/patches/draft_vocab_zh_en_code_65k.txt`；drafter log =
+`MTP draft vocab: 65536 of 248320 tokens (26.4%), 60279 on this rank of 2; draft lm_head shard
+0.59 -> 0.29 GiB per draft step`；`gb10 smoke` HTTP 200 `HELLO-TP2-OK`；`gb10 status` = ready、
+node0+node1 up、KV **3,546,998 tokens**；boot log 無 error／traceback。
+
 ### 2026-10-15（續六）— 簡報產線定案：兩條獨立工作流 + 模型選擇查證（指南 rev 4）
 
 **使用者指正**：我原本把「Z-Image Turbo 出草稿 → Qwen-Image 定稿」寫成一條混用管線，那是我的
