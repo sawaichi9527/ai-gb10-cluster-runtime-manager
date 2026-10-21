@@ -490,11 +490,16 @@ NVIDIA **未驗證**此 checkpoint 的 DSpark spec decode——已在 Phase 3 �
 > `/etc/vllm-draft-vocab.txt`。checkpoint 的 MTP 層索引別名由
 > `patches/qwen38flash/prepare.sh` 預先產生後唯讀掛載。
 >
-> **語言 draft 詞表（2026-10-21 對齊上游 09-29）**：`Q38_DRAFT_VOCAB=<lang>`（`es`/`zh`/`ja`/`de`/`pt`/`fr`/`ru`）
-> 換成 65,536 列語言檔（47k 全量為底＋該語言 Wikipedia 排名 id）；預設仍是 `en_code_47k`。
-> **只影響 drafting，輸出位元不變**（子集外的 draft 在驗證階段被拒）。上游 TP2 實測（對同 boot
-> 英文控制組正規化）：ru +53~77%、ja +35~44%、zh +19~39%、de +31~36%、es +19/20%、fr +10/24%、
-> pt +9/16%。
+> **語言 draft 詞表（2026-10-21 對齊上游 09-29，並改預設）**：`Q38_DRAFT_VOCAB=<lang>`
+> （`es`/`zh`/`ja`/`de`/`pt`/`fr`/`ru`）換成 65,536 列語言檔（47k 全量為底＋該語言 Wikipedia
+> 排名 id）。**本叢集自 2026-10-21 起預設 `zh`**：實測中文 decode **+45~61%**（C1 27.7→44.5、
+> C8 114.4→165.8 tok/s）、acceptance **+30 pp**（20.6→50.4% @C8），英文控制組落在本 lane 的
+> boot 漂移帶內；完整方法與 caveats 見
+> [`docs/QWEN38FLASH_DRAFT_VOCAB_AB_2026-10-21.md`](docs/QWEN38FLASH_DRAFT_VOCAB_AB_2026-10-21.md)。
+> `Q38_DRAFT_VOCAB=en_code_47k` 可還原上游預設（英文流量為主時使用）。
+> **只影響 drafting，輸出位元不變**（子集外的 draft 在驗證階段被拒）。上游 TP2 原始量測
+> （對同 boot 英文控制組正規化）：ru +53~77%、ja +35~44%、zh +19~39%、de +31~36%、
+> es +19/20%、fr +10/24%、pt +9/16%。
 >
 > 服務：`:1234`、model id `aeon`、262144 ctx。**KV pool 29.15 GiB**（GMU 0.80；09-20 的 0.835
 > 為 34.01 GiB / 4,245,234 tokens）。**deterministic greedy decoding 為預設**（`Q38_DET_OFF=1` 可關）。

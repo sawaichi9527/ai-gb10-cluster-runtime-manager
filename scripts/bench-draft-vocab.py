@@ -280,7 +280,8 @@ def summarize(rows, label, target):
         acc = med(rows, target, conc, "accept_pct")
         ratio = (a / b) if (a and b) else None
         print(
-            f"{conc:>3} {a if a is not None else '-':>8} {b if b is not None else '-':>8} "
+            f"{conc:>3} {(f'{a:.2f}' if a is not None else '-'):>8} "
+            f"{(f'{b:.2f}' if b is not None else '-'):>8} "
             f"{(f'{ratio:.3f}' if ratio else '-'):>7} {(f'{acc:.1f}' if acc is not None else '-'):>8}"
         )
 
@@ -320,7 +321,8 @@ def cmd_compare(args):
         if eff:
             effects.append(eff)
         print(
-            f"{conc:>3} {at if at is not None else '-':>9} {bt if bt is not None else '-':>9} "
+            f"{conc:>3} {(f'{at:.2f}' if at is not None else '-'):>9} "
+            f"{(f'{bt:.2f}' if bt is not None else '-'):>9} "
             f"{(f'{an:.3f}' if an else '-'):>7} {(f'{bn:.3f}' if bn else '-'):>7} "
             f"{(f'{eff:.3f}' if eff else '-'):>7}"
         )

@@ -139,16 +139,20 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   patch third-party code for it) — both ids answer, prefer `aeon`.
   Key parsing note: `cluster.env` holds `export VLLM_API_KEY=...` and mentions the same name
   in a comment first, so any parser must skip `#` lines and let the **last** assignment win.
-- **`qwen38flash` draft vocab is a launch knob, not a profile default (2026-10-21).**
+- **`qwen38flash` draft vocab: default is `zh` (measured 2026-10-21), not the upstream 47k.**
   `Q38_DRAFT_VOCAB=en_code_47k|es|zh|ja|de|pt|fr|ru` selects the MTP drafter head for one
-  launch; the default (`en_code_47k`) renders byte-identically to before, and an unknown
-  value aborts in `load_profile` (fail-closed) instead of drafting on the wrong head. It
-  changes **drafting only** — `compute_logits` keeps the full 248,320 vocabulary and any
-  draft outside the subset is rejected at verification, so replies are bit-identical.
-  The vendored pin is upstream `cd839d0b` (2026-09-29, `main` HEAD at the time of writing):
-  all ten patchers are byte-identical to it and the seven 65k language vocabularies are the
-  only functional addition since `2c86a1d0`. Re-verify with `scripts/bench-draft-vocab.py`
-  (English control + `ignore_eos`), never with a single arm's tok/s.
+  launch. The default is `zh` because the measured Chinese decode gain is large and the
+  English control did not move beyond this lane's own boot-to-boot drift
+  (`docs/QWEN38FLASH_DRAFT_VOCAB_AB_2026-10-21.md`: zh **+45…61 %** decode, acceptance
+  **+30 pp** in all four concurrency cells; the lane's A/A drift upper bound was 0.80–1.32).
+  `Q38_DRAFT_VOCAB=en_code_47k` restores the upstream default — use it for English-heavy
+  traffic. An unknown value aborts in `load_profile` (fail-closed). It changes **drafting
+  only**: `compute_logits` keeps the full 248,320 vocabulary and any draft outside the
+  subset is rejected at verification, so replies are bit-identical. The vendored pin is
+  upstream `cd839d0b` (2026-09-29, `main` HEAD at the time of writing); all ten patchers are
+  byte-identical to it and the seven 65k language vocabularies are the only functional
+  addition since `2c86a1d0`. Re-verify with `scripts/bench-draft-vocab.py` (English control,
+  `ignore_eos`, `--reps 6` so C=1 also sees every prompt), never with a single arm's tok/s.
 - **SGLang launcher removed (2026-09-20).** `build_sglang_args` and every `ENGINE=sglang`
   branch were deleted from `cluster-common.sh`, `cluster-up` and `cluster-compose-verify` —
   the SGLang route was abandoned (it was only ever an early DeepSeek-Vision experiment) and
