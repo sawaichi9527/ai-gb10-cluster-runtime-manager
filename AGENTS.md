@@ -117,6 +117,36 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   "fallback" placeholder, a `--force` guard, or any primary/secondary profile field. Both are
   `LAUNCH_STYLE="kit"`, so `cluster-compose-verify` skips them and their boot gate is
   `state/kit.<profile>.rc` (exit code) + `/health` — never "is the launcher process alive".
+- **`qwen38flash` (vLLM) and `qwen38flash-tensorfold` (TensorFold) are PEER lanes (2026-10-22).**
+  Same checkpoint (`~/docker-stacks/models/qwen3.8-flash-next-nvfp4`, `nvidia/…-NVFP4` @ `fc694b54`,
+  25 files / 124 GiB on BOTH nodes — **never delete it as "residue"**, both lanes read it), different
+  engines, identical `gb10` registration, mutually exclusive like every TP2 lane. Pick per workload:
+  decode / high concurrency / short cold boot → `qwen38flash-tensorfold`; vLLM-only request fields
+  (`response_format`/`guided_*`, `logprobs`, `n>1`) → `qwen38flash`. The TF engine **refuses** those
+  three with HTTP 400; tools, vision, prompt reuse and `tool_choice:"required"` work.
+  - `LAUNCH_STYLE="kit"`: kit dir `~/docker-stacks/mia-TensorFold-qwen38flashNext/` = an upstream
+    clone of `MiaAI-Lab/Qwen3.8-Flash-Dual-DGX-Sparks-TensorFold` **pinned at `f8287ef40319` (v1.1)**
+    plus `.env` (mode 600, the only settings source). `KIT_START=./start.sh`, `KIT_STOP=./stop.sh`,
+    containers `qwen38-fn-tf` on both ranks. **There is no compose file and there must not be one** —
+    rank 1 needs rank 0's rendezvous address and the identical argv on the other node.
+  - Image `ghcr.io/miaai-lab/qwen3.8-flash-dual-dgx-sparks-tensorfold:zig-db28187-f3e1300f4f62`
+    (digest `sha256:e188128d…e18c`, arm64). The checkout pin is load-bearing: prepare.sh compares its
+    own `image_hash()` with the image label `tf.patches`; upstream `main` (`6730319e`, "Unreleased")
+    hashes differently and would silently trigger a local Zig build.
+  - **Three things that will bite** (all measured 2026-10-22):
+    (a) `cluster-up`'s kit preflight only checks that the conf's `IMAGE` string exists — after a
+    `docker pull`, also `docker tag <ref> tensorfold-qwen38fn:zig-db28187` **and** tag the local name
+    with the registry ref, or the boot dies `kit image not present on node0`;
+    (b) the checkpoint must be reachable *inside* the container, where `start.sh` mounts `HF_CACHE` at
+    `/root/.cache/huggingface` — the bridge is `HF_CACHE=~/docker-stacks/models` plus a **relative**
+    symlink `models/hub/models--nvidia--Qwen3.8-Flash-Next-NVFP4/snapshots/fc694b54… -> ../../../qwen3.8-flash-next-nvfp4`
+    on both nodes (an absolute symlink dangles in the container);
+    (c) `scripts/prepare.sh` needs `MEM_CHECK=0 PULL=0 HF_HUB_OFFLINE=1` when run beside a live TP2
+    lane (memory floor is 10 GiB, node1 must not pull over WAN, and the 124 GiB download must not start).
+  - Measured same-session A/B (fixed 400 tok, `BENCH_IGNORE_EOS=1`): TF **55.0/82.5/150.3/287.2** tok/s
+    at C1/C2/C4/C8 vs vLLM 40.6/42.0/89.5/157.6; cold prefill 3,465/3,240/2,989 vs 2,770/2,809/2,559;
+    boot → `/health` **1m53s** vs 13m58s. Details + caveats:
+    `docs/QWEN38FLASH_TENSORFOLD_DEPLOY_2026-10-22.md`.
 - **`gb10 restart` stops a lane ONCE, and a dead kit launcher now fails fast (2026-10-21, `74ca594`).**
   `restart` runs `cluster-down` synchronously and then passes `--skip-down` to
   `gb10-boot-cluster` (`use`/`start` keep the full teardown) — the second stop used to
@@ -441,6 +471,10 @@ cluster-profiles.d/
                              # image; LAUNCH_STYLE=kit; drafts off; 256K/8)
                             # ^ the two 1017 lanes above are PEER lanes: neither is a
                             #   backup of the other (see the Fact above)
+  qwen38flash-tensorfold.conf # Qwen3.8 Flash-Next 125B NVFP4 on MiaAI's TensorFold TP2
+                             # recipe (LAUNCH_STYLE=kit; registry image
+                             # zig-db28187-f3e1300f4f62; 256K native, no YaRN; 8 at once;
+                             # fp8 KV; vision on) — PEER lane of qwen38flash (see the Fact)
 ```
 
 Key rules:

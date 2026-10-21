@@ -84,12 +84,13 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 | Qwen3.8 Flash-Next **125B** cluster (TP2+EP) | `qwen3.8-flash-next-nvfp4`（ModelOpt NVFP4）+ 內建 MTP n=3 | `vllm/vllm-openai:qwen38-flash-next` | `http://192.168.23.215:1234/v1` | deployed（09-29 重新驗證）：GMU 0.80／prefix caching ON／determinism 預設 ON |
 | MiMo V2.6 Flash **MOPD** cluster (TP2) | `mimo-v2.6-flash-mopd`（官方 MXFP4 QAT）+ DFlash2 n=7 | `tonyd2wild/vllm-glm53-flash:sm121-v11-dflash2` | `http://192.168.23.215:1234/v1` | deployed（10-03 上線；**10-05 定案 MXFP4**，NVFP4 A/B + cliff 探測見下） |
 | DeepSeek-V4.1-Flash **1017** cluster (TP2) | `deepseek-v4.1-flash-1017-exl3-2.9bpw`（EXL3 43 shards + 1017 Engram 47/48）+ **no-spec** | `ghcr.io/miaai-lab/deepseek-v4.1-flash-exl3-2x-dgx-sparks:2.9bpw`（`LAUNCH_STYLE=kit`，Mia kit） | `http://192.168.23.215:1234/v1` | deployed（2026-10-20 首啟）：C1 24.9 / C2 36.9 / **C8 79.3** tok/s、262144、vision on；DSpark 在此 pack 為負收益（接受率 ~22%）故關閉 |
-| DeepSeek-V4.1-Flash **1017 TensorFold** cluster (TP2) | 同一份 1017 權重 + packed Engram（95 GiB/rank）+ **drafts off** | `deepseek41-tensorfold:1017`（自建，基底 `nvcr.io/nvidia/pytorch:26.07-py3`） | `http://192.168.23.215:1234/v1` | deployed（2026-10-20）：**C1 39.3 / C2 61.7 / C4 88.2 / C8 120.7** tok/s、prefill 848–916、vision on；DSpark 同樣負收益故關閉 |
+| DeepSeek-V4.1-Flash **1017 TensorFold** cluster (TP2) | 同一份 1017 權重 + packed Engram（95 GiB/rank）+ **drafts off** | `deepseek41-tensorfold:1017`（自建，基底 `nvcr.io/nvidia/pytorch:26.07-py3`） | `http://192.168.23.215:1234/v1` | deployed（2026-10-21）：**C1 39.3 / C2 61.7 / C4 88.2 / C8 120.7** tok/s、prefill 848–916、vision on；DSpark 同樣負收益故關閉 |
+| Qwen3.8 Flash-Next **125B TensorFold** cluster (TP2) | 同一份 `qwen3.8-flash-next-nvfp4` + 內建 MTP drafts | `ghcr.io/miaai-lab/qwen3.8-flash-dual-dgx-sparks-tensorfold:zig-db28187-f3e1300f4f62`（`LAUNCH_STYLE=kit`，免自建，digest `e188128d…`） | `http://192.168.23.215:1234/v1` | deployed（**2026-10-22 00:18**）：C1 55.0 / C2 82.5 / C4 150.3 / **C8 287.2** tok/s（固定 400）、prefill 3,465/3,240/2,989、cold boot **1 分 53 秒**；同 session A/B 全面勝 vLLM 版 |
 
-> **現役（2026-10-20）＝ `dsv41flash-tensorfold`**（DeepSeek-V4.1-Flash-1017 EXL3 2.9bpw，
-> TensorFold TP2，drafts off）。「現役」只表示**此刻在線的那一條**，不是主/備關係：
-> 兩條 1017 lane 都是**對等的一級 lane**，依負載各自選用（見下節），
-> `gb10 use dsv41flash-exl3-vllm` ↔ `gb10 use dsv41flash-tensorfold` 自由互切。
+> **現役（2026-10-22 00:18 CST）＝ `qwen38flash-tensorfold`**（Qwen3.8 Flash-Next 125B NVFP4，
+> TensorFold TP2）。「現役」只表示**此刻在線的那一條**，不是主/備關係：
+> `qwen38flash`（vLLM）與 `qwen38flash-tensorfold` 是**對等 lane**、共用同一份 124 GiB 權重，
+> 依負載自由互切（見下節）；1017 的兩條（`dsv41flash-exl3-vllm`／`dsv41flash-tensorfold`）同理。
 > TP2 各 lane **全部互斥**（每條都吃滿 2× GB10 且綁 `:1234`），同一時間只有一條在線，
 > 切換由 `gb10 use` 自動拆（`cluster-down` → 釋放 singles → launch）。
 > 其他列的 `deployed` 表示**已部署並實測過**，非同時運行。
@@ -151,6 +152,31 @@ harness = `scripts/bench-1017.py`（`prefill`／`conc`／`tools`／`soak`，輸�
   但 `/v1/models` 仍廣告 `deepseek-flash`（名字寫死在上游 vendored 程式，無旋鈕）——兩者都可用，
   客戶端請統一用 `aeon`。
 
+
+### Qwen3.8 Flash-Next — 兩條對等 lane（同一份權重，vLLM vs TensorFold；非主/備）
+
+同一份 `qwen3.8-flash-next-nvfp4`（`nvidia/Qwen3.8-Flash-Next-NVFP4` @ `fc694b54`，25 檔 / 124 GiB，
+兩個節點各一份），**兩條對等、互斥**的 TP2 lane：
+
+| | `qwen38flash` | `qwen38flash-tensorfold` |
+|---|---|---|
+| 引擎 | vLLM `vllm/vllm-openai:qwen38-flash-next`（TP2+EP，MTP n=3，zh draft 詞表、determinism ON） | TensorFold Zig engine（上游 kit `./start.sh`，MTP drafts） |
+| image | 20.6 GB（registry） | 24.7 GB（registry，`zig-db28187-f3e1300f4f62` / `e188128d…`） |
+| 啟動方式 | `LAUNCH_STYLE=compose` | `LAUNCH_STYLE=kit`（`KIT_DIR=~/docker-stacks/mia-TensorFold-qwen38flashNext`） |
+| decode C1/C2/C4/C8（固定 400） | 40.6 / 42.0 / 89.5 / 157.6 | **55.0 / 82.5 / 150.3 / 287.2** |
+| cold prefill 32K/131K/261K | 2,770 / 2,809 / 2,559 | **3,465 / 3,240 / 2,989** |
+| cold boot → `/health` | 13 分 58 秒 | **1 分 53 秒** |
+| 對外契約差異 | 支援 `response_format`/`logprobs`/`n>1` | **拒絕**上述三項（HTTP 400）；tools／vision／prompt reuse 正常 |
+
+- **對等地位**：`gb10` 白名單六處完全對等，沒有主/備、沒有 promote/retire，也沒有 fallback 旗標
+  （比照 1017 兩條 lane 的 2026-10-21 裁示）。
+- **選擇依據**：decode／高併發／要最短 cold boot → `qwen38flash-tensorfold`；需要
+  `response_format`／`logprobs` 等 vLLM 專有參數 → `qwen38flash`。
+- 共用資料：`~/docker-stacks/models/qwen3.8-flash-next-nvfp4`（**永不刪**）；
+  TensorFold 透過 HF cache 橋接讀取（`HF_CACHE=~/docker-stacks/models`，
+  `hub/models--nvidia--…/snapshots/fc694b54…` 用**相對** symlink 指回本目錄——絕對 symlink 在容器內會斷）。
+- 完整部署記錄、兩次踩坑（image tag gate、容器內 symlink）與 A/B caveats：
+  `docs/QWEN38FLASH_TENSORFOLD_DEPLOY_2026-10-22.md`。
 
 ### 27B v0.29.0-omni (bench-c C1-C8, MAX_TOKENS=2048; 245k cold prefill) — 2026-09-19
 
@@ -701,11 +727,13 @@ Node0 reaches it over ssh. Node1 only needs the image + model dirs + sudo docker
 
 ```bash
 gb10 list                     # profile list (27b/35b/deepseek/deepseek-nvfp4/deepseek-vision/
-                              #   qwen38flash/mimo26flash/dsv41flash-exl3-vllm/dsv41flash-tensorfold;
+                              #   qwen38flash/qwen38flash-tensorfold/mimo26flash/
+                              #   dsv41flash-exl3-vllm/dsv41flash-tensorfold;
                               #   plus A/B-only deepseek-nvfp4-tune, listed separately)
 gb10 use 27b                  # default; TP2 up (cold ~7-15 min), waits /health
 gb10 use 35b                  # switch exclusive cluster profile
 gb10 use qwen38flash          # cluster-only lane (determinism on by default)
+gb10 use qwen38flash-tensorfold # same weights, TensorFold engine (decode-fast, ~2 min cold boot)
 gb10 use dsv41flash-tensorfold # 1017 peer lane A (decode); peer B = dsv41flash-exl3-vllm (prefill)
 gb10 stop                     # cluster-down (both nodes)
 gb10 restart [profile]        # no arg = last used profile (state/last-cluster-profile)
@@ -718,15 +746,18 @@ gb10 doctor
 ```
 
 Current deployed TP2 profiles are 27B, 35B, DeepSeek (mainline 0731), **DeepSeek NVFP4
-(0731 on eugr b12x)**, DeepSeek Vision-Exp, **qwen38flash**, **mimo26flash** and the two
-1017 lanes **`dsv41flash-exl3-vllm`** / **`dsv41flash-tensorfold`** (all data-driven from
-`cluster-profiles.d/`). The 1017 lanes and the two MiMo/qwen lanes are **cluster-only** — no
+(0731 on eugr b12x)**, DeepSeek Vision-Exp, **qwen38flash**, **qwen38flash-tensorfold**,
+**mimo26flash** and the two 1017 lanes **`dsv41flash-exl3-vllm`** /
+**`dsv41flash-tensorfold`** (all data-driven from `cluster-profiles.d/`). The 1017 lanes,
+`qwen38flash`, `qwen38flash-tensorfold` and the two MiMo/qwen lanes are **cluster-only** — no
 single-node lane (the `runtimes.d/qwen38flash.conf` placeholder was removed 2026-09-20, and
 so was `glm53flash.conf`; `mimo26flash` never had one — its weights are TP2-only;
-`deepseek-nvfp4` is TP2-only by design). The 1017 lanes are the first profiles using
-**`LAUNCH_STYLE="kit"`**: they name their own two-node launcher (`KIT_DIR`/`KIT_START`), and
-`cluster-up` runs it, waits for `/health` and writes `state/boot-ready.<profile>` instead of
-rendering compose — see their section above.
+`deepseek-nvfp4` is TP2-only by design). Three profiles now use **`LAUNCH_STYLE="kit"`**
+(`dsv41flash-exl3-vllm`, `dsv41flash-tensorfold`, `qwen38flash-tensorfold`): they name their
+own two-node launcher (`KIT_DIR`/`KIT_START`), and `cluster-up` runs it, waits for `/health`
+and writes `state/boot-ready.<profile>` instead of rendering compose — see their sections above.
+**Kit lanes have no compose file on purpose**: rank 1 needs rank 0's rendezvous address and the
+identical argv on the *other* node, which a compose file cannot express.
 
 ### TP2 profile registry (completed 2026-09-05)
 
@@ -751,6 +782,10 @@ cluster-profiles.d/
                         # the MiaAI vLLM kit (SPEC_METHOD=none, 256K/8, vision on)
   dsv41flash-tensorfold.conf # LAUNCH_STYLE=kit — the same 1017 checkpoint on TensorFold TP2
                         # (self-built image; drafts off; 256K/8; vision on)
+  qwen38flash-tensorfold.conf # LAUNCH_STYLE=kit — Qwen3.8 Flash-Next 125B NVFP4 (same
+                        # checkpoint as qwen38flash) on MiaAI's TensorFold TP2 recipe
+                        # (registry image zig-db28187-f3e1300f4f62; 256K native, no YaRN;
+                        # 8 at once; fp8 KV; vision on). Peer lane of qwen38flash.
 ```
 
 Each conf carries the **profile-scoped image** and per-model vLLM arguments, loaded once by
