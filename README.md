@@ -14,8 +14,9 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 > **2026-10-20 現況。** 新增**兩條 DeepSeek-V4.1-Flash-1017 lane**：
 > `dsv41flash-exl3-vllm`（MiaAI vLLM kit、`SPEC_METHOD=none`）與
 > `dsv41flash-tensorfold`（TensorFold TP2、drafts off）。兩者**共用同一份 1017 權重與
-> packed Engram**、互斥；**現役＝`dsv41flash-tensorfold`**（C1 39.3／C2 61.7／C4 88.2／
-> **C8 120.7** tok/s）。同時新增通用 **`LAUNCH_STYLE="kit"`**，讓 profile 自帶啟動器
+> packed Engram**，且是**對等的一級 lane（非主/備）**；TP2 全部 lane 互斥，任一時間只有
+> 一條在線（**現役＝`dsv41flash-tensorfold`**，C1 39.3／C2 61.7／C4 88.2／**C8 120.7** tok/s）。
+> 同時新增通用 **`LAUNCH_STYLE="kit"`**，讓 profile 自帶啟動器
 > （`cluster-up` 只負責執行、等 `/health`、標記 READY），見下方章節。
 >
 > **2026-10-08 現況。** **現役 lane 切換為 `deepseek-nvfp4`**（NVFP4 0731 on eugr b12x）。
@@ -86,19 +87,22 @@ DGX Spark **GB10 runtime manager** — 統合 **2-node TP2 叢集** 與 **單節
 | DeepSeek-V4.1-Flash **1017 TensorFold** cluster (TP2) | 同一份 1017 權重 + packed Engram（95 GiB/rank）+ **drafts off** | `deepseek41-tensorfold:1017`（自建，基底 `nvcr.io/nvidia/pytorch:26.07-py3`） | `http://192.168.23.215:1234/v1` | deployed（2026-10-20）：**C1 39.3 / C2 61.7 / C4 88.2 / C8 120.7** tok/s、prefill 848–916、vision on；DSpark 同樣負收益故關閉 |
 
 > **現役（2026-10-20）＝ `dsv41flash-tensorfold`**（DeepSeek-V4.1-Flash-1017 EXL3 2.9bpw，
-> TensorFold TP2，drafts off）。同權重的 vLLM 版本 `dsv41flash-exl3-vllm` 隨時可切
-> （`gb10 use dsv41flash-exl3-vllm`）——TP2 各 lane **互斥**，同一時間只有一條在線，
-> 切換由 `gb10 use` 自動拆。其他列的 `deployed` 表示**已部署並實測過**，非同時運行。
+> TensorFold TP2，drafts off）。「現役」只表示**此刻在線的那一條**，不是主/備關係：
+> 兩條 1017 lane 都是**對等的一級 lane**，依負載各自選用（見下節），
+> `gb10 use dsv41flash-exl3-vllm` ↔ `gb10 use dsv41flash-tensorfold` 自由互切。
+> TP2 各 lane **全部互斥**（每條都吃滿 2× GB10 且綁 `:1234`），同一時間只有一條在線，
+> 切換由 `gb10 use` 自動拆（`cluster-down` → 釋放 singles → launch）。
+> 其他列的 `deployed` 表示**已部署並實測過**，非同時運行。
 >
-> 歷史：**2026-10-08～10-20 的現役是 `deepseek-nvfp4`**（NVIDIA NVFP4 0731 checkpoint on
+> 歷史：**2026-10-08～10-19 期間的現役主要是 `deepseek-nvfp4`**（NVIDIA NVFP4 0731 checkpoint on
 > `eugr/spark-vllm-b12x`；`:1234` READY、smoke `HELLO-TP2-OK`、KV 344,195 tok。Phase 3 四次
 > boot 修復 seccomp → safetensors → DSpark draft 根因 hotfix；使用者裁定先不恢復主線）。
 > **2026-10-09** mainline `deepseek` 完成 eugr-b12x 配方繼承（對決全勝，見下）。
 
-### DeepSeek-V4.1-Flash 1017 — 兩條 lane（同一份權重，不同引擎）
+### DeepSeek-V4.1-Flash 1017 — 兩條對等 lane（同一份權重，不同引擎；非主/備）
 
 同一份 `LibertAIDAI/DeepSeek-V4.1-Flash-1017-EXL3-2.9bpw`（43 shards）＋官方 1017 Engram
-shards 47/48，**互斥**的兩條 TP2 lane：
+shards 47/48，**兩條對等、互斥**的 TP2 lane（互斥是所有 TP2 lane 的共同性質，不是這對的特例）：
 
 | | `dsv41flash-exl3-vllm` | `dsv41flash-tensorfold` |
 |---|---|---|
@@ -109,6 +113,11 @@ shards 47/48，**互斥**的兩條 TP2 lane：
 | vision | on（SM12x 128-wide window） | on（native，`TF_DSV41_BIAS_VL=/model`） |
 | 特點 | prefill 較快、單一 image、免自建 | decode 較快（尤其 C8）、需自建 image |
 
+- **對等地位**：兩條都是一級 lane — `gb10` 白名單六處完全對等（usage ×2、
+  `PROFILES_BY_NAME`、`list`、`use|start`、`restart`），**沒有主/備、沒有 promote/retire
+  關係**，也沒有「備援專用」的額外旗標或守門（2026-10-21 使用者裁示）。
+- **選擇依據**：decode／高併發（C4–C8）→ `dsv41flash-tensorfold`；長 prefill（≥128K）
+  或想要 registry image（免自建）→ `dsv41flash-exl3-vllm`。
 - 切換：`gb10 use dsv41flash-tensorfold` ↔ `gb10 use dsv41flash-exl3-vllm`。
 - 共用資料：`~/docker-stacks/models/dsv41flash-1017-bundle/{checkpoint,engram-src-1017}`
   （symlink）、`…-engram-packed/{head,worker}`（各 95 GiB，兩條 lane 同格式）、
@@ -118,6 +127,9 @@ shards 47/48，**互斥**的兩條 TP2 lane：
   （1 row 22.4 ms、4 rows 46.8 ms）讓 speculative 打平偏虧。詳見 `handoff.md`。
 - 資料完整性：兩個模型目錄都有 `SHA256SUMS`（量化 52 檔、Engram 3 檔），
   `gb10 verify-models dsv41flash-exl3-vllm` 兩節點全數 PASS。
+  **2026-10-21 對齊**：`dsv41flash-tensorfold.conf` 補上與 exl3 相同的
+  `EXTRA_MODEL_DIRS`（指向官方 1017 Engram 來源；`…-engram-packed/{head,worker}`
+  是由它生成的，本身不帶 checksum 清單），兩條 lane 的 gate 目標自此相同。
 
 #### 2026-10-21 驗證（維持 262144 契約，不做 1M）
 
@@ -676,10 +688,13 @@ Node0 reaches it over ssh. Node1 only needs the image + model dirs + sudo docker
 ## Cluster CLI — `gb10`
 
 ```bash
-gb10 list                     # profile list (27b/35b/deepseek/deepseek-nvfp4/deepseek-vision/qwen38flash/mimo26flash)
+gb10 list                     # profile list (27b/35b/deepseek/deepseek-nvfp4/deepseek-vision/
+                              #   qwen38flash/mimo26flash/dsv41flash-exl3-vllm/dsv41flash-tensorfold;
+                              #   plus A/B-only deepseek-nvfp4-tune, listed separately)
 gb10 use 27b                  # default; TP2 up (cold ~7-15 min), waits /health
 gb10 use 35b                  # switch exclusive cluster profile
 gb10 use qwen38flash          # cluster-only lane (determinism on by default)
+gb10 use dsv41flash-tensorfold # 1017 peer lane A (decode); peer B = dsv41flash-exl3-vllm (prefill)
 gb10 stop                     # cluster-down (both nodes)
 gb10 restart [profile]        # no arg = last used profile (state/last-cluster-profile)
 gb10 status                   # both nodes, RDMA, KV, health

@@ -99,6 +99,18 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   the Docker default seccomp profile blocks io_uring, which the b12x loader requires;
   upstream eugr hides this behind `--privileged`). All four are no-ops when unset —
   keep it that way so 27b/35b/deepseek stay byte-identical.
+- **The two 1017 lanes are PEERS, not primary/backup (user decision 2026-10-21).**
+  `dsv41flash-exl3-vllm` (MiaAI vLLM kit) and `dsv41flash-tensorfold` (TensorFold TP2) are
+  both first-class lanes: identical registration in `bin/gb10` (usage ×2,
+  `PROFILES_BY_NAME`, `list`, `use|start`, `restart`), the same 1017 weights + Engram, and
+  the same external id `aeon`. Pick per workload — decode / high concurrency → TensorFold,
+  long prefill (≥128K) or a registry image instead of the self-built one → the vLLM kit.
+  "現役" in the docs only ever means "the lane that is live right now". They are mutually
+  exclusive exactly like every other TP2 lane (each consumes both GB10s and binds `:1234`;
+  `gb10-boot-cluster` always runs `cluster-down` + frees the singles first), so do NOT add a
+  "fallback" placeholder, a `--force` guard, or any primary/secondary profile field. Both are
+  `LAUNCH_STYLE="kit"`, so `cluster-compose-verify` skips them and their boot gate is
+  `state/kit.<profile>.rc` (exit code) + `/health` — never "is the launcher process alive".
 - **`gb10 restart` stops a lane ONCE, and a dead kit launcher now fails fast (2026-10-21, `74ca594`).**
   `restart` runs `cluster-down` synchronously and then passes `--skip-down` to
   `gb10-boot-cluster` (`use`/`start` keep the full teardown) — the second stop used to
@@ -407,6 +419,8 @@ cluster-profiles.d/
                             # kit (LAUNCH_STYLE=kit; SPEC_METHOD=none; 256K/8)
   dsv41flash-tensorfold.conf # the same 1017 checkpoint on TensorFold TP2 (self-built
                              # image; LAUNCH_STYLE=kit; drafts off; 256K/8)
+                            # ^ the two 1017 lanes above are PEER lanes: neither is a
+                            #   backup of the other (see the Fact above)
 ```
 
 Key rules:
