@@ -910,6 +910,13 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
   `gb10`**、對等並列、互斥（TP2 通則）。**原「場外試跑、暫不整合 `gb10`」的凍結決策已於
   2026-10-20 兩次上線後失效**，2026-10-21 使用者裁示「兩條都要、並列、不設主/備」。
   現役＝`dsv41flash-tensorfold`（僅表示此刻在線）。去審查待 2.9bpw sidecar 出現再做。
+- **下一 session：qwen38flash 的 TensorFold TP2 候選 lane**（`MiaAI-Lab/Qwen3.8-Flash-Dual-DGX-Sparks-TensorFold`）：
+  先做 **NVFP4 對 NVFP4** 的引擎 A/B（現役 vLLM vs TF Zig），`CONTEXT=262144` 與 `1048576` 各量一次；
+  `PORT=1234`、`SERVED_NAME=aeon`，以 `LAUNCH_STYLE="kit"` 接入（同 `dsv41flash-tensorfold` 模式）。
+  權重預設重下 pin 快照（`nvidia/Qwen3.8-Flash-Next-NVFP4` @ `fc694b54`，124 GiB）；若要沿用
+  現有 10-shard repack，先驗 TF `prepare.sh` 的 index 逐 shard 驗證。`nvidia/…-FP4-Local`（QAD）
+  在 dual 引擎**未驗證**（NVFP4 scale 用新壓縮格式）→ 列第二變數。已知功能差異：TF 引擎
+  **拒絕 `response_format`/`guided_*`**（HTTP 400）與 `logprobs`，決策前要先確認不影響用途。
 - （可選）長圖文混搭、`--limit-mm-per-prompt` 上限（目前 8）、多輪 agent chain 長時間穩定性（見「定期檢討追蹤」#2）。
 - **benchmark 工具**：`scripts/bench-c.sh <C> [MAX_TOKENS]`（C=1 時 exit 1 為邊緣狀況，數值仍有效）、`scripts/bench-ctx.sh <NUM_WORDS> [MAX_TOKENS]`（`max_tokens=1`＝純 prefill）、**`scripts/bench-mm.sh [NUM_IMAGES] [C] [MAX_TOKENS]`（圖片；預設用 deepseek-vision profile 的測試圖，可用 `MM_IMAGE=` 覆寫）**。
 - 若有跨節點／部署問題，先在 node0 確認，勿在本機直接改。
@@ -994,10 +1001,21 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
 
 > 下列事項不是「待辦」，而是**定期檢討**項目（2026-09-20 標註）。檢討時點：每當 `patches/` 上游或 image 更新，或每次進行 27b/35b 重大變更時。
 
-1. **Patches 上游追蹤**：`patches/dspark-vision/` pin 在 MiaAI commit `97e8733…`（23 檔）；`patches/qwen38flash/` 已於 2026-09-29 由 `d2f54b7…` 改 pin 到 **`2c86a1d0…`（10 檔）** —— 原 8 檔在該 commit 經 blob 比對**逐 byte 相同**，另新增 `patch_block_drop.py` / `patch_determinism.py`（皆見各自 `NOTICE.md`）。上游更新時需 **re-vendor** 並重新比對 byte。
+1. **Patches 上游追蹤**：`patches/dspark-vision/` pin 在 MiaAI commit `97e8733…`（23 檔）；`patches/qwen38flash/` 已於 **2026-10-21 改 pin 到 `cd839d0b…`**（18 檔：10 patcher ＋ 7 個語言 65k 詞表 ＋ `build_draft_vocab_extend.py`）—— 10 個 patcher 在該 commit **逐 byte 相同**（`2c86a1d0` 之後上游只有「語言詞表 + docs」5 個 commit）。上游更新時需 **re-vendor** 並重新比對 byte。
 2. **Vision 進一步驗證（可選）**：長圖文混搭 prompt、多輪 agent chain 長時間穩定性。
 3. **已收斂（2026-09-20，原 3/4/5 項）**：27b/35b/deepseek/deepseek-vision/qwen38flash 全部在新 node-local 佈局下 boot 驗證（`health` 200 + `cluster-compose-verify` 兩 rank PASS + `gb10 smoke` OK），`$$` 逃逸、per-lane cache、STACK_DIR materialize、統一 log 皆實證；單機 27b(node0) 與 **35b(node1)** 亦 READY。`bench-c.sh` 已加 `BENCH_IGNORE_EOS`（固定長度）；qwen38flash 的 prefill 曲線／圖片輸入／多輪穩定已測；**`PLE_OFFLOAD=true` 確認對 TP2（nnodes=2）不可行**，維持 false。
 4. **DeepSeek-V4.1-Flash EXL3（2× GB10）— 已查核、暫不採用（2026-09-29）**：完整證據（兩顆 image 的 digest、TP=2 硬限制、各線 benchmark、論壇引述）見 **`docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md`** 與下方小節。檢討時點：上游出現**已發佈**的 2-node image，或有人驗證「Mia image + sfxnz 2.0bpw pack」可載入時。
+5. **上游營運件（qwen38flash vLLM 配方）— 已評估、暫不採用（2026-10-21）**：
+   `resolve_snapshot.py`（下載完整性）、`evict_page_cache.py`（boot 前 `posix_fadvise` 釋放 checkpoint
+   page cache）、`memwatch.sh`（host `MemAvailable` watchdog）。判定為**非擊破性**：① 已被
+   `gb10 verify-models`（SHA256SUMS，比「檔案存在」更強）覆蓋；② 我們從未發生 page-cache 造成的
+   boot OOM（GMU 0.80 留餘裕；真正吃緊的是 1017 兩條，其 kit/引擎已有 `--oom-score-adj` 與載入後
+   drop cache）；③ 我們無統一記憶體凍結紀錄，而會 kill 容器的 watchdog 有誤殺風險。
+   **重新檢討的觸發條件**：(a) 出現一次 boot 期 `CUDA out of memory` 且緊接在大檔讀取
+   （download／rsync／`verify-models`）之後 → 評估 `evict_page_cache`，且做成
+   `gb10 evict-cache <profile>` **手動指令**而非自動掛進 boot；(b) 任一節點發生統一記憶體耗盡凍結，
+   或長 prefill 期間觀測到 `MemAvailable` < ~1 GiB → 設計 memwatch，門檻用實測而非抄上游 6/10 GiB；
+   (c) 出現「下載中斷但看起來 ready」→ 才需要 `resolve_snapshot`。
 
 ### DSV4.1-Flash EXL3 2×GB10 選型查核（2026-09-29，本機）
 
@@ -2581,9 +2599,11 @@ scripts/bench-draft-vocab.py compare /tmp/q38-47k.jsonl /tmp/q38-zh65k.jsonl
 開機後應確認：`docker inspect` 的 mount 指向目標詞表；`docker logs` 出現 drafter 詞表行
 （`47149 of 248320` 或 `65536 of 248320`）。
 
-**範圍外（記錄為評估項，未變更）**：上游另有 `evict_page_cache.py`（GB10 page-cache 驅逐）、
-`memwatch.sh`（host 記憶體 watchdog）、`resolve_snapshot.py`（下載完整性）與 v0.30 專用 patch。
-本 lane 目前用 `gb10 verify-models` 覆蓋第 3 項，前兩項未實作。
+**範圍外（已評估、暫不採用，2026-10-21）**：上游另有 `evict_page_cache.py`（GB10 page-cache
+驅逐）、`memwatch.sh`（host 記憶體 watchdog）、`resolve_snapshot.py`（下載完整性）與 v0.30 專用
+patch。判定為**非擊破性**、不引入：`resolve_snapshot` 已被 `gb10 verify-models` 覆蓋；
+page-cache OOM 與統一記憶體凍結在我們這裡都沒有發生紀錄，而自動 watchdog 有誤殺健康服務的風險。
+重新檢討的觸發條件寫在「定期檢討追蹤 #5」。
 
 ### 2026-10-21（續四）— qwen38flash draft 詞表 A/B：預設改 `zh`
 
