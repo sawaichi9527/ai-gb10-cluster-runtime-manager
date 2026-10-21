@@ -190,19 +190,25 @@ verify_rank(){ # 0 | 1
   # security_opt: every profile-owned SECURITY_OPT entry must be honored.
   # Subset match — the daemon/Compose appends its own defaults when seccomp
   # is relaxed (observed 2026-10-08: "label=disable" alongside our
-  # seccomp=unconfined, both nodes). Unset profile => live set must stay
-  # empty (the other lanes have no daemon-added opts).
-  local -a _sec_got=() _sec_exp=()
+  # seccomp=unconfined, both nodes). Compose v5 (v5.0.2, 2026-10) also injects
+  # `label=disable` for EVERY service that sets `ipc: host`, which is all TP2
+  # lanes; this host runs apparmor+seccomp only (no SELinux), so the label is a
+  # no-op. Drop exactly that token before the "unexpected extra" test — any
+  # other daemon-added option still fails.
+  local -a _sec_got=() _sec_exp=() _sec_eff=()
   local _se _g _found sec_ok=1
   [[ -n "$GET_SEC" ]] && IFS='|' read -ra _sec_got <<< "$GET_SEC"
   [[ -n "${SECURITY_OPT+x}" ]] && _sec_exp=("${SECURITY_OPT[@]}")
+  for _g in "${_sec_got[@]}"; do
+    [[ "$_g" == "label=disable" ]] || _sec_eff+=("$_g")
+  done
   for _se in "${_sec_exp[@]}"; do
     _found=0
     for _g in "${_sec_got[@]}"; do [[ "$_g" == "$_se" ]] && _found=1; done
     (( _found )) || sec_ok=0
   done
-  # daemon-added extras tolerated only when the profile opted in
-  if (( ${#_sec_exp[@]} == 0 )) && (( ${#_sec_got[@]} > 0 )); then sec_ok=0; fi
+  # daemon/Compose-added extras tolerated only when nothing unexpected remains
+  if (( ${#_sec_exp[@]} == 0 )) && (( ${#_sec_eff[@]} > 0 )); then sec_ok=0; fi
   check "$( (( sec_ok )) && echo OK || echo BAD )" "SecurityOpt ${GET_SEC} (expect all of: ${_sec_exp[*]:-<empty>})"
   if [[ "$GET_DR" == '[nvidia|-1|'* || "$GET_DR" == '[nvidia|0|'* ]]; then
     [[ "$GET_DR" == *gpu* ]] || check BAD "DeviceRequests ${GET_DR}"

@@ -99,6 +99,12 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   the Docker default seccomp profile blocks io_uring, which the b12x loader requires;
   upstream eugr hides this behind `--privileged`). All four are no-ops when unset —
   keep it that way so 27b/35b/deepseek stay byte-identical.
+  `cluster-compose-verify` treats `SecurityOpt` as a subset match and tolerates
+  exactly one Compose-added token: **Compose v5 (v5.0.2) injects
+  `security_opt: ["label=disable"]` for any service with `ipc: host`**, which is every
+  TP2 lane, and these hosts run apparmor+seccomp only (no SELinux) so it is a no-op.
+  Do not "fix" that by declaring `SECURITY_OPT=("label=disable")` in profiles — that
+  would change every render; keep the tolerance in the verifier.
 - **The two 1017 lanes are PEERS, not primary/backup (user decision 2026-10-21).**
   `dsv41flash-exl3-vllm` (MiaAI vLLM kit) and `dsv41flash-tensorfold` (TensorFold TP2) are
   both first-class lanes: identical registration in `bin/gb10` (usage ×2,
