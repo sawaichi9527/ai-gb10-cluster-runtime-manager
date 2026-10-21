@@ -2292,6 +2292,37 @@ TensorFold family／patches）＋ **ashhart/TensorFold `c4646171`**（Apache-2.0
 **未做**：1M context 壓力、tool-call／structured output、長時間 soak；`gb10 restart` 在本 lane
 觀察到一次「只停未啟動」（boot log 未更新、容器未重建）→ 以 `gb10 use` 可正常啟動，待查。
 
+### 2026-10-21 — session close：`v1.8.0` 驗證證據
+
+**範圍**：本 session 的變更為 ① 文件同步（handoff／AGENTS／README）② 兩條 1017 lane
+（profile、通用 `LAUNCH_STYLE=kit`、`bin/gb10`／`cluster-*` 接線）③ 版本 **`v1.8.0`**
+（annotated tag ＋ **兩個 remote 各一個 Release**）。以下為 **2026-10-21 重新執行**的可重現證據。
+
+| 檢查 | 命令 | 時間／Duration | 結果 |
+|---|---|---|---|
+| Repo 同步閘門 | `scripts/check-git-sync.sh --block`（git bash） | 08:27 CST／<1 s | **exit 0**（clean、0 ahead／0 behind） |
+| Shell 語法 | `bash -n` × **22**（`bin/gb10`、`bin/gb10-single`、`scripts/cluster-*`、`cluster-common.sh`、`check-git-sync.sh`、`cluster-profiles.d/*.conf`） | 08:27 CST／~3 s | **0 failures** |
+| 叢集狀態 | `gb10 status`（node0） | 08:28:13 CST | **exit 0**：`status: ready`、node0+node1 up、image `deepseek41-tensorfold:1017`、health ready |
+| Smoke | `gb10 smoke` | 08:28 CST | **exit 0**：HTTP 200、`HELLO-TP2-OK` |
+| TensorFold 前置 | `python3 scripts/cluster.py check` | 08:28:13→08:28:21（**8 s**） | **exit 0**：metadata／tokenizer／template／grammar／vision、40 router biases、43 inline tensors、兩端 image 與 Engram |
+
+**同一天較早的完整量測（本次未重跑，僅引用，非本次完成證據）**
+- `gb10 verify-models dsv41flash-exl3-vllm` → **PASS**（node0 52/52 ＋ 3/3；node1 52/52 ＋ 3/3；2026-10-20 13:31 CST）。
+- decode／prefill／vision 數字見上方 2026-10-20 各表；DSpark depth 掃描與 draftsim 分析見「續三」。
+- Release parity：兩邊 Release body **1,700 字元、與 annotated tag message 逐字相同**（2026-10-21 以 API 重驗）。
+
+**環境**：node0 `spark-25d5`（10.0.101.101）／node1 `spark-8095`（10.0.101.102）；
+DGX OS（Ubuntu 24.04 系列）、Docker 29.2.1；live lane `dsv41flash-tensorfold`
+（TensorFold 0.6.0、image `deepseek41-tensorfold:1017`、drafts off）。
+
+**Artifacts**：node0 `/tmp/sc-status.txt`、`/tmp/sc-smoke.txt`、`/tmp/sc-check.txt`；
+boot／kit logs 於 `~/docker-stacks/logs/dsv41flash-tensorfold/`；
+量測腳本 `/tmp/tf-bench.py`、`/tmp/tf-prefill.py`、`/tmp/tf-quick.py`（臨時，未入 repo）。
+
+**Runtime test**：是（status／smoke／`cluster.py check`）。
+**未驗證**：1M context 壓力、tool-call／structured output 長跑、node0 冷開機、
+`gb10 restart` 在本 lane 的「只停未啟動」現象（已記錄、待查）。
+
 ### 2026-10-15（續六）— 簡報產線定案：兩條獨立工作流 + 模型選擇查證（指南 rev 4）
 
 **使用者指正**：我原本把「Z-Image Turbo 出草稿 → Qwen-Image 定稿」寫成一條混用管線，那是我的
