@@ -1,0 +1,3 @@
+{"kind": "prefill", "requested_tokens": 1000, "prompt_tokens": 1048, "wall_s": 3.774, "prefill_tok_s": 277.7, "finish_reason": "length", "ok": true}
+{"kind": "conc", "ctx": 2000, "conc": 2, "prompt_tokens": 4096, "completion_tokens": 64, "wall_s": 9.871, "agg_tok_s": 6.5, "lat_p50_s": 8.59, "lat_p95_s": 9.87, "errors": 0, "ok": true}
+{"kind": "tools", "rounds": 2, "json_schema_valid": 2, "tool_call_valid": 2, "failures": 0, "ok": true}

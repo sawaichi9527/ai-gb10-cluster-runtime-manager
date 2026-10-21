@@ -1,0 +1,2 @@
+{"kind": "conc", "ctx": 32000, "conc": 4, "prompt_tokens": 128192, "completion_tokens": 1024, "wall_s": 147.405, "agg_tok_s": 6.9, "lat_p50_s": 93.1, "lat_p95_s": 147.403, "errors": 0, "ok": true}
+{"kind": "conc", "ctx": 32000, "conc": 8, "prompt_tokens": 256384, "completion_tokens": 2048, "wall_s": 307.239, "agg_tok_s": 6.7, "lat_p50_s": 175.786, "lat_p95_s": 307.233, "errors": 0, "ok": true}

@@ -1,0 +1,1 @@
+{"kind": "conc", "ctx": 32000, "conc": 4, "prompt_tokens": 128192, "completion_tokens": 1005, "wall_s": 110.851, "agg_tok_s": 9.1, "lat_p50_s": 109.402, "lat_p95_s": 110.849, "errors": 0, "ok": true}

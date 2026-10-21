@@ -19,7 +19,7 @@
 
 ## 目前狀態（本機 checkout）
 
-- 分支：`main`，HEAD = 本檔所在的 commit（`git log -1`）；最新正式版本 tag = **`v1.7.0`**（`32e79c4`；`v1.6.0`→`84f343c`、`v1.5.0`→`3201363`、`v1.4.1`→`cc76cbd`、`v1.4.0`→`6aff00d`、`v1.3.4`→`a92d2bc`、`v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、`v1.3.3`→`9bb2006`）。早期：2026-09-20 session 共 22 個 commit `a1cba34`…`79a79cb`，其後為本檔的 sync commit。
+- 分支：`main`，HEAD = 本檔所在的 commit（`git log -1`）；最新正式版本 tag = **`v1.8.0`**（2026-10-21，兩 remote 各一 Release；`v1.7.0`→`32e79c4`、`v1.6.0`→`84f343c`、`v1.5.0`→`3201363`、`v1.4.1`→`cc76cbd`、`v1.4.0`→`6aff00d`、`v1.3.4`→`a92d2bc`、`v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、`v1.3.3`→`9bb2006`）。早期：2026-09-20 session 共 22 個 commit `a1cba34`…`79a79cb`，其後為本檔的 sync commit。
 - **cluster profile 現況（2026-10-19 校正）**：`cluster-profiles.d/` 有 7 條服務 lane（`27b`/`35b`/`deepseek`/`deepseek-vision`/`deepseek-nvfp4`/`qwen38flash`/`mimo26flash`）＋ 1 條 A/B 專用（`deepseek-nvfp4-tune`）；`deepseek-nvfp4` 於 **2026-10-08** Phase 3 完成上線。**2026-10-09 兩次配方繼承（promote）**：`deepseek`（mainline）與 `deepseek-vision` 皆改為 `eugr/spark-vllm-b12x:latest` ＋ dspark-ablit 系 checkpoint（舊 Anemll 配方 byte-identical 封存於 `_overdue_recipe/`，僅為備份）。`mimo26flash` 自 10-03 上線做 NVFP4 A/B ＋ cliff 探測後**定案 MXFP4**、待命（見 `docs/…2026-10-03.md` §11）。body/image 詳見下方「Profile 現況」表。
 - 同步狀態：**本機＝Forgejo（origin，`829522`）＝GitHub（`sawaichi9527`）**，本次文件校正即為最新 commit。**node0 live lane 依使用者裁定不校正**：2026-10-15 09:22 快照實際為 `aeon-vllm-27b`（`comfyui-jdaln` 調試態）；使用者已裁定此為**刻意進行中**的 `gb10-single` 部署／調試狀態，TP2 `deepseek`／`deepseek-nvfp4` 為**後續目標態**（詳見 2026-10-15 章節）。
 - `handoff.md` 已納版控（`37bee4c` 起；本次更新亦將 commit）
@@ -897,7 +897,7 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
 
 - ~~**GitHub remote 未推**~~（已完成 2026-09-20：三方已同步 `fd9adf2`，`ls-remote` 驗證）。
 - ~~**`handoff.md` 未追蹤**~~（已完成：已納版控，見「目前狀態」）。
-- **驗證 27b/35b 未受影響**（暫緩，見「定期檢討追蹤」#3）：本次改了共用 `cluster-common.sh`（`CMD_WRAPPER`/`SYNC_DIRS` 加入 unset 清單）與 `cluster-up`（新增 `SYNC_DIRS` 區塊，預設 no-op）。已驗證 deepseek 渲染 byte-identical，但**尚未再 boot 27b/35b 實測**（低風險，兩者走 docker-run 路徑）。
+- ~~**驗證 27b/35b 未受影響**~~（**已完成 2026-10-21**，見「2026-10-21（續）」）：當年的疑慮來自共用 `cluster-common.sh`（`CMD_WRAPPER`/`SYNC_DIRS`）與 `cluster-up`（`SYNC_DIRS` 區塊）的改動。本次在 `74ca594`（含 restart/kit 修正）後實 boot：27b READY **261 s**、35b **380 s**，兩者 `gb10 smoke` HTTP 200、`bench-c 1` 0 error（27b 34.5 / 35b 93.9 tok/s）。註：本條原文寫「兩者走 docker-run 路徑」是**舊資訊**——docker-run 分支已於 2026-09-20 移除，兩者都走 compose。
 - **文件同步（2026-10-19）**：本輪已把 `handoff.md`／`AGENTS.md`／`README.md` 的**現況區塊**校正到 2026-10-09 配方繼承後的事實（見下方 `### 2026-10-19` 章節）。
 - **DeepSeek-V4.1-Flash-1017 lane（Phase 0/1 完成，待開機）**：路線已定 **MiaAI-Lab vLLM kit（免 build）＋ 1017 EXL3 2.9bpw**，**場外試跑、暫不整合 `gb10`**。**2026-10-20 已完成**：權重 385.5 GiB 下載（node0）＋ CX7 rsync 到 Node1＋image 傳輸（見同日章節）。**下一步是 `gb10 stop` 後 `./start.sh` 首啟**。去審查待 2.9bpw sidecar 出現再做。
 - （可選）長圖文混搭、`--limit-mm-per-prompt` 上限（目前 8）、多輪 agent chain 長時間穩定性（見「定期檢討追蹤」#2）。
@@ -2322,6 +2322,86 @@ boot／kit logs 於 `~/docker-stacks/logs/dsv41flash-tensorfold/`；
 **Runtime test**：是（status／smoke／`cluster.py check`）。
 **未驗證**：1M context 壓力、tool-call／structured output 長跑、node0 冷開機、
 `gb10 restart` 在本 lane 的「只停未啟動」現象（已記錄、待查）。
+
+### 2026-10-21（續） — A/B/C 驗證：restart 修正、27b/35b 回歸、1017 長上下文／併發／工具呼叫
+
+**範圍**：使用者裁定「照順序都做」＝A（restart）→ B（27b/35b 回歸）→ C（1017 驗證，**限 C1**：維持 262144 契約，不做 1M）→ D（文件）。A、B、C 皆在 node0 實跑。
+
+#### A. `gb10 restart`（commit `74ca594`）
+
+- **未重現**原症狀：2026-10-20 的「只停未啟動」僅一次，boot log 已被下一次 boot 覆寫，無可回溯證據。因此修正改為「消除可疑時序 ＋ 失敗不得靜默」，並以本次實測到的兩個缺陷為依據。
+- 實測缺陷：
+  1. restart **停了兩次**（restart 自己 + 背景工作內的 `cluster-down`），boot log 出現
+     `Error response from daemon: No such container` ×2、多花 ~20 s，正是「還沒停完就啟動」的窗口。
+  2. kit launcher 早死**不會被發現**：`cluster-up` 只 `sleep 1` 就 poll `/health`，最長等到
+     `HEALTH_TIMEOUT`（本 lane 1800 s）。而 launcher **正常**也會在 health 前 ~4 分鐘 exit 0，
+     所以「行程還在不在」不能當失敗訊號。
+- 修正：`gb10 restart` → `gb10-boot-cluster <p> --skip-down`；`cluster-up` 記錄 launcher 離開碼到
+  `state/kit.<profile>.rc`，非 0 立即印 60 行 log 並 `exit 1`；`cluster-down` 對 kit lane 等容器
+  **真的消失**（≤90 s）才返回；restart 對「job 立刻死」改為 `exit 1` + log tail。
+- 驗證（node0）：`restart` ×2 = **335 s / 335 s** READY、`use` = **330 s** READY；每次 boot 僅 1 次
+  stop、**0** 次 `No such container`；`gb10 smoke` HTTP 200 `HELLO-TP2-OK`。強制失敗
+  （測試 profile `KIT_START=false`、`HEALTH_TIMEOUT=120`）→ **2 s** 內 `exit 1`（原行為會等滿 120 s）。
+- 迴歸：27b/35b/deepseek 的 compose 渲染 sha256 **前後完全相同**
+  （`0a3947c4…` / `d30753fb…` / `526b7868…`）。
+
+#### B. 27b / 35b 回歸（自 2026-09-05 起首次實 boot）
+
+| lane | READY | `gb10 smoke` | KV (node0) | `bench-c 1` | acceptance |
+|---|---|---|---|---|---|
+| 27b | **261 s** | 200 `HELLO-TP2-OK` | 3,188,624 tok | 34.5 tok/s | 25.0%（1.75 tok/step）|
+| 35b | **380 s** | 200 `HELLO-TP2-OK` | 3,303,154 tok | 93.9 tok/s | 47.2%（2.83 tok/step）|
+
+- 兩者都走 compose（`LAUNCH_STYLE="compose"`）；舊「走 docker-run 路徑」敘述是 2026-09-20 前的資訊，已修正。
+- **假陽性教訓**：用 `/health` 200 判讀 lane 切換會踩到「舊 lane 還在服務」——本次 `gb10 use 35b`
+  後 0 秒就量到 200，實際新 lane 還在載入。要以 `state/boot-ready.<profile>`（或 `gb10 wait`）
+  為準，不能只看 health。
+
+#### C. 1017 驗證（C1：262144 context / 8 seqs）
+
+新 harness `scripts/bench-1017.py`（`prefill`／`conc`／`tools`／`soak`，輸出 JSONL 證據）。
+
+| 項目 | `dsv41flash-tensorfold` | `dsv41flash-exl3-vllm` |
+|---|---|---|
+| cold prefill 128K / 200K / 255K | 1,085.6 / 1,066.5 / **1,029.3** tok/s | — / — / **1,250.1** tok/s |
+| 併發 32K × C4 | 128,192 prompt tok / 147 s · **0 error** | 128,192 / 111 s · **0 error** |
+| 併發 32K × C8 | 256,384 / 307 s · **0 error** | 未跑（時間考量） |
+| `json_schema` 結構化輸出 | **20/20** | **10/10** |
+| 單一 tool-call 且參數可解析 | **20/20** | **10/10** |
+
+- 全部在 262144 硬限內：255,048 prompt tokens 可用、finish=length，無 400。
+- **thinking 預設開啟的代價（重要）**：`max_tokens=256` 時 **2/20** 回合 `finish_reason=length`
+  且 `content` 為空（reasoning 吃掉整個預算）。關掉 thinking 後 20/20，延遲由 ~5 s 降到 ~1 s。
+  → 客戶端要嘛給 ≥1024 tokens，要嘛送 `chat_template_kwargs: {"thinking": false}`。
+- **soak 2 小時**（混合：短問答／8K 長文／圖片，每 60 s 一輪）：**120 輪、0 failure**、
+  中位每輪 **13.64 s**（短 0.15 s／8K 11.8 s／圖片 0.7 s）、`/health` **每輪皆 200**、
+  無空回應、無 garble。證據：`docs/evidence/dsv41-1017-validation-2026-10-21/`
+  （`c-soak.jsonl` 120 筆 `soak_round` + 1 筆 `soak_summary`、`soak.log`、prefill/conc/tools 各 lane）。
+- 兩條 lane 的 **API key 一致**（都吃 `cluster.env` 最後一處 `export VLLM_API_KEY`）；
+  `cluster.env` 前面有一行**被註解的**同名範例，任何解析器都必須「略過 `#`、後者覆蓋」。
+
+#### D. 文件
+
+- `handoff.md`「目前狀態」的 tag 由 `v1.7.0` 更正為 **`v1.8.0`**；`下一步` 的 27b/35b 與
+  docker-run 敘述改成本次實測事實。
+- `AGENTS.md` 新增三條 Facts：restart／kit 失敗語意、thinking 預設與 token 預算、`aeon` 對外 id 現況。
+- `README.md`：1017 段補本次驗證表；Layout 補 `bench-1017.py`。
+
+#### 待決 → 已裁定（2026-10-21）
+
+1. **`aeon` 對外 id：已對齊並驗證。**
+   - `dsv41flash-exl3-vllm`：node 側 kit `.env` 的 `SERVED_MODEL_NAME` 由
+     `DeepSeek-v4.1-Flash-EXL3` 改為 **`aeon`**（改前備份 `.env.bak-20261021-134817`）；
+     重啟後 `/v1/models` = `["aeon"]`、`model=aeon` **200**、回應 `model: aeon`、`gb10 smoke` 通過。
+   - `dsv41flash-tensorfold`：伺服器本來就接受任意 id，`model=aeon` **200**（回應仍 echo
+     `deepseek-flash`）；`/v1/models` 仍廣告 `deepseek-flash`（名稱寫死在上游 vendored 程式，
+     無設定旋鈕，不為此改第三方碼）。兩個 id 都能用，對外請統一用 **`aeon`**。
+   - repo 側兩條 conf 的 `SERVED_MODEL` 同步改為 `aeon`，`gb10 smoke`／`gb10 load` 因此也用 `aeon`。
+2. **thinking 維持開啟（使用者裁定）**：對外服務不改；客戶端需 ≥1024 tokens 或自行
+   `chat_template_kwargs: {"thinking": false}`。
+3. 1M context（C2）依使用者裁定**不做**，維持 262144。
+4. `state/` 在 `git status` 的 untracked 噪音：`.gitignore` 已由逐檔改為 `state/`（本次）。
+
 
 ### 2026-10-15（續六）— 簡報產線定案：兩條獨立工作流 + 模型選擇查證（指南 rev 4）
 

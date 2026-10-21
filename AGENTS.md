@@ -99,6 +99,34 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   the Docker default seccomp profile blocks io_uring, which the b12x loader requires;
   upstream eugr hides this behind `--privileged`). All four are no-ops when unset —
   keep it that way so 27b/35b/deepseek stay byte-identical.
+- **`gb10 restart` stops a lane ONCE, and a dead kit launcher now fails fast (2026-10-21, `74ca594`).**
+  `restart` runs `cluster-down` synchronously and then passes `--skip-down` to
+  `gb10-boot-cluster` (`use`/`start` keep the full teardown) — the second stop used to
+  race the first one's container teardown and could relaunch into a name still in use.
+  For kit lanes `cluster-down` now waits (≤90 s) until `KIT_*_CONTAINER` really disappears,
+  `cluster-up` records the launcher exit code in `state/kit.<profile>.rc` and exits 1 with
+  the log tail when it is non-zero, and `restart` exits 1 (instead of printing "launched")
+  when the background job dies immediately. Do not "simplify" these away: the kit launcher
+  legitimately exits **0** several minutes before `/health`, so liveness must be judged by
+  the exit code, never by "is the process still running".
+- **Thinking is ON by default on the 1017 lanes (effort 75) — keep it that way (user decision 2026-10-21).**
+  The downside is budget, not correctness: a small `max_tokens` is consumed entirely by
+  reasoning and the response comes back with `finish_reason=length` and **empty `content`**
+  (measured 2/20 at 256 tokens on dsv41flash-tensorfold). Do not disable thinking on the
+  service side; clients that need formatted output must allow ≥1024 tokens (or send
+  `chat_template_kwargs: {"thinking": false}` themselves). `scripts/bench-1017.py` does the
+  latter by default (`--thinking` restores the long path) because a validation run measures
+  the format contract, not reasoning.
+- **`aeon` is THE external model id (aligned 2026-10-21).** Clients never need to know which
+  runtime is live: compose lanes default to `SERVED_MODEL=aeon`, and both 1017 confs now
+  declare `SERVED_MODEL="aeon"`. The vLLM kit lane needed a node-side change too —
+  `~/docker-stacks/mia-vllm-dsv41flash/.env` `SERVED_MODEL_NAME=aeon` (was the backend name,
+  which made `model=aeon` a 404; the pre-change copy is `.env.bak-20261021-134817`).
+  `dsv41flash-tensorfold` accepts any id and still *advertises* `deepseek-flash` on
+  `/v1/models` because the name is baked into the vendored upstream server (no knob; do not
+  patch third-party code for it) — both ids answer, prefer `aeon`.
+  Key parsing note: `cluster.env` holds `export VLLM_API_KEY=...` and mentions the same name
+  in a comment first, so any parser must skip `#` lines and let the **last** assignment win.
 - **SGLang launcher removed (2026-09-20).** `build_sglang_args` and every `ENGINE=sglang`
   branch were deleted from `cluster-common.sh`, `cluster-up` and `cluster-compose-verify` —
   the SGLang route was abandoned (it was only ever an early DeepSeek-Vision experiment) and

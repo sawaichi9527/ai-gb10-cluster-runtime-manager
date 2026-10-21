@@ -1,0 +1,1 @@
+{"kind": "tools", "rounds": 10, "json_schema_valid": 10, "tool_call_valid": 10, "truncated": 0, "thinking": false, "max_tokens": 512, "failures": 0, "ok": true}

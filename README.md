@@ -119,6 +119,27 @@ shards 47/48，**互斥**的兩條 TP2 lane：
 - 資料完整性：兩個模型目錄都有 `SHA256SUMS`（量化 52 檔、Engram 3 檔），
   `gb10 verify-models dsv41flash-exl3-vllm` 兩節點全數 PASS。
 
+#### 2026-10-21 驗證（維持 262144 契約，不做 1M）
+
+harness = `scripts/bench-1017.py`（`prefill`／`conc`／`tools`／`soak`，輸出 JSONL）。
+
+| 項目 | `dsv41flash-tensorfold` | `dsv41flash-exl3-vllm` |
+|---|---|---|
+| cold prefill 128K / 200K / 255K | 1,085.6 / 1,066.5 / 1,029.3 tok/s | — / — / 1,250.1 tok/s |
+| 併發 32K × C4 / C8 | 147 s / 307 s，**0 error** | 111 s / — ，**0 error** |
+| `json_schema` + 單一 tool-call | 20/20 + 20/20 | 10/10 + 10/10 |
+
+- **thinking 預設開啟**（effort 75；**對外服務維持開啟 — 使用者裁定 2026-10-21**）：
+  `max_tokens` 太小時 reasoning 會吃掉整個預算，回應變 `finish_reason=length` + 空
+  `content`（256 tokens 實測 2/20）。客戶端請給 ≥1024 tokens，或自行送
+  `chat_template_kwargs: {"thinking": false}`（約省 4 倍延遲）。
+- **對外 model id 一律 `aeon`**（2026-10-21 對齊）：compose lanes 本來就是 `aeon`；兩條 1017 conf
+  的 `SERVED_MODEL` 已改為 `aeon`，`dsv41flash-exl3-vllm` 另需 node 側 kit `.env` 的
+  `SERVED_MODEL_NAME=aeon`（改前備份 `.env.bak-20261021-134817`）。TensorFold 接受任意 id
+  但 `/v1/models` 仍廣告 `deepseek-flash`（名字寫死在上游 vendored 程式，無旋鈕）——兩者都可用，
+  客戶端請統一用 `aeon`。
+
+
 ### 27B v0.29.0-omni (bench-c C1-C8, MAX_TOKENS=2048; 245k cold prefill) — 2026-09-19
 
 > **2026-09-19 實測**（`2026-09-18-v0.29.0-omni`；single node0 與 TP2 cluster）。
@@ -816,6 +837,7 @@ files are listed in `handoff.md`.
 ```text
 bin/            gb10 (cluster), gb10-single (single-node)
 scripts/        cluster-up|down|status|smoke|load + cluster-common.sh
+                bench-1017.py (1017 lanes: prefill|conc|tools|soak, JSONL evidence)
 runtimes.d/     *.conf single-node runtime definitions
 cluster-profiles.d/  data-driven TP2 profile registry (active ownership by cluster-common.sh)
 state/          last-runtime marker files (gitignored, empty = normal)

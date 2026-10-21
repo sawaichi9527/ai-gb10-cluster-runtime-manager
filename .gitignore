@@ -2,17 +2,17 @@
 config/cluster.env
 
 # Runtime state markers (node paths) — not meaningful in git
-state/last-runtime
-state/last-cluster-profile
-# Background-boot markers (traps clean these; never commit)
-state/boot-cluster.*.pid
-state/boot-ready.*
-state/boot-single.*.pid
-state/kit.*.pid
+# Nothing under state/ is ever committed: last-runtime / last-cluster-profile,
+# background-boot markers (boot-cluster.*.pid, boot-ready.*, boot-single.*.pid),
+# kit launcher markers (kit.*.pid, kit.*.rc). git only keeps the dir via the
+# code that mkdir -p's it.
+state/
 
 # Logs / transient
 *.log
 /tmp/
+__pycache__/
+*.pyc
 
 # Profile/config backups (pre-upgrade snapshots) - never commit
 cluster-profiles.d/*.bak-*
