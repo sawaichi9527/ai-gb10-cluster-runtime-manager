@@ -2798,3 +2798,31 @@ FLUX.2 Dev（**只有藍圖、無 profile** → 手動放檔）；另註明 LTX-
 - **現役＝`qwen38flash-tensorfold`**（僅表示此刻在線）。回滾 `gb10 use qwen38flash`（冷啟約 14 分）。
 - **尚未做（下次）**：`tools/long_context.py`（128k/256k × 5 深度）、長時間 soak
   （開 `TF_FLASHNEXT_GRAPH_LOG=1` 觀察 v1.1 的 CUDA-graph graceful degrade）、8 併發 prefill。
+
+#### 2026-10-22 session close — Validation evidence
+
+**範圍**：`b37642c`（profile + `bin/gb10` 六處）、`9016ff7`（文件）。部署本體與量測在同一 session 完成。
+
+| # | 檢查 | 命令 | 時間 | 結果 |
+|---|---|---|---|---|
+| 1 | Image 存在與身分 | node0 `docker pull` by digest、`docker image inspect` | 23:16 CST | digest `sha256:e188128d…e18c`、`tf.patches=f3e1300f4f62`、`tf.kernels=present`、arm64、24.7 GB |
+| 2 | 兩節點 image 內容一致 | `RootFS.Layers` sha256、`docker run … test -x /opt/tensorfold/native/bin/tensorfold-native` | 23:25 | **相同** `b0fd0ee0…`；binary present（`.Id`/`.Size` 差異＝overlay2 vs containerd，已知） |
+| 3 | Checkpoint 閘門 | `MEM_CHECK=0 PULL=0 HF_HUB_OFFLINE=1 ./scripts/prepare.sh` | 23:27 | **PASS**：`qwen4_exp, modelopt MIXED_PRECISION, 299545 tensors in 11 shards`；worker 零傳輸 |
+| 4 | Lane 註冊 | node0 `bash -n`、`load_profile`、`bin/gb10 list` | 23:28 | style/dir/start/stop/containers/port/model 全部正確 |
+| 5 | Boot | `gb10 use qwen38flash-tensorfold` ×3 | 23:47:53 → 23:49:38（**1m45s**）；00:16:28 → 00:18:21（1m53s） | `state/kit.qwen38flash-tensorfold.rc=0`、`/health` 200 |
+| 6 | 對外契約 | `/v1/models`、無 key 401、`gb10 smoke` | 00:19 | `aeon`、**401**、`http=200 HELLO-TP2-OK` |
+| 7 | Decode（變動/固定） | `bench-c 1/2/4/8 400`、`BENCH_IGNORE_EOS=1` | 00:00–00:20 | 59.5/111.1/174.7/293.9；固定 55.0/82.5/150.3/287.2，0 error |
+| 8 | Prefill | `BENCH_COLD=1 bench-ctx 32k/131k/261k` | 00:14 | 3,465 / 3,240 / 2,989 tok/s |
+| 9 | Vision | `bench-mm 1 1/8 400` + 自建描述請求 | 00:15 | C1 52.5 / C8 230.1 tok/s、0 error；描述 `carrots.jpeg` 正確 |
+| 10 | 工具/重用/決定性/長文 | `tools/toolcheck.py`、`prompt_reuse.py`、`exact.py`、`needle.py 200000` | 00:13–00:15 | 3/3、PASS 99.3%、PASS（drafted==serial==conc）、found yes |
+| 11 | A/B 對照 | 同 harness 切回 `qwen38flash` 再量一次 | 00:00–00:12 | vLLM 40.6/42.0/89.5/157.6（decode）、2,770/2,809/2,559（prefill）、boot 13m58s |
+| 12 | Repo 同步閘門 | 本機 `git status`、node0 `check-git-sync.sh --block` | 00:30 | clean；**rc=0** |
+| 13 | Shell 語法 | node0 `bash -n`（21 支） | 00:30 | **0 failures** |
+| 14 | 收尾狀態 | `gb10 status` + `gb10 smoke` + `state/kit.*.rc` | 00:31 | `ready`、node0+node1 up、200 `HELLO-TP2-OK`、rc=0 |
+
+**Runtime test**：是（完整 boot ×5、decode/prefill/vision/tools/long-context）。
+**未驗證**：`tools/long_context.py` 的多深度檢索、長時間 high-concurrency soak（`TF_FLASHNEXT_GRAPH_LOG=1`）、
+8 併發 prefill、1M/YaRN（刻意不啟用）；`gb10 verify-models` 對此模型目錄只會 WARN（無 `SHA256SUMS`，與 vLLM lane 相同）。
+**Artifacts**：node0 `~/docker-stacks/logs/qwen38flash-tensorfold/{image-pull,image-transfer,prepare,kit,boot-cluster}.log`、
+`/tmp/bcf.*.txt`、`/tmp/bctx.*.txt`、`/tmp/vllm_bcf.*.txt`、`/tmp/vllm_bctx.*.txt`；
+repo `docs/QWEN38FLASH_TENSORFOLD_DEPLOY_2026-10-22.md`。
