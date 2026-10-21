@@ -482,12 +482,19 @@ NVIDIA **未驗證**此 checkpoint 的 DSpark spec decode——已在 Phase 3 �
 > 節點只剩 0.3–0.9 GiB MemAvailable，GB10 會硬重置）、`--max-num-batched-tokens 8192`、
 > `--mm-encoder-tp-mode data`、`--enable-prompt-tokens-details`、**prefix caching ON**。
 >
-> MiaAI-Lab 配方 vendored 於 `patches/qwen38flash/`（AGPL-3.0，見 NOTICE；**10 個檔案 pin 在
-> `2c86a1d0`**），由 `CMD_WRAPPER` 在容器內**就地**套用於 image 自身的 vLLM 原始碼（PLE /
-> ModelOpt MXFP8 + FP8_BLOCK_SCALES / QSA FP8-KV / 精簡詞表 MTP drafter / **vllm#53388
-> block-drop backport** / opt-in determinism），不重建 image；47k 詞表唯讀掛載於
+> MiaAI-Lab 配方 vendored 於 `patches/qwen38flash/`（AGPL-3.0，見 NOTICE；**18 個檔案 pin 在
+> `cd839d0b`**＝上游 2026-09-29 `main` HEAD；10 個 patcher 與上游逐 byte 相同，另含 7 個語言 65k
+> draft 詞表與 `build_draft_vocab_extend.py`），由 `CMD_WRAPPER` 在容器內**就地**套用於 image 自身的
+> vLLM 原始碼（PLE / ModelOpt MXFP8 + FP8_BLOCK_SCALES / QSA FP8-KV / 精簡詞表 MTP drafter /
+> **vllm#53388 block-drop backport** / opt-in determinism），不重建 image；47k 詞表唯讀掛載於
 > `/etc/vllm-draft-vocab.txt`。checkpoint 的 MTP 層索引別名由
 > `patches/qwen38flash/prepare.sh` 預先產生後唯讀掛載。
+>
+> **語言 draft 詞表（2026-10-21 對齊上游 09-29）**：`Q38_DRAFT_VOCAB=<lang>`（`es`/`zh`/`ja`/`de`/`pt`/`fr`/`ru`）
+> 換成 65,536 列語言檔（47k 全量為底＋該語言 Wikipedia 排名 id）；預設仍是 `en_code_47k`。
+> **只影響 drafting，輸出位元不變**（子集外的 draft 在驗證階段被拒）。上游 TP2 實測（對同 boot
+> 英文控制組正規化）：ru +53~77%、ja +35~44%、zh +19~39%、de +31~36%、es +19/20%、fr +10/24%、
+> pt +9/16%。
 >
 > 服務：`:1234`、model id `aeon`、262144 ctx。**KV pool 29.15 GiB**（GMU 0.80；09-20 的 0.835
 > 為 34.01 GiB / 4,245,234 tokens）。**deterministic greedy decoding 為預設**（`Q38_DET_OFF=1` 可關）。

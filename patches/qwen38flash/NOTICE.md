@@ -4,11 +4,11 @@ Vendored, **byte-identical** copies of runtime patch scripts from:
 
 - Upstream: `MiaAI-Lab/Qwen3.8-Flash-Next-Dual-DGX-Sparks`
   (<https://github.com/MiaAI-Lab/Qwen3.8-Flash-Next-Dual-DGX-Sparks>)
-- Commit: `2c86a1d05f93c8d3a68146a321d417ffa4ca5039` (2026-09-27)
-  (`patch_block_drop.py` and `patch_determinism.py` were added 2026-09-29 from this
-  commit. The other eight files were originally taken from `d2f54b78…` and were
-  re-verified **blob-identical** at `2c86a1d0…`, so the whole set now pins to one
-  commit.)
+- Commit: `cd839d0b62f6c737178a0c2037733420e0524ebf` (2026-09-29; upstream `main`
+  HEAD, no later commit). The ten patchers below were re-verified **blob-identical**
+  at this commit on 2026-10-21; the only functional addition since `2c86a1d0` is the
+  seven language-extended draft vocabularies plus `build_draft_vocab_extend.py`,
+  which are now vendored too.
 - Upstream license: **GNU AGPL-3.0** (`LICENSE`, sha256
   `e0eedba615d5cd1b986afb6c5b3a4b1ae33713e7e9dc74d19daec5e3221f9d2e`)
 
@@ -31,6 +31,24 @@ inputs to the lane.
 | `draft_vocab_en_code_47k.txt` | `20e36b6e8eae2598019298959a578ef8adc2948bbed7189e43a8da9b9d84a0b1` | 47,149 token ids (one per line); mounted at `/etc/vllm-draft-vocab.txt` |
 | `patch_block_drop.py` | `ff368a20c033c62f2cf113927eeffb74283c12c901e661951a4d1f3b0131e458` | vllm#53388 `disable_eagle_block_drop` backport; patches 6 vLLM files, applied by `CMD_WRAPPER` (fail-closed). Source of the `disable_eagle_block_drop` spec key |
 | `patch_determinism.py` | `c8d3e5d86aa04fd4e1de68e98d1e5afb959559f3f58ed3a5e2c6d1a77e63dc42` | Reproducible greedy decoding. **Opt-in**: the container runs it only when `VLLM_QSA_DET_TOPK=1` or `VLLM_MOE_DET_FINALIZE=1`; otherwise it is not applied. Must run after `patch_qsa_fp8_kv.py` (edits `qsa_ops_patched.py` in place) |
+| `draft_vocab_es_en_code_65k.txt` | `f5f4517ea57100778ffe8fa96220b32865b0464ec951cf762bbecaed6fa49b90` | Spanish 65,536-row draft head (47k file as floor + es Wikipedia); select with `Q38_DRAFT_VOCAB=es` |
+| `draft_vocab_zh_en_code_65k.txt` | `efdf7c2efbaeb23b9ad7271397b2559d016b90656285bbdfdb65d3c9a6ec016b` | Chinese 65,536 rows; upstream TP2 measured +19…+39% (control-normalized) |
+| `draft_vocab_ja_en_code_65k.txt` | `9db44500f4015700d2cbafcdb26018cd2e9696243471092a60b2bc0c4f8a5d1f` | Japanese 65,536 rows; +35…+44% |
+| `draft_vocab_de_en_code_65k.txt` | `5da38af2279e9e8468ef5908aee9a3cee9091d48dc3e1539966c8281c9d19a96` | German 65,536 rows; +31…+36% (ABBA re-measured) |
+| `draft_vocab_pt_en_code_65k.txt` | `79207277245bf1da7b92c8b4b04e7f943873574d1d42910e6c3db79bc2c4db1b` | Portuguese 65,536 rows; +9…+16% |
+| `draft_vocab_fr_en_code_65k.txt` | `207c965b33bb2c62baa3ed40a8abf208dce7363b3b2455cf35e845a05ccb1ee6` | French 65,536 rows; +10…+24% |
+| `draft_vocab_ru_en_code_65k.txt` | `3cb85dc1d03d4a97b273aee5f8d78f1340f94288db8dc6ffaa2d863ba96fd99a` | Russian 65,536 rows; +53…+77% (largest gap in the 47k file) |
+| `build_draft_vocab_extend.py` | `4dd33bcbece3a8220d98496012a6acd5ebd54a8656c308d76be43978f1cb4c11` | Rebuilds a language file from the 47k floor + a language corpus; not run at deploy time |
+
+### Language draft vocabularies (upstream 2026-09-29)
+
+`draft_vocab_<lang>_en_code_65k.txt` = the 47,149-id English+code file **whole as a
+floor**, all 400 byte-fallback ids pinned, plus 18,387 ids ranked by frequency over
+668 MiB of that language's Wikipedia (65,536 rows, 391–400 KB each). They change
+**drafting only** — `compute_logits` still uses the full 248,320-token vocabulary,
+and a draft outside the subset is rejected at verification exactly like any other
+bad draft. The default stays `draft_vocab_en_code_47k.txt`; `cluster-profiles.d/qwen38flash.conf`
+maps `Q38_DRAFT_VOCAB=<lang>` to the matching file and aborts on an unknown value.
 
 ## Provenance / credit
 
