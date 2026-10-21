@@ -5,6 +5,11 @@
 # Runs the full cluster-down → free_singles → cluster-up sequence in
 # the background.  Called via setsid nohup from bin/gb10 (not directly).
 #
+#   gb10-boot-cluster <profile> [--skip-down]
+#
+# --skip-down is passed by `gb10 restart`, which has already stopped the
+# stack synchronously (see the comment at the cluster-down call below).
+#
 # State files (all in ${REPO_DIR}/state/, gitignored):
 #   boot-cluster.<PROFILE>.pid  — running PID (removed on exit)
 #   boot-ready.<PROFILE>        — written on READY; read by gb10 wait/status
@@ -34,7 +39,16 @@ rm -f "${READY_FILE}"
 echo "$(date '+%F %T') [boot-cluster] background boot started: profile=${PROFILE}"
 
 # --- cluster-down (stop existing TP2) ---
-"${REPO_DIR}/scripts/cluster-down"
+# `gb10 restart` already ran cluster-down synchronously before launching this
+# job and passes --skip-down, so the kit lane is not stopped twice: the second
+# stop used to race the first one's container teardown ("No such container",
+# and on a bad day a relaunch into a name that was still in use).
+# `use`/`start` keep the full teardown.
+if [[ "${2:-}" == "--skip-down" ]]; then
+  echo "$(date '+%F %T') [boot-cluster] cluster-down skipped (caller already stopped the stack)"
+else
+  "${REPO_DIR}/scripts/cluster-down"
+fi
 
 # --- free singles on both nodes (TP2 occupies both, shares port 1234) ---
 for _n in node0 node1; do

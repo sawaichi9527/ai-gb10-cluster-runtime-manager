@@ -12,18 +12,36 @@ source "${SCRIPT_DIR}/cluster-common.sh"
 # compose lane falls through unchanged.
 _ACTIVE="$(cat "${REPO_DIR}/state/last-cluster-profile" 2>/dev/null || true)"
 if [[ -n "${_ACTIVE}" && -f "${PROFILE_DIR}/${_ACTIVE}.conf" ]]; then
-  IFS='|' read -r _style _kdir _kstop < <(
+  IFS='|' read -r _style _kdir _kstop _khead _kworker < <(
     set +u
     # shellcheck disable=SC1090
     source "${PROFILE_DIR}/${_ACTIVE}.conf" 2>/dev/null || true
-    echo "${LAUNCH_STYLE:-compose}|${KIT_DIR:-}|${KIT_STOP:-./start.sh stop}"
+    echo "${LAUNCH_STYLE:-compose}|${KIT_DIR:-}|${KIT_STOP:-./start.sh stop}|${KIT_HEAD_CONTAINER:-}|${KIT_WORKER_CONTAINER:-}"
   )
   if [[ "${_style}" == "kit" && -n "${_kdir}" && -d "${_kdir}" ]]; then
     echo "== stopping kit lane ${_ACTIVE} (${_kstop}) =="
     ( cd "${_kdir}" && bash -c "${_kstop}" ) || true
-    rm -f "${REPO_DIR}/state/kit.${_ACTIVE}.pid"
+    # The launcher returns as soon as docker accepts the stop; the container
+    # can stay in "terminating" for a few more seconds.  Relaunching inside
+    # that window fails with "name already in use", which showed up as a
+    # `gb10 restart` that stopped but never came back.  Wait for the names to
+    # disappear before reporting the lane as down.
+    _gone=0
+    for _i in $(seq 1 18); do
+      _gone=1
+      for _c in ${_khead:-} ${_kworker:-}; do
+        if docker inspect -f '{{.State.Status}}' "${_c}" >/dev/null 2>&1; then _gone=0; fi
+      done
+      if [[ "${_gone}" == 1 ]]; then break; fi
+      sleep 5
+    done
+    if [[ "${_gone}" != 1 ]]; then
+      echo "WARN: kit container(s) still present after stop: ${_khead:-} ${_kworker:-}" >&2
+    fi
+    unset _gone _i _c
+    rm -f "${REPO_DIR}/state/kit.${_ACTIVE}.pid" "${REPO_DIR}/state/kit.${_ACTIVE}.rc"
   fi
-  unset _style _kdir _kstop
+  unset _style _kdir _kstop _khead _kworker
 fi
 
 echo "== stopping Node1 (headless) =="

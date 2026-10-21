@@ -236,10 +236,11 @@ case "${1:-help}" in
       27b|35b|deepseek|deepseek-nvfp4|deepseek-vision|deepseek-nvfp4-tune|qwen38flash|mimo26flash|dsv41flash-exl3-vllm|dsv41flash-tensorfold)
         _kill_boot
         down
-        # launch background boot (same as use|start)
+        # launch background boot (same as use|start, except the teardown just
+        # happened synchronously above -> tell the job to skip its own down)
         mkdir -p "${LOG_BASE}/${P}"
         LOG="${LOG_BASE}/${P}/boot-cluster.log"
-        ( setsid nohup "${SCRIPTS}/gb10-boot-cluster" "$P" </dev/null >"${LOG}" 2>&1 &
+        ( setsid nohup "${SCRIPTS}/gb10-boot-cluster" "$P" --skip-down </dev/null >"${LOG}" 2>&1 &
           echo $! > "$(_pid_file "$P")" )
         sleep 0.2
         if _boot_alive "$P"; then
@@ -248,7 +249,11 @@ case "${1:-help}" in
           echo "  log:  ${LOG}"
           echo "  wait: gb10 wait $P"
         else
-          echo "$(date '+%F %T') $P: restart launched (check log: ${LOG})"
+          # The job is already gone: report the real failure instead of a
+          # cheerful "launched" line (the old behaviour hid it until `wait`).
+          echo "$(date '+%F %T') $P: restart FAILED to stay up (check log: ${LOG})"
+          tail -20 "${LOG}" 2>/dev/null || true
+          exit 1
         fi
         # Keep the no-argument fallback in sync with the profile just restarted.
         printf '%s\n' "$P" > "${STATE}/last-cluster-profile"

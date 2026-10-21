@@ -52,13 +52,29 @@ if [[ "${LAUNCH_STYLE}" == "kit" ]]; then
   fi
   mkdir -p "${LOG_BASE}/${PROFILE}"
   KIT_LOG="${LOG_BASE}/${PROFILE}/${KIT_LOG_NAME:-kit.log}"
+  # The kit launcher is normally short-lived: it validates both ranks, starts
+  # the containers and exits 0 while the model is still loading (health comes
+  # ~4 min later).  So "the launcher is gone" is NOT a failure signal — only a
+  # non-zero exit is.  Record the exit code so a launcher that dies before the
+  # API is healthy fails fast here instead of silently burning the whole
+  # HEALTH_TIMEOUT budget.
+  KIT_RC="${REPO_DIR}/state/kit.${PROFILE}.rc"
+  rm -f "${KIT_RC}"
   echo "== kit lane ${PROFILE}: '${KIT_START}' in ${KIT_DIR} (log ${KIT_LOG}) =="
-  ( cd "${KIT_DIR}" && setsid nohup bash -c "${KIT_START}" </dev/null >"${KIT_LOG}" 2>&1 & \
+  ( cd "${KIT_DIR}" && setsid nohup bash -c "${KIT_START}; echo \$? > '${KIT_RC}'" </dev/null >"${KIT_LOG}" 2>&1 & \
     echo $! > "${REPO_DIR}/state/kit.${PROFILE}.pid" )
   sleep 1
   echo "== waiting for API health on :${API_PORT} (kit cold start can take ~15 min) =="
   begin=$SECONDS
   until curl -fsS -m 5 "http://localhost:${API_PORT}/health" >/dev/null 2>&1; do
+    if [[ -f "${KIT_RC}" ]]; then
+      _krc="$(cat "${KIT_RC}" 2>/dev/null || echo unknown)"
+      if [[ "${_krc}" != "0" ]]; then
+        echo "ERROR: kit launcher '${KIT_START}' exited ${_krc} before :${API_PORT} became healthy; last ${KIT_LOG##*/} lines:" >&2
+        tail -n 60 "${KIT_LOG}" >&2 || true
+        exit 1
+      fi
+    fi
     if ((SECONDS-begin > ${HEALTH_TIMEOUT:-2400})); then
       echo "ERROR: health timeout (${HEALTH_TIMEOUT:-2400}s); last kit log lines:" >&2
       tail -n 60 "${KIT_LOG}" >&2 || true
