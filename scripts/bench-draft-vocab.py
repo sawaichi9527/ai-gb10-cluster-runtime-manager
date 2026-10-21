@@ -14,9 +14,12 @@ English control of similar shape), pins every stream to exactly --max-tokens
 cell so a speed change can be attributed to the drafter rather than the target.
 
 Examples
-  scripts/bench-draft-vocab.py run --label 47k   --lang zh --out /tmp/q38-47k.jsonl
-  scripts/bench-draft-vocab.py run --label zh65k --lang zh --out /tmp/q38-zh65k.jsonl
+  scripts/bench-draft-vocab.py run --label 47k   --lang zh --reps 3 --out /tmp/q38-47k.jsonl
+  scripts/bench-draft-vocab.py run --label zh65k --lang zh --reps 6 --out /tmp/q38-zh65k.jsonl
   scripts/bench-draft-vocab.py compare /tmp/q38-47k.jsonl /tmp/q38-zh65k.jsonl
+
+`--reps` also rotates the prompt start, so use --reps 6 to cover all six prompts
+of each set at every concurrency (with the default 3, C=1 covers three prompts).
 
 Env / flags (flags win):
   VLLM_API_KEY   bearer key; falls back to ~/docker-stacks/config/cluster.env
@@ -229,7 +232,12 @@ def cmd_run(args):
         for rep in range(1, args.reps + 1):
             for c in concs:
                 for name, prompts in ((lang, PROMPTS[lang]), (control, PROMPTS[control])):
-                    cell = run_cell(prompts, c, args)
+                    # Rotate the prompt start every rep: with C=1 the cell would
+                    # otherwise always hit prompts[0], so a 3-rep median at C1
+                    # would be one prompt's number, not the set's.
+                    off = (rep - 1) % len(prompts)
+                    rotated = prompts[off:] + prompts[:off]
+                    cell = run_cell(rotated, c, args)
                     failures += len(cell["errors"])
                     row = {
                         "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -238,6 +246,7 @@ def cmd_run(args):
                         "target_lang": lang,
                         "conc": c,
                         "rep": rep,
+                        "prompt_start": off,
                         "max_tokens": args.max_tokens,
                         "thinking": bool(args.thinking),
                         **cell,
