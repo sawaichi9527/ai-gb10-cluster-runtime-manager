@@ -121,6 +121,15 @@ was an artifact:
 - Lesson: a single-prompt C=1 cell is not a control. `bench-draft-vocab.py` now
   rotates the prompt start per rep and records `prompt_start` in every JSONL row.
 
+## Raw evidence
+
+`docs/evidence/qwen38-draft-vocab-2026-10-21/` holds the four JSONL files exactly
+as collected (sha256 verified on node0 and here):
+
+- `q38-47k-b.jsonl`, `q38-zh65k-b.jsonl` — **the decision pair** (fixed harness, 6 reps).
+- `q38-47k.jsonl`, `q38-zh65k.jsonl` — the first pair, kept as the evidence for the
+  harness lesson below.
+
 ## Reproduction
 
 On node0, in a maintenance window (the lane is exclusive; each arm costs a
