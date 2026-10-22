@@ -527,6 +527,14 @@ Key rules:
   there** — pins/paths are recorded instead. The loader only scans
   `cluster-profiles.d/*.conf`, so this repo-root dir is never live; restoring a recipe
   means copying its conf (and `patches/dspark-vision/`) back to their repo paths first.
+- **Documentation layout (2026-10-22, v2.0.0)**: `README.md` is an **entry point + navigation**
+  doc (~435 lines): current state, CLI usage, architecture, one block per lane (params +
+  contract + latest measurement), non-negotiables, layout, doc index, and a **History table at
+  the end**. Detailed benchmark/A-B history lives in **`docs/BENCHMARKS.md`** — do not paste it
+  back into README (README keeps only the latest measurement per model, and must not carry
+  stacked dated "現況" blocks). Old README revisions live under `docs/_archive/`. When adding a
+  lane or re-measuring, update README's lane block **and** `docs/BENCHMARKS.md` **and** the
+  History table.
 - `comfyui-jdaln` is the current (and only) Node1 ComfyUI runtime since 2026-10-14.
   Both older ComfyUI identities are retired: `comfyui`/aeon/Flux 2 Dev was dismantled
   2026-10-14 (see its bullet above), and the `comfyui-personal`/`comfyui-work` split is
