@@ -446,6 +446,7 @@ compose 檔與 `patches/` staging 都放在該目錄內。`anemll-dspark-vllm-gx
 
 | 版本 | 日期 | 重點 |
 |---|---|---|
+| **v2.1.0** | 2026-10-22 | **全 lane 補齊 C1–C8**（10 條 TP2 ＋ 27B/35B 單節點）、`bench-c.sh` 新增 `BENCH_THINKING`、**修 `gb10-single` 假 READY**（kit lane 未被視為 TP2）、README 現役改以 `gb10 status` 為準 |
 | **v2.0.0** | 2026-10-22 | **README v2 佈局**：整合同模型新舊數據、單一「現役」來源、新增本 History；詳細量測歷史移入 `docs/BENCHMARKS.md`；v1.x README 封存 `docs/_archive/`。**無 runtime／CLI 行為變更。** |
 | v1.9.0 | 2026-10-22 | 新 lane `qwen38flash-tensorfold`（TensorFold TP2，與 `qwen38flash` 共用 checkpoint、對等 lane）；`LAUNCH_STYLE=kit` 第三例；`scripts/bench-soak.py`；A/B decode 287.2 vs 157.6、冷啟 1m53s vs 13m58s |
 | v1.8.0 | 2026-10-20 | 1017 兩條 lane（`dsv41flash-exl3-vllm`／`dsv41flash-tensorfold`）＋ 通用 `LAUNCH_STYLE=kit`／`SERVED_MODEL`／`EXTRA_MODEL_DIRS`；兩條皆 `SPEC_METHOD=none` |
