@@ -2960,6 +2960,41 @@ boot 漂移帶（normalized 0.80–1.32）內。證據：`~/docker-stacks/logs/q
 8/8 格 `any_errors=0`。cluster/single C8 比：27B **1.68×**、35B **1.36×**。現役已還原（13:55:21 READY、
 `qwen38-fn-tf` Up、`/health` 200）。證據：`~/docker-stacks/logs/{27b,35b}/bench-c-single-2026-10-22.txt`。
 
+#### 2026-10-22 session close — Validation evidence（README v2、全 lane 全掃、false-READY 修復）
+
+**範圍**：`cca549d`（archive）→ `85ae333`（README v2 ＋ `docs/BENCHMARKS.md`）→ `16be3d0`（tag 對照）
+→ `cce0986`（密碼 redact）→ `bc97349`／`fb23bbf`／`01cac68`／`fb6a60c`／`91ab20c`／`2a29ec4`。
+版本 **`v2.0.0`**（annotated tag `7e3e80f` → commit `85ae333`；兩 remote 各一 Release）。
+
+| # | 檢查 | 命令／方式 | 時間（CST） | 結果 |
+|---|---|---|---|---|
+| 1 | Repo 狀態 | 本機 `git status --short --branch`、`git diff --stat origin/main` | 14:05 | **clean、與 origin 零差異** |
+| 2 | Shell 語法 | node0 `bash -n`（22 個 `#!/usr/bin/env bash` 檔） | 14:08 | **checked=22 failures=0** |
+| 3 | Python 語法 | node0 `python3 -m py_compile scripts/*.py` | 14:08 | **rc=0** |
+| 4 | 同步閘門 | node0 `bash scripts/check-git-sync.sh --block` | 14:08 | **rc=0** |
+| 5 | 現役 lane | node0 `gb10 status` | 14:08 | `ready`、node0 up · node1 up、image `tensorfold-qwen38fn:zig-db28187` |
+| 6 | 對外契約 | `curl /health`、無 key `curl /v1/models` | 14:08 | **200** / **401** |
+| 7 | Smoke | `gb10 smoke` | 14:08 | **`HELLO-TP2-OK`**（46 completion tok，含 37 reasoning） |
+| 8 | 單節點狀態 | `gb10-single status node0` | 14:08 | 27b／35b／comfyui-jdaln 全 **inactive**（無殘留） |
+| 9 | 容器 | `docker ps` | 14:08 | 僅 `qwen38-fn-tf` Up 14 min（單一 TP2 lane） |
+| 10 | Benchmark 證據 | `ls ~/docker-stacks/logs/*/bench-c-*2026-10-22*.txt` | 14:08 | **8 檔**（mimo 另有 `-warm`） |
+| 11 | 機密掃描 | `git grep 20040401` | 14:08 | **0 檔命中**（HEAD 已 redact；歷史仍有，見 `cce0986`） |
+| 12 | 連結檢查 | README／BENCHMARKS 相對連結 `Test-Path` | 14:05 | **0 missing**（21＋1） |
+| 13 | 版面 | 行數／code fence | 14:05 | README **462 行**、BENCHMARKS **512 行**、fences 10／0 |
+
+**Runtime test：是（非 N/A）** —— 本輪改了 `bin/gb10-single`（kit lane 偵測 ＋ fail-closed）與
+`scripts/bench-c.sh`（`BENCH_THINKING`），並以 **8 次 lane 切換**實跑驗證
+（TF 現役 → mimo → exl3 → TF1017 → 27b → 35b → 27b single → 35b single → TF 現役），每次 `any_errors=0`；
+單節點路徑另觸發過 bug 情境並於修復後重測。
+**DUT／環境**：node0 `spark-25d5`（10.0.101.101）／node1 `spark-8095`（10.0.101.102）；Ubuntu 24.04.5、
+Docker 29.2.1；現役 lane `qwen38flash-tensorfold`（image `tensorfold-qwen38fn:zig-db28187`，digest `e188128d…`）。
+**Artifacts**：node0
+`~/docker-stacks/logs/{27b,35b,qwen38flash-tensorfold,mimo26flash,dsv41flash-exl3-vllm,dsv41flash-tensorfold}/bench-c-*2026-10-22*.txt`；
+repo `docs/BENCHMARKS.md`、`docs/_archive/README_ARCHIVE_2026-10-22.md`。
+**未驗證**：① 1017 的 C4/C8 與 10-20 記錄差 24–32 %，未用同一協定複驗；② `gb10-single` 的 **node1** 路徑
+（本次只測 node0）未重跑；③ 27B/35B 的 245k prefill 未重測（沿用 09-19 值）；④ 本輪是量測＋文件，
+未做長時間 soak；⑤ `v2.0.0` 之後的 commit（bench 表格、全掃、bug fix）**尚未發新版本**。
+
 **工具改動**：`scripts/bench-c.sh` 新增 `BENCH_THINKING=off|on`（opt-in）。未設時 payload
 **byte-identical**（node0 以 jq 生成兩種 payload 比對相同，且 `bash -n` 0 failure）——這是必要的，
 因為 1017 兩條 lane 的 profile 預設 thinking ON（effort 75），其 decode 協定是 thinking off。
