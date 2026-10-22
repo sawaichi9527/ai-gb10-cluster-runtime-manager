@@ -2920,7 +2920,9 @@ FP4-Local 未下載／未在 dual 引擎試跑（依查證結論不做）；`gb1
 | 11 | 殘留字串 | `MiniMaxH3`、`做法 B`、`_backup/`、`2026-10-20 現況` | README 內 **0 命中**（僅 §10 表格以「已評估、未採用」保留歷史決策） |
 | 12 | 機密掃描 | repo 內 `VLLM_API_KEY=` 實值、node 密碼字串 | **0 命中**（僅 `${H3_API_KEY}` 等既有模板佔位） |
 
-**版本對照**：`v1.9.0` → `d7a1d17`；`v2.0.0` → 本輪 tag 指向的 commit（README v2 ＋ BENCHMARKS）。
+**版本對照**：`v1.9.0` → `d7a1d17`；**`v2.0.0` → `85ae333`**（annotated tag object `7e3e80f`；兩 remote 各一個 Release，
+Forgejo `id=27`、GitHub `id=420256184`，body 與 tag message 逐字相同、`draft=false`）。兩邊 Release 清單
+皆為 **16 個**（`v1.0.0`…`v2.0.0`），tag 集合一致。
 **Runtime test**：N/A（純文件；未重啟任何 lane，現役 lane 全程未中斷）。
 **未驗證**：README 的「數字」皆沿用各 lane 既有實測（來源見 `docs/BENCHMARKS.md` §1 索引），
 本輪**沒有重跑任何 benchmark**。
