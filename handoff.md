@@ -2855,3 +2855,35 @@ repo `docs/QWEN38FLASH_TENSORFOLD_DEPLOY_2026-10-22.md`。
 - Soak 後回歸：`bench-c 8` **283.0 tok/s**（前 287.2，−1.5% 噪聲內）、smoke 200、`/health` 200、
   KV pool 33.18 GiB、記憶體 36/39 GiB available。
 - 證據檔（node0）：`~/docker-stacks/logs/qwen38flash-tensorfold/{long_context.log,long_context-2026-10-22.json,long_context-240k-kv.json,soak.log,soak-2026-10-22.jsonl}`。
+
+#### 2026-10-22（後續）session close — Validation evidence（soak／long_context／FP4-Local 查證）
+
+**範圍**：`a4365ba`（新增 `scripts/bench-soak.py`）、`657bc3f`（§9 證據 + README/AGENTS/handoff）、
+`6d4ebba`（FP4-Local 查證結案，文件）。本輪**只新增了一支 benchmark 工具與文件**，lane 設定未變
+（僅在 08:29 以 `gb10 restart` 帶上 `TF_FLASHNEXT_GRAPH_LOG=1`）。
+
+| # | 檢查 | 命令 | 時間 | 結果 |
+|---|---|---|---|---|
+| 1 | 多深度檢索 | `tools/long_context.py --sizes 32k,128k,256k,512k,1M --tests needles,kv` | 08:31–08:35 CST／~4 min | **exact 31/31、present 31/31**；32k/128k/256k needles 各 5/5、32k/128k kv 8/8；256k kv **HTTP 400（harness 自身 prompt 275,135 tok > 262,144）**；512k/1M skipped |
+| 2 | 近硬限 kv（補跑） | `tools/long_context.py --sizes 240k --tests kv` | 08:56–08:58 | **8/8 exact**、prompt 257,814 tok、prefill 91.0 s（≈2,833 tok/s）、rc=0 |
+| 3 | 20 分鐘高併發 soak | `scripts/bench-soak.py --concurrency 8 --duration 1200 --max-tokens 512 --thinking on` | 08:59:19–09:19:33／**1214 s** | **893 req、0 errors、0 probe mismatch**、242,651 tok、199.9 tok/s、p50 8.31 s／p95 22.68 s；223 `truncated` 全為 thinking 吃滿 512（`length` + 空 content，契約行為） |
+| 4 | CUDA graph（v1.1 修復） | `TF_FLASHNEXT_GRAPH_LOG=1`；node1 `docker logs qwen38-fn-tf` | soak 期間 | `graphs after 8300 captures … 8300 instantiated`、**0 次失敗**、無 `CUDA_ERROR_NOT_PERMITTED`／traceback；**統計只出現在 rank1（node1）**，`kit.log` 無 |
+| 5 | Soak 後回歸 | `BENCH_IGNORE_EOS=1 bench-c 8 400`、`gb10 smoke`、`/health` | 09:20 | **283.0 tok/s**（soak 前 287.2，−1.5% 在噪聲內）、smoke 200 `HELLO-TP2-OK`、health 200、KV pool 33.18 GiB、MemAvailable 36/39 GiB |
+| 6 | FP4-Local 查證（doc-only） | 讀 HF model card／tree、single+dual 兩個 recipe 的 `config.sh` 與 `patches/` | 09:40–09:55 | **dual 不支援**：`QUANT` 只收 `nvfp4|int4ar`、patches 只到 0009；NVIDIA-FP4 支援在 single 的 `0011/0012`；checkpoint 95.2 GiB／載入 81 GiB（單 Spark 設計）。**Runtime test = N/A（本次只查證，未下載、未啟動）** |
+| 7 | Repo 同步閘門 | 本機 `git status`、node0 `check-git-sync.sh --block` | 09:55:47 | clean、in sync；**rc=0** |
+| 8 | Shell／Python 語法 | node0 `bash -n` ×21、`python3 -m py_compile scripts/bench-soak.py scripts/bench-draft-vocab.py` | 09:55 | **0 failures**、**rc=0** |
+| 9 | 收尾狀態 | `gb10 status`、`/health`、`gb10 smoke`、`state/kit.*.rc` | 09:55 | `ready`、200、`HELLO-TP2-OK`、**rc=0**、兩節點 `qwen38-fn-tf Up About an hour`、lane=`qwen38flash-tensorfold` |
+| 10 | 機密掃描 | repo 內 `20040401`／`TENSORFOLD_API_KEY=`／`Bearer <token>` | 09:55 | **無**（僅既有文件中的 `${H3_API_KEY}` 模板佔位）；key 只存在 node 側 `.env`（600） |
+
+**環境**：node0 `spark-25d5`（10.0.101.101）／node1 `spark-8095`（10.0.101.102）；Ubuntu 24.04.5、
+Docker 29.2.1；lane `qwen38flash-tensorfold`、image `tensorfold-qwen38fn:zig-db28187`
+（digest `sha256:e188128d…e18c`）、engine TensorFold `db281878` + patches 0001–0009、
+checkpoint `nvidia/Qwen3.8-Flash-Next-NVFP4` @ `fc694b54`。
+
+**Artifacts**：node0 `~/docker-stacks/logs/qwen38flash-tensorfold/`
+（`long_context.log`、`long_context-2026-10-22.json`、`long_context-240k-kv.json`、`soak.log`、
+`soak-2026-10-22.jsonl`、`kit.log`、`boot-cluster.log`）；repo
+`docs/QWEN38FLASH_TENSORFOLD_DEPLOY_2026-10-22.md` §9。
+
+**未驗證**：8 併發 prefill（仍只有單請求）；soak 僅 20 分鐘（未做 >1 h）；1M／YaRN（刻意不啟用）；
+FP4-Local 未下載／未在 dual 引擎試跑（依查證結論不做）；`gb10 verify-models` 對此模型目錄仍只會 WARN（無 `SHA256SUMS`）。
