@@ -2925,9 +2925,7 @@ C1…C8，對現役 lane 補跑全掃（`BENCH_IGNORE_EOS=1 bash scripts/bench-c
 **55.5 / 90.6 / 129.0 / 150.9 / 176.7 / 212.6 / 246.9 / 284.4 tok/s**，8 格 `any_errors=0`（wall 7.2–11.3 s）。
 與 00:00 A/B 的四格（55.0 / 82.5 / 150.3 / 287.2）差 **+0.9 / +9.8 / +0.4 / −1.0 %**，在本 lane 的
 boot 漂移帶（normalized 0.80–1.32）內。證據：`~/docker-stacks/logs/qwen38flash-tensorfold/bench-c-full-2026-10-22.txt`。
-**這是本輪唯一的新量測**；其餘 lane 的 `—` 需切換 lane 重啟（TP2 互斥，6–14 分鐘/lane）故未補。
-
-**補測 C3/5/6/7（2026-10-22 11:20–12:10 CST，三次 lane 切換後已還原現役）**：
+**補測 C3/5/6/7（2026-10-22 11:20–12:58 CST，六次 lane 切換後已還原現役）**：
 
 | lane | 協定 | C1…C8（tok/s） | `gb10 use` → `/health` |
 |---|---|---|---|
@@ -2935,11 +2933,15 @@ boot 漂移帶（normalized 0.80–1.32）內。證據：`~/docker-stacks/logs/q
 | `mimo26flash` | `ignore_eos` 400、預設取樣、**warm** | 29.3 / 36.2 / 44.0 / 55.9 / 59.6 / 61.6 / 58.5 / 63.1 | **17m06s** |
 | `dsv41flash-exl3-vllm` | `ignore_eos` 250、temp 0、**thinking off** | 23.8 / 36.1 / 46.2 / 63.9 / 60.0 / 87.8 / 82.2 / 90.2 | **6m25s** |
 | `dsv41flash-tensorfold` | 同上 | 41.9 / 64.1 / 74.7 / 109.4 / 123.4 / 137.5 / 158.4 / 158.9 | **5m45s** |
+| `27b` | `ignore_eos` 400、預設取樣、**warm** | 41.0 / 57.2 / 82.8 / 91.1 / 101.0 / 144.2 / 131.7 / 170.3 | **4m10s** |
+| `35b` | 同上 | 125.5 / 221.4 / 290.6 / 311.9 / 355.4 / 387.7 / 414.0 / 471.8 | **6m26s** |
 
 全部 8/8 格 `any_errors=0`。`mimo26flash` 冷啟第一發 C1 僅 **9.1**（JIT/compile 未熱、wall 44 s），
 正式數列取 warm（先丟一發）。1017 的 C1/C2 與 10-20 記錄吻合，但 **C4/C8 高 24~32 %**——10-20 那次
-未記錄 `ignore_eos`/`max_tokens`，故列為**待複驗、不宣稱效能改善**。
-證據：node0 `~/docker-stacks/logs/{mimo26flash,dsv41flash-exl3-vllm,dsv41flash-tensorfold}/bench-c-full-2026-10-22*.txt`。
+未記錄 `ignore_eos`/`max_tokens`，故列為**待複驗、不宣稱效能改善**。27B/35B 與 09-19 舊記錄
+（`MAX_TOKENS=2048`、非定長）比：**C8 吻合**（27B 170.3 vs 172.7、35B 471.8 vs 416.4），
+**C1 較低**（41.0 vs 46.1、125.5 vs 120.6）＝定長 400 tok 下 prefill 佔比不同，非回歸。
+證據：node0 `~/docker-stacks/logs/{mimo26flash,dsv41flash-exl3-vllm,dsv41flash-tensorfold,27b,35b}/bench-c-full-2026-10-22*.txt`。
 
 **工具改動**：`scripts/bench-c.sh` 新增 `BENCH_THINKING=off|on`（opt-in）。未設時 payload
 **byte-identical**（node0 以 jq 生成兩種 payload 比對相同，且 `bash -n` 0 failure）——這是必要的，

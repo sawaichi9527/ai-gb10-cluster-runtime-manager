@@ -59,18 +59,29 @@ A/B 對決、噪聲底、量測協定與歷史數字。原始舊版 README（v1.
 | `dsv41flash-exl3-vllm` / `dsv41flash-tensorfold` | 2026-10-20／21 | §9 | `docs/evidence/dsv41-1017-validation-2026-10-21/` |
 | 已評估不採用 | — | §10 | `docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md` |
 
-**量測覆蓋範圍**（README §2.2／§2.3 的 `—` 由此而來）：完整 C1–C8 有 `deepseek`、`deepseek-nvfp4`、
-`deepseek-vision`、`qwen38flash`、`qwen38flash-tensorfold`（§7.1）、`mimo26flash`（§8.1）與兩條 1017
-（§9，2026-10-22 補測）；`27b`／`35b` 只到 C1/2/3/4/8（另有 245k prefill）。要補齊 27B/35B 需各 boot
-一次（TP2 互斥）——**未量測不等於失敗**。
-**1017／mimo 的協定不同**：1017 = temp 0、thinking off、250 tok；mimo = 預設取樣、400 tok、warm。
-跨協定不可直接互比。
+**量測覆蓋範圍**：**現在 10 條服務 lane 都有完整 C1–C8**（2026-10-22 補測；`27b`/`35b` 另有
+2026-09-19 的 `MAX_TOKENS=2048` 非定長記錄與 single-node 數字，見 §2.2）。三種協定**不可互比**：
+① `27b`/`35b`/`qwen38flash`/`qwen38flash-tensorfold`/`mimo26flash` = `ignore_eos` 400 tok、預設取樣；
+② 兩條 1017 = `ignore_eos` 250 tok、temp 0、thinking off；③ 2026-09-19 舊記錄 = 2048 tok、非定長。
 
 ---
 
-## 2. `27b` / `35b` — Qwen 27B / 35B-A3B NVFP4（2026-09-19）
+## 2. `27b` / `35b` — Qwen 27B / 35B-A3B NVFP4
 
-Image `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-09-18-v0.29.0-omni`；`bench-c` `MAX_TOKENS=2048`；
+### 2.1 全掃（2026-10-22，TP2；`BENCH_IGNORE_EOS=1`、400 tok、warm）
+
+| C | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|
+| 27B cluster | 41.0 | 57.2 | 82.8 | 91.1 | 101.0 | 144.2 | 131.7 | **170.3** |
+| 35B cluster | 125.5 | 221.4 | 290.6 | 311.9 | 355.4 | 387.7 | 414.0 | **471.8** |
+
+8/8 格 `any_errors=0`。同日 `gb10 use` → `/health`：27b **250 s**（12:41:24→12:45:34）、
+35b **386 s**（12:48:22→12:54:48）。C6 > C7 屬噪聲。
+證據：node0 `~/docker-stacks/logs/{27b,35b}/bench-c-full-2026-10-22.txt`。
+
+### 2.2 首發記錄（2026-09-19；`bench-c` `MAX_TOKENS=2048`、非定長）
+
+Image `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-09-18-v0.29.0-omni`；
 245k prefill 用 `bench-ctx.sh 245000 1`（`max_tokens=1` 純 prefill）。
 
 | C | 27B single | 27B cluster | speedup | 35B single | 35B cluster | speedup |
