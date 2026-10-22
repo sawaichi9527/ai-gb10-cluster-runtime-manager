@@ -919,7 +919,17 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
   needles 32k/128k/256k 全 5/5、kv 32k/128k 8/8、240k 補跑 8/8；256k kv 是 harness 自身超標被 400 拒絕）；
   ② ~~長時間 soak~~（**已完成**：`scripts/bench-soak.py` C=8 × 1200 s，893 req、0 error、
   graph 8300+ instantiate 0 失敗，見上）；③ 8 併發 prefill（本次仍只量單請求）；
-  ④ `nvidia/…-FP4-Local`（QAD）雙引擎未驗證，列第二變數。
+  ④ ~~`nvidia/…-FP4-Local`（QAD）雙引擎未驗證~~ → **2026-10-22 查證結論：dual 不採用、不再是候選**
+  （與 MiaAI-Lab 的說法一致）：該 checkpoint **95.2 GiB（21 shards，`tensors/`）**、載入約 **81 GiB**
+  （含 vision tower），設計目標是**單顆 128 GB Spark**；dual 每 rank 只需一半（124 GiB 版已綽綽有餘，
+  262K/8 下 pool 33.3 GiB、仍有 45 GiB 閒置）。**支援面**：它需要 single 配方的
+  `patches/0011-vision-nvidia-fp4` + `0012-engine-nvidia-fp4`（MXFP8 `Mx8Linear`／`mx8-check`、
+  NVFP4 的 **CSF 壓縮 scale**）；dual 配方 v1.1 只有 `0001–0009`，`scripts/config.sh` 的 `QUANT` 只接受
+  `nvfp4|int4ar`（其他值直接 exit 1），HF model card 也明說新 scale 格式「上游 vLLM 尚未支援」。
+  **精度面**：QAD 只是把 4-bit 拉回接近 bf16（NVIDIA 自報 GPQA 91.5 vs 92.2、ToolEvalBench 88.7 vs 89.4），
+  而 dual 的 NVFP4 checkpoint 非專家張量仍是 bf16、n-gram 表 FP8 → 在 dual 換這顆是**拿精度換不需要的容量**。
+  真正會讓 dual 考慮它的情境：要再放大 KV pool（每 rank 省 ~14 GiB ≈ +1.9M tokens）或跑 1M/YaRN，
+  而且得先把 0011/0012 移植進 dual 引擎（等於維護 fork）→ 現階段不做。
 - （可選）長圖文混搭、`--limit-mm-per-prompt` 上限（目前 8）、多輪 agent chain 長時間穩定性（見「定期檢討追蹤」#2）。
 - **benchmark 工具**：`scripts/bench-c.sh <C> [MAX_TOKENS]`（C=1 時 exit 1 為邊緣狀況，數值仍有效）、`scripts/bench-ctx.sh <NUM_WORDS> [MAX_TOKENS]`（`max_tokens=1`＝純 prefill）、**`scripts/bench-mm.sh [NUM_IMAGES] [C] [MAX_TOKENS]`（圖片；預設用 deepseek-vision profile 的測試圖，可用 `MM_IMAGE=` 覆寫）**。
 - 若有跨節點／部署問題，先在 node0 確認，勿在本機直接改。
