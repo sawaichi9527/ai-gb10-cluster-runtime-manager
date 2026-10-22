@@ -59,10 +59,10 @@ A/B 對決、噪聲底、量測協定與歷史數字。原始舊版 README（v1.
 | `dsv41flash-exl3-vllm` / `dsv41flash-tensorfold` | 2026-10-20／21 | §9 | `docs/evidence/dsv41-1017-validation-2026-10-21/` |
 | 已評估不採用 | — | §10 | `docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md` |
 
-**量測覆蓋範圍**（README §2.2／§2.3 的 `—` 由此而來）：完整 C1–C8 只有 `deepseek`、`deepseek-nvfp4`、
-`deepseek-vision`、`qwen38flash` 有；`27b`／`35b` 只到 C1/2/3/4/8（另有 245k prefill）；
-`mimo26flash` 與兩條 1017 lane 只跑 C1/2/4/8；`qwen38flash-tensorfold` 的 A/B 同樣只跑 C1/2/4/8。
-要補齊得切換 lane 各 boot 一次（TP2 互斥，約 6–14 分鐘/lane）——**未量測不等於失敗**。
+**量測覆蓋範圍**（README §2.2／§2.3 的 `—` 由此而來）：完整 C1–C8 有 `deepseek`、`deepseek-nvfp4`、
+`deepseek-vision`、`qwen38flash` 與 `qwen38flash-tensorfold`（2026-10-22 全掃，§7.1）；`27b`／`35b` 只到
+C1/2/3/4/8（另有 245k prefill）；`mimo26flash` 與兩條 1017 lane 只跑 C1/2/4/8。要補齊得切換 lane 各 boot
+一次（TP2 互斥，約 6–14 分鐘/lane）——**未量測不等於失敗**。
 
 ---
 
@@ -343,7 +343,19 @@ node0 兩臂各 `--reps 6`（每個 C 覆蓋 6 個 prompt，避免 C=1 永遠只
 
 ## 7. `qwen38flash-tensorfold` — 同一 checkpoint，TensorFold 引擎（2026-10-22）
 
-`docs/QWEN38FLASH_TENSORFOLD_DEPLOY_2026-10-22.md`。同 session、同 payload 的引擎 A/B：
+`docs/QWEN38FLASH_TENSORFOLD_DEPLOY_2026-10-22.md`。
+
+### 7.1 全掃（現役 lane，`BENCH_IGNORE_EOS=1`，固定 400 tok，2026-10-22 11:20 CST）
+
+| C | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|
+| aggregate tok/s | 55.5 | 90.6 | 129.0 | 150.9 | 176.7 | 212.6 | 246.9 | **284.4** |
+
+8 格 `any_errors=0`（wall 7.2–11.3 s、各 400 tok）。與 00:00 的 A/B 四格（55.0 / 82.5 / 150.3 / 287.2）
+相差 **+0.9 / +9.8 / +0.4 / −1.0 %**，在本 lane 的 boot 漂移帶（normalized 0.80–1.32）內。
+證據：node0 `~/docker-stacks/logs/qwen38flash-tensorfold/bench-c-full-2026-10-22.txt`。
+
+### 7.2 同 session 引擎 A/B（2026-10-22 00:00–00:20）同 session、同 payload 的引擎 A/B：
 
 | | `qwen38flash-tensorfold`（TF） | `qwen38flash`（vLLM） | Δ |
 |---|---|---|---|

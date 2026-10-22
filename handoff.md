@@ -2920,6 +2920,13 @@ FP4-Local 未下載／未在 dual 引擎試跑（依查證結論不做）；`gb1
 | 11 | 殘留字串 | `MiniMaxH3`、`做法 B`、`_backup/`、`2026-10-20 現況` | README 內 **0 命中**（僅 §10 表格以「已評估、未採用」保留歷史決策） |
 | 12 | 機密掃描 | repo 內 `VLLM_API_KEY=` 實值、node 密碼字串 | **0 命中**（僅 `${H3_API_KEY}` 等既有模板佔位） |
 
+**後續補測（2026-10-22 11:20 CST，現役 `qwen38flash-tensorfold`）**：因 README §2.2／§2.3 改為顯示完整
+C1…C8，對現役 lane 補跑全掃（`BENCH_IGNORE_EOS=1 bash scripts/bench-c.sh <1..8> 400`）：
+**55.5 / 90.6 / 129.0 / 150.9 / 176.7 / 212.6 / 246.9 / 284.4 tok/s**，8 格 `any_errors=0`（wall 7.2–11.3 s）。
+與 00:00 A/B 的四格（55.0 / 82.5 / 150.3 / 287.2）差 **+0.9 / +9.8 / +0.4 / −1.0 %**，在本 lane 的
+boot 漂移帶（normalized 0.80–1.32）內。證據：`~/docker-stacks/logs/qwen38flash-tensorfold/bench-c-full-2026-10-22.txt`。
+**這是本輪唯一的新量測**；其餘 lane 的 `—` 需切換 lane 重啟（TP2 互斥，6–14 分鐘/lane）故未補。
+
 **版本對照**：`v1.9.0` → `d7a1d17`；**`v2.0.0` → `85ae333`**（annotated tag object `7e3e80f`；兩 remote 各一個 Release，
 Forgejo `id=27`、GitHub `id=420256184`，body 與 tag message 逐字相同、`draft=false`）。兩邊 Release 清單
 皆為 **16 個**（`v1.0.0`…`v2.0.0`），tag 集合一致。

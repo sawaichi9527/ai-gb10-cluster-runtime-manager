@@ -51,16 +51,16 @@ image `tensorfold-qwen38fn:zig-db28187`、`/v1/models` = `aeon`；`state/boot-re
 
 | lane | 引擎／image | 權重 | 契約 | 最新實測 |
 |---|---|---|---|---|
-| `27b` | vLLM · `aeon-vllm-ultimate:2026-09-18-v0.29.0-omni` | 27B NVFP4-mixed ＋ DFlash2 n=7 | 262144 · 8 | C1 **46.1** → C8 **172.7** · 245k prefill 611.5 · 冷啟 261 s |
-| `35b` | 同上 | 35B-A3B NVFP4 ＋ DFlash n=6 | 262144 · 8 | C1 **120.6** → C8 **416.4** · 245k prefill 3951.9 · 冷啟 380 s |
-| `deepseek` | vLLM · `eugr/spark-vllm-b12x:latest` | `deepseek-v4-flash-0731-dspark-ablit` | 262144 · 8 · KV fp8 | C1 **43.2** → C8 **119.9**（Σ 693.3）· 261K prefill 1947.1 · 12.8 min |
-| `deepseek-nvfp4` | 同上（digest 雙節點 pin） | `DeepSeek-V4-Flash-0731-NVFP4` ＋ DSpark k=5 | 262144 · 8 · KV fp8 | C1 **47.1** → C8 **129.9**（2.76×）· 200K prefill 1984.6 · ~21 min |
-| `deepseek-vision` | 同上 | `…vision-exp-ablit`（原生 vision）＋ DSpark k=6 | 262144 · 8 · KV fp8 | C1 **39.7** → C8 **96.1**（Σ 535.3）· 261K prefill 1823.7 |
-| `qwen38flash` | vLLM · `vllm-openai:qwen38-flash-next` | `qwen3.8-flash-next-nvfp4`（125B）＋ MTP n=3 | 262144 · 8 · KV fp8 | C1 **45.5** → C8 **196.8** · 245K prefill 2592.5 · 13 min 58 s |
-| `qwen38flash-tensorfold` | TensorFold · `…tensorfold:zig-db28187-f3e1300f4f62` | 同一份 checkpoint（MTP drafts） | 262144 · 8 · KV fp8 | C1 **55.0** → C8 **287.2** · 261K prefill 2989 · **1 min 53 s** |
-| `mimo26flash` | vLLM · `tonyd2wild/vllm-glm53-flash:sm121-v11-dflash2` | `mimo-v2.6-flash-mopd`（MXFP4 QAT）＋ DFlash2 n=7 | 262144 · 8 · KV fp8 | C1 **21.1** → C8 **67.9** · 245K prefill 724.3 |
-| `dsv41flash-exl3-vllm` | MiaAI vLLM kit · `…1017-exl3-2x-dgx-sparks:2.9bpw` | 1017 EXL3 2.9bpw ＋ Engram 47/48（no-spec） | 262144 · 8 · vision | C1 **24.2** → C8 **79.3** · 255K prefill 1250.1 · ~5.5 min |
-| `dsv41flash-tensorfold` | TensorFold · `deepseek41-tensorfold:1017`（自建） | 同一份 1017 ＋ packed Engram（drafts off） | 262144 · 8 · vision | C1 **39.3** → C8 **120.7** · 255K prefill 1029.3 · ~6 min |
+| `27b` | vLLM · `aeon-vllm-ultimate:2026-09-18-v0.29.0-omni` | 27B NVFP4-mixed ＋ DFlash2 n=7 | 262144 · 8 | C1 **46.1** → C8 **172.7** · 245k prefill 611.5 · 冷啟 261 s · 詳 **§5.1** |
+| `35b` | 同上 | 35B-A3B NVFP4 ＋ DFlash n=6 | 262144 · 8 | C1 **120.6** → C8 **416.4** · 245k prefill 3951.9 · 冷啟 380 s · 詳 **§5.1** |
+| `deepseek` | vLLM · `eugr/spark-vllm-b12x:latest` | `deepseek-v4-flash-0731-dspark-ablit` | 262144 · 8 · KV fp8 | C1 **43.2** → C8 **119.9**（Σ 693.3）· 261K prefill 1947.1 · 12.8 min · 詳 **§5.2** |
+| `deepseek-nvfp4` | 同上（digest 雙節點 pin） | `DeepSeek-V4-Flash-0731-NVFP4` ＋ DSpark k=5 | 262144 · 8 · KV fp8 | C1 **47.1** → C8 **129.9**（2.76×）· 200K prefill 1984.6 · ~21 min · 詳 **§5.4** |
+| `deepseek-vision` | 同上 | `…vision-exp-ablit`（原生 vision）＋ DSpark k=6 | 262144 · 8 · KV fp8 | C1 **39.7** → C8 **96.1**（Σ 535.3）· 261K prefill 1823.7 · 詳 **§5.3** |
+| `qwen38flash` | vLLM · `vllm-openai:qwen38-flash-next` | `qwen3.8-flash-next-nvfp4`（125B）＋ MTP n=3 | 262144 · 8 · KV fp8 | C1 **45.5** → C8 **196.8** · 245K prefill 2592.5 · 13 min 58 s · 詳 **§5.5** |
+| `qwen38flash-tensorfold` | TensorFold · `…tensorfold:zig-db28187-f3e1300f4f62` | 同一份 checkpoint（MTP drafts） | 262144 · 8 · KV fp8 | C1 **55.5** → C8 **284.4** · 261K prefill 2989 · **1 min 53 s** · 詳 **§5.6** |
+| `mimo26flash` | vLLM · `tonyd2wild/vllm-glm53-flash:sm121-v11-dflash2` | `mimo-v2.6-flash-mopd`（MXFP4 QAT）＋ DFlash2 n=7 | 262144 · 8 · KV fp8 | C1 **21.1** → C8 **67.9** · 245K prefill 724.3 · 詳 **§5.7** |
+| `dsv41flash-exl3-vllm` | MiaAI vLLM kit · `…1017-exl3-2x-dgx-sparks:2.9bpw` | 1017 EXL3 2.9bpw ＋ Engram 47/48（no-spec） | 262144 · 8 · vision | C1 **24.2** → C8 **79.3** · 255K prefill 1250.1 · ~5.5 min · 詳 **§5.8** |
+| `dsv41flash-tensorfold` | TensorFold · `deepseek41-tensorfold:1017`（自建） | 同一份 1017 ＋ packed Engram（drafts off） | 262144 · 8 · vision | C1 **39.3** → C8 **120.7** · 255K prefill 1029.3 · ~6 min · 詳 **§5.8** |
 
 > A/B 專用（`gb10 list` 另列、**不是服務**）：`deepseek-nvfp4-tune`（單旋鈕實驗 lane，會拆掉現役）。
 > `deployed` 只意味「已部署並實測過」，不代表同時在跑；數字口徑與歷史見 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)，跨取樣模式／跨 prefix-caching 狀態**不可直接互比**。
@@ -97,14 +97,15 @@ image `tensorfold-qwen38fn:zig-db28187`、`/v1/models` = `aeon`；`state/boot-re
 |---|---|---|
 | 引擎 | vLLM（TP2+EP，MTP n=3，zh draft 詞表、determinism ON） | TensorFold Zig engine（kit `./start.sh`，MTP drafts） |
 | 啟動方式 | `LAUNCH_STYLE=compose` | `LAUNCH_STYLE=kit`（`~/docker-stacks/mia-TensorFold-qwen38flashNext`，釘 v1.1 `f8287ef40319`） |
-| decode C1…C8（各自最新實測） | 45.5 / 78.6 / 102.7 / 145.9 / 119.5 / 158.6 / 177.2 / 196.8 | **55.0 / 82.5 / — / 150.3 / — / — / — / 287.2** |
-| 同 session A/B（僅 C1/C2/C4/C8） | 40.6 / 42.0 / 89.5 / 157.6 | **55.0 / 82.5 / 150.3 / 287.2** |
+| decode C1…C8 | 45.5 / 78.6 / 102.7 / 145.9 / 119.5 / 158.6 / 177.2 / 196.8（vLLM 09-29） | **55.5 / 90.6 / 129.0 / 150.9 / 176.7 / 212.6 / 246.9 / 284.4**（TF **10-22 全掃**） |
+| 同 session A/B（僅 C1/C2/C4/C8） | 40.6 / 42.0 / 89.5 / 157.6 | 55.0 / 82.5 / 150.3 / 287.2 |
 | cold prefill 32K/131K/261K | 2,770 / 2,809 / 2,559 | **3,465 / 3,240 / 2,989** |
 | cold boot → `/health` | 13 min 58 s | **1 min 53 s** |
 | 對外契約 | 支援 `response_format`／`logprobs`／`n>1` | **拒絕**上述三項（HTTP 400）；tools／vision／prompt reuse 正常 |
 
-> `—` = **未量測**（TensorFold lane 的 A/B 只跑 C1/C2/C4/C8）。兩列數字**不可混用**：第一列是各自
-> 最新一次完整/半完整實測，第二列是**同一 session、同一 payload** 的引擎對照。
+> 第一列是**各自最新一次**實測（vLLM 2026-09-29、TF 2026-10-22 補齊 C1–C8 的全掃），兩者不同 session，
+> 只能看趨勢；第二列才是**同一 session、同一 payload** 的引擎對照（A/B 只跑 C1/C2/C4/C8）。
+> TF 全掃與 00:00 的 A/B 相差 +0.9 / +9.8 / +0.4 / −1.0 %，落在本 lane 的 boot 漂移帶（0.80–1.32）內。
 
 **選擇**：decode／高併發／最短冷啟 → TensorFold；需要 vLLM 專有請求欄位 → vLLM 版。
 
@@ -121,7 +122,7 @@ image `tensorfold-qwen38fn:zig-db28187`、`/v1/models` = `aeon`；`state/boot-re
 |---|---|---|---|
 | `27b.conf` | 27b | llm（exclusive） | deployed（node0 本機或 node1） |
 | `35b.conf` | 35b | llm（exclusive） | deployed |
-| `comfyui-jdaln.conf` | comfyui-jdaln | image（exclusive） | deployed（Node1 `:8188`） |
+| `comfyui-jdaln.conf` | comfyui-jdaln | image（exclusive） | deployed（Node1 `:8188`）· 詳 **§5.9** |
 
 `deepseek`／`deepseek-vision`／`deepseek-nvfp4`／`qwen38flash`／`qwen38flash-tensorfold`／`mimo26flash`／
 兩條 1017 都是 **cluster-only**（權重或啟動方式放不進單節點）。2026-10-14 退役：`comfyui`（aeon / Flux 2 Dev）
@@ -302,8 +303,9 @@ prefix-hit **44.8×**、garble soak 3/3 · **詳細** `docs/DEEPSEEK_NVFP4_SPECD
 **權重** 同一份 `models/qwen3.8-flash-next-nvfp4`（**零下載、零複製**）· **Kit** `~/docker-stacks/mia-TensorFold-qwen38flashNext/`（上游釘 **v1.1 `f8287ef40319`**，`.env` 600）
 **Image** `ghcr.io/miaai-lab/qwen3.8-flash-dual-dgx-sparks-tensorfold:zig-db28187-f3e1300f4f62`（digest `sha256:e188128d…e18c`，arm64）
 **契約** 262144（YaRN off）· 8 併發 · KV fp8 · vision on · thinking on · `aeon` · `:1234`
-**最新實測**（2026-10-22）C1/C2/C4/C8 = **55.0 / 82.5 / 150.3 / 287.2**（固定 400）、cold prefill 32K/131K/261K =
-**3465 / 3240 / 2989**、cold boot **1 min 53 s**、soak 893 請求 0 error、長文檢索 exact 31/31 · **詳細** `docs/QWEN38FLASH_TENSORFOLD_DEPLOY_2026-10-22.md`
+**最新實測**（2026-10-22，固定 400、`BENCH_IGNORE_EOS=1`）C1…C8 = **55.5 / 90.6 / 129.0 / 150.9 / 176.7 / 212.6 / 246.9 / 284.4**（全掃、0 error）；
+同 session A/B 四格 = 55.0 / 82.5 / 150.3 / 287.2；cold prefill 32K/131K/261K = **3465 / 3240 / 2989**、
+cold boot **1 min 53 s**、soak 893 請求 0 error、長文檢索 exact 31/31 · **詳細** `docs/QWEN38FLASH_TENSORFOLD_DEPLOY_2026-10-22.md`
 
 - **同步 A/B 全面勝 vLLM 版**：decode +35~96 %、prefill +15~25 %、開機快 7.4×，且 image 是 registry（免自建）。
   兩個必記的坑：① `docker pull` 後要**同時** tag 本地名 `tensorfold-qwen38fn:zig-db28187` 與 registry ref，
