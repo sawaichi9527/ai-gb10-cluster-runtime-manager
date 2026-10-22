@@ -2995,6 +2995,11 @@ repo `docs/BENCHMARKS.md`、`docs/_archive/README_ARCHIVE_2026-10-22.md`。
 （本次只測 node0）未重跑；③ 27B/35B 的 245k prefill 未重測（沿用 09-19 值）；④ 本輪是量測＋文件，
 未做長時間 soak；⑤ `v2.0.0` 之後的 commit（bench 表格、全掃、bug fix）**尚未發新版本**。
 
+**會後狀態（16:50 CST）**：使用者於 **16:44** 以 `gb10 use dsv41flash-tensorfold` 切換（**非本 session 操作**，
+boot 期間 `status: loading`、`health=000` 屬正常），**16:50** `/health` 200、`state/kit.dsv41flash-tensorfold.rc=0`、
+容器 `deepseek-v4.1-flash-1017-tensorfold` Up。因此上表第 5 列（現役 `qwen38flash-tensorfold`）是 **14:08 當時**
+的狀態；README §1 已改為「**現役一律以 `gb10 status` 為準**」＋時間戳，避免再度變成過期資訊。
+
 **工具改動**：`scripts/bench-c.sh` 新增 `BENCH_THINKING=off|on`（opt-in）。未設時 payload
 **byte-identical**（node0 以 jq 生成兩種 payload 比對相同，且 `bash -n` 0 failure）——這是必要的，
 因為 1017 兩條 lane 的 profile 預設 thinking ON（effort 75），其 decode 協定是 thinking off。

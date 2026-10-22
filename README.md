@@ -25,9 +25,11 @@ Node1  spark-8095  192.168.23.216 / 10.0.101.102   rank1 · headless worker
 | 看現在誰在線／打一發 smoke | `gb10 status` · `gb10 smoke` |
 | 停掉／重啟上次的 lane | `gb10 stop` · `gb10 restart [lane]`（無參數＝`state/last-cluster-profile`） |
 
-**現役（2026-10-22 10:30 CST 實測）＝ `qwen38flash-tensorfold`**：`gb10 status` → `ready`、node0 up · node1 up、
-image `tensorfold-qwen38fn:zig-db28187`、`/v1/models` = `aeon`；`state/boot-ready` = `08:31:09 READY`、`kit.*.rc=0`。
-「現役」只表示**此刻在線**——它與 `qwen38flash` 是**對等 lane**（無主/備），1017 的兩條同理。
+**現役一律以 `gb10 status` 為準**。本文撰寫時（2026-10-22 10:30 CST）為 **`qwen38flash-tensorfold`**：
+`ready`、node0 up · node1 up、image `tensorfold-qwen38fn:zig-db28187`、`/v1/models` = `aeon`、
+`state/boot-ready` = `08:31:09 READY`、`kit.*.rc=0`（同日 16:50 CST 已由使用者切換為 `dsv41flash-tensorfold`）。
+「現役」只表示**此刻在線**——`qwen38flash-tensorfold` 與 `qwen38flash` 是**對等 lane**（無主/備），
+1017 的兩條同理。
 
 ## 2. 目前狀態
 
