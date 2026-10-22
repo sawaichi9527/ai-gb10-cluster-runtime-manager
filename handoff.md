@@ -2874,7 +2874,7 @@ repo `docs/QWEN38FLASH_TENSORFOLD_DEPLOY_2026-10-22.md`。
 | 7 | Repo 同步閘門 | 本機 `git status`、node0 `check-git-sync.sh --block` | 09:55:47 | clean、in sync；**rc=0** |
 | 8 | Shell／Python 語法 | node0 `bash -n` ×21、`python3 -m py_compile scripts/bench-soak.py scripts/bench-draft-vocab.py` | 09:55 | **0 failures**、**rc=0** |
 | 9 | 收尾狀態 | `gb10 status`、`/health`、`gb10 smoke`、`state/kit.*.rc` | 09:55 | `ready`、200、`HELLO-TP2-OK`、**rc=0**、兩節點 `qwen38-fn-tf Up About an hour`、lane=`qwen38flash-tensorfold` |
-| 10 | 機密掃描 | repo 內 `20040401`／`TENSORFOLD_API_KEY=`／`Bearer <token>` | 09:55 | **無**（僅既有文件中的 `${H3_API_KEY}` 模板佔位）；key 只存在 node 側 `.env`（600） |
+| 10 | 機密掃描 | repo 內 node 登入密碼字串／`TENSORFOLD_API_KEY=`／`Bearer <token>` | 09:55 | **無**（僅既有文件中的 `${H3_API_KEY}` 模板佔位）；key 只存在 node 側 `.env`（600） |
 
 **環境**：node0 `spark-25d5`（10.0.101.101）／node1 `spark-8095`（10.0.101.102）；Ubuntu 24.04.5、
 Docker 29.2.1；lane `qwen38flash-tensorfold`、image `tensorfold-qwen38fn:zig-db28187`
