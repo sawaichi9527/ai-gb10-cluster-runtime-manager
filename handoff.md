@@ -3005,8 +3005,9 @@ boot 期間 `status: loading`、`health=000` 屬正常），**16:50** `/health` 
 因為 1017 兩條 lane 的 profile 預設 thinking ON（effort 75），其 decode 協定是 thinking off。
 
 **版本對照**：`v1.9.0` → `d7a1d17`；**`v2.0.0` → `85ae333`**（annotated tag object `7e3e80f`；兩 remote 各一個 Release，
-Forgejo `id=27`、GitHub `id=420256184`，body 與 tag message 逐字相同、`draft=false`）。兩邊 Release 清單
-皆為 **16 個**（`v1.0.0`…`v2.0.0`），tag 集合一致。
+Forgejo `id=27`、GitHub `id=420256184`）；**`v2.1.0` → `bf75e07`**（annotated tag object `2a322d1`；Forgejo `id=28`、
+GitHub `id=420500651`）。三個 Release 的 body 都與 tag message 逐字相同、`draft=false`；兩邊 Release 清單
+皆為 **17 個**（`v1.0.0`…`v2.1.0`），tag 集合一致。
 **Runtime test**：N/A（純文件；未重啟任何 lane，現役 lane 全程未中斷）。
 **未驗證**：README 的「數字」皆沿用各 lane 既有實測（來源見 `docs/BENCHMARKS.md` §1 索引），
 本輪**沒有重跑任何 benchmark**。
