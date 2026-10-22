@@ -58,9 +58,9 @@ image `tensorfold-qwen38fn:zig-db28187`、`/v1/models` = `aeon`；`state/boot-re
 | `deepseek-vision` | 同上 | `…vision-exp-ablit`（原生 vision）＋ DSpark k=6 | 262144 · 8 · KV fp8 | C1 **39.7** → C8 **96.1**（Σ 535.3）· 261K prefill 1823.7 · 詳 **§5.3** |
 | `qwen38flash` | vLLM · `vllm-openai:qwen38-flash-next` | `qwen3.8-flash-next-nvfp4`（125B）＋ MTP n=3 | 262144 · 8 · KV fp8 | C1 **45.5** → C8 **196.8** · 245K prefill 2592.5 · 13 min 58 s · 詳 **§5.5** |
 | `qwen38flash-tensorfold` | TensorFold · `…tensorfold:zig-db28187-f3e1300f4f62` | 同一份 checkpoint（MTP drafts） | 262144 · 8 · KV fp8 | C1 **55.5** → C8 **284.4** · 261K prefill 2989 · **1 min 53 s** · 詳 **§5.6** |
-| `mimo26flash` | vLLM · `tonyd2wild/vllm-glm53-flash:sm121-v11-dflash2` | `mimo-v2.6-flash-mopd`（MXFP4 QAT）＋ DFlash2 n=7 | 262144 · 8 · KV fp8 | C1 **21.1** → C8 **67.9** · 245K prefill 724.3 · 詳 **§5.7** |
-| `dsv41flash-exl3-vllm` | MiaAI vLLM kit · `…1017-exl3-2x-dgx-sparks:2.9bpw` | 1017 EXL3 2.9bpw ＋ Engram 47/48（no-spec） | 262144 · 8 · vision | C1 **24.2** → C8 **79.3** · 255K prefill 1250.1 · ~5.5 min · 詳 **§5.8** |
-| `dsv41flash-tensorfold` | TensorFold · `deepseek41-tensorfold:1017`（自建） | 同一份 1017 ＋ packed Engram（drafts off） | 262144 · 8 · vision | C1 **39.3** → C8 **120.7** · 255K prefill 1029.3 · ~6 min · 詳 **§5.8** |
+| `mimo26flash` | vLLM · `tonyd2wild/vllm-glm53-flash:sm121-v11-dflash2` | `mimo-v2.6-flash-mopd`（MXFP4 QAT）＋ DFlash2 n=7 | 262144 · 8 · KV fp8 | C1 **29.3** → C8 **63.1** · 245K prefill 724.3 · 詳 **§5.7** |
+| `dsv41flash-exl3-vllm` | MiaAI vLLM kit · `…1017-exl3-2x-dgx-sparks:2.9bpw` | 1017 EXL3 2.9bpw ＋ Engram 47/48（no-spec） | 262144 · 8 · vision | C1 **23.8** → C8 **90.2** · 255K prefill 1250.1 · ~6.4 min · 詳 **§5.8** |
+| `dsv41flash-tensorfold` | TensorFold · `deepseek41-tensorfold:1017`（自建） | 同一份 1017 ＋ packed Engram（drafts off） | 262144 · 8 · vision | C1 **41.9** → C8 **158.9** · 255K prefill 1029.3 · ~5.8 min · 詳 **§5.8** |
 
 > A/B 專用（`gb10 list` 另列、**不是服務**）：`deepseek-nvfp4-tune`（單旋鈕實驗 lane，會拆掉現役）。
 > `deployed` 只意味「已部署並實測過」，不代表同時在跑；數字口徑與歷史見 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)，跨取樣模式／跨 prefix-caching 狀態**不可直接互比**。
@@ -75,13 +75,15 @@ image `tensorfold-qwen38fn:zig-db28187`、`/v1/models` = `aeon`；`state/boot-re
 |---|---|---|
 | 引擎 | MiaAI vLLM kit（`SPEC_METHOD=none`） | TensorFold（x00byte recipe，drafts off） |
 | image | `ghcr.io/miaai-lab/…:2.9bpw`（`2f0cf3ad…`） | `deepseek41-tensorfold:1017`（自建，`nvcr.io/nvidia/pytorch:26.07-py3` 基底） |
-| decode C1…C8 | 24.2 / 36.9 / — / — / — / — / — / 79.3 | **39.3 / 61.7 / — / 88.2 / — / — / — / 120.7** |
+| decode C1…C8 | 23.8 / 36.1 / 46.2 / 63.9 / 60.0 / 87.8 / 82.2 / **90.2** | **41.9 / 64.1 / 74.7 / 109.4 / 123.4 / 137.5 / 158.4 / 158.9** |
 | cold prefill 128K/200K/255K | — / — / **1250.1** | 1085.6 / 1066.5 / 1029.3 |
 | 併發 32K × C4 / C8 | **111 s** / —（0 error） | 147 s / 307 s（0 error） |
 | `json_schema` + tool-call | 10/10 + 10/10 | 20/20 + 20/20 |
 | 選它的時機 | 長 prefill（≥128K）、要 registry image | decode／高併發（C4–C8） |
 
-> `—` = **未量測**（不是失敗）。這兩條 lane 當年只跑 C1/C2/C4/C8；要補齊需切換 lane 各 boot 一次。
+> 2026-10-22 補測（`BENCH_IGNORE_EOS=1`、temp 0、**thinking off**、固定 250 tok、warm）：C3/5/6/7 為新值。
+> 與 10-20 記錄相比 C1/C2 幾乎相同（−1.7 %／−2.2 %），C4/C8 偏高（TensorFold **+24 %／+32 %**）——該次
+> 沒有記錄 `ignore_eos`/`max_tokens`，差異**不宣稱是效能變化**，需同協定複驗。
 
 - **DSpark 兩邊都關**：vLLM 接受率僅 ~20 %（6-bit dense MTP 未被正確解出）；TensorFold drafter 正常
   （首 token 57.5 %、~2.1 tokens/round）但 verify 成本（1 row 22.4 ms、4 rows 46.8 ms）讓投機打平偏虧。
@@ -319,7 +321,11 @@ cold boot **1 min 53 s**、soak 893 請求 0 error、長文檢索 exact 31/31 ·
 **權重** `models/mimo-v2.6-flash-mopd`（Xiaomi 官方 MXFP4 QAT；drafter 內嵌於 `dflash/`）· **Image** `ghcr.io/tonyd2wild/vllm-glm53-flash:sm121-v11-dflash2`（pin manifest digest）
 **契約** 262144 ctx · 8 併發 · KV fp8 · `aeon` · **TP2-only**（178 GB 放不進單節點）
 **旋鈕** DFlash2 n=7、GMU 0.90、prefix caching ON、MoE `marlin`、`patches/mimo26flash/`（3 支 bind-mount）
-**最新實測**（2026-10-03）C1 21.1／C2 33.9／C4 49.1／**C8 67.9**；32K/131K/245K prefill 1553.7 / 1015.4 / 724.3 · **詳細** `docs/MIMO26FLASH_TP2_2026-10-03.md`
+**最新實測**（2026-10-22 補測；`BENCH_IGNORE_EOS=1`、400 tok、預設取樣、**warm**）C1…C8 =
+**29.3 / 36.2 / 44.0 / 55.9 / 59.6 / 61.6 / 58.5 / 63.1**（0 error）；10-03 首發記錄為 21.1 / 33.9 / — / 49.1 / — / — / — / 67.9；
+32K/131K/245K prefill 1553.7 / 1015.4 / 724.3 · **詳細** `docs/MIMO26FLASH_TP2_2026-10-03.md`
+
+- 冷啟後第一發 C1 僅 **9.1 tok/s**（JIT/compile 未熱，wall 44 s），故上表取 warm；C7 58.5 < C6 61.6 屬噪聲。
 
 - **定案 MXFP4（2026-10-05）**：NVFP4 變體只贏 prefill（+12~28 %）與低併發，卻以 **41 % KV 容量**
   （8.81× → 5.21× @256K）、官方 QAT／`SHA256SUMS`、21 GB 磁碟為代價；decode 差距多在噪聲內。
@@ -339,6 +345,12 @@ cold boot **1 min 53 s**、soak 893 請求 0 error、長文檢索 exact 31/31 ·
 - 驗證 harness：`scripts/bench-1017.py`（`prefill`／`conc`／`tools`／`soak`，輸出 JSONL）。
   2026-10-21 實 boot：`dsv41flash-tensorfold` `restart` → **327 s** READY；`verify-models` 對 exl3
   **PASS**（checkpoint 52/52 ＋ Engram 3/3，兩節點）。
+- **2026-10-22 全掃**（`BENCH_IGNORE_EOS=1`、temp 0、thinking off、250 tok、warm、0 error）：
+  exl3 = **23.8 / 36.1 / 46.2 / 63.9 / 60.0 / 87.8 / 82.2 / 90.2**、
+  tensorfold = **41.9 / 64.1 / 74.7 / 109.4 / 123.4 / 137.5 / 158.4 / 158.9**。
+  同日 `gb10 use` → `/health`：exl3 **6m25s**、tensorfold **5m45s**。
+  C1/C2 與 10-20 記錄吻合（−1.7 %／−2.2 %）；C4/C8 偏高（TF +24 %／+32 %）但 10-20 未記錄
+  `ignore_eos`/`max_tokens`，**不宣稱效能變化**，需同協定複驗。
 
 ### 5.9 `comfyui-jdaln` — Node1 唯一 ComfyUI（`:8188`）
 

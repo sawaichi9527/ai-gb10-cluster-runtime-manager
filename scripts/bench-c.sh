@@ -22,6 +22,11 @@ source "${SCRIPT_DIR}/cluster-common.sh"
 #   BENCH_DETERMINISTIC=1     -> temperature=0, seed=0 (greedy, fixed seed)
 #   BENCH_TEMPERATURE=<float> -> explicit temperature (overrides the above)
 #   BENCH_SEED=<int>          -> explicit seed        (overrides the above)
+#   BENCH_THINKING=off|on     -> chat_template_kwargs.thinking (opt-in; when
+#                                unset the payload is byte-identical, i.e. the
+#                                model's own default applies). The 1017 lanes
+#                                default thinking ON (effort 75); their decode
+#                                protocol is "thinking off", so pass off there.
 
 C="${1:?usage: bench-c.sh <C> [MAX_TOKENS]}"
 MAX_TOKENS="${2:-400}"
@@ -33,6 +38,7 @@ SAMPLE_DESC="default"
 if [[ -n "${BENCH_TEMPERATURE:-}" || -n "${BENCH_SEED:-}" ]]; then
   SAMPLE_DESC="temperature=${BENCH_TEMPERATURE:-<model default>} seed=${BENCH_SEED:-<model default>}"
 fi
+SAMPLE_DESC="${SAMPLE_DESC} thinking=${BENCH_THINKING:-model-default}"
 AUTH_ARGS=()
 if [[ -n "${VLLM_API_KEY:-}" && "${VLLM_API_KEY}" != "EMPTY" ]]; then
   AUTH_ARGS=(-H "Authorization: Bearer ${VLLM_API_KEY}")
@@ -60,10 +66,13 @@ trap 'rm -rf "$OUTDIR"' EXIT
 # unchanged for every model that does not opt in.
 IGNORE_EOS="${BENCH_IGNORE_EOS:-0}"
 jq -n --arg content "$CONTENT" --argjson mt "$MAX_TOKENS" --argjson ie "$IGNORE_EOS" \
-  --arg t "${BENCH_TEMPERATURE:-}" --arg s "${BENCH_SEED:-}" \
+  --arg t "${BENCH_TEMPERATURE:-}" --arg s "${BENCH_SEED:-}" --arg th "${BENCH_THINKING:-}" \
   '{model:"aeon",messages:[{role:"user",content:$content}],max_tokens:$mt,ignore_eos:($ie==1)}
    + (if $t == "" then {} else {temperature:($t|tonumber)} end)
-   + (if $s == "" then {} else {seed:($s|tonumber)} end)' > "$OUTDIR/payload.json"
+   + (if $s == "" then {} else {seed:($s|tonumber)} end)
+   + (if $th == "off" then {chat_template_kwargs:{thinking:false}}
+      elif $th == "on" then {chat_template_kwargs:{thinking:true}}
+      else {} end)' > "$OUTDIR/payload.json"
 
 # `|| true` so a missing spec-decode metric degrades to "(no draft delta)"
 # below instead of aborting the run under pipefail.

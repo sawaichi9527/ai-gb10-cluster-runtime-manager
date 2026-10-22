@@ -60,9 +60,11 @@ A/B 對決、噪聲底、量測協定與歷史數字。原始舊版 README（v1.
 | 已評估不採用 | — | §10 | `docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md` |
 
 **量測覆蓋範圍**（README §2.2／§2.3 的 `—` 由此而來）：完整 C1–C8 有 `deepseek`、`deepseek-nvfp4`、
-`deepseek-vision`、`qwen38flash` 與 `qwen38flash-tensorfold`（2026-10-22 全掃，§7.1）；`27b`／`35b` 只到
-C1/2/3/4/8（另有 245k prefill）；`mimo26flash` 與兩條 1017 lane 只跑 C1/2/4/8。要補齊得切換 lane 各 boot
-一次（TP2 互斥，約 6–14 分鐘/lane）——**未量測不等於失敗**。
+`deepseek-vision`、`qwen38flash`、`qwen38flash-tensorfold`（§7.1）、`mimo26flash`（§8.1）與兩條 1017
+（§9，2026-10-22 補測）；`27b`／`35b` 只到 C1/2/3/4/8（另有 245k prefill）。要補齊 27B/35B 需各 boot
+一次（TP2 互斥）——**未量測不等於失敗**。
+**1017／mimo 的協定不同**：1017 = temp 0、thinking off、250 tok；mimo = 預設取樣、400 tok、warm。
+跨協定不可直接互比。
 
 ---
 
@@ -380,9 +382,22 @@ node0 兩臂各 `--reps 6`（每個 C 覆蓋 6 個 prompt，避免 C=1 永遠只
 
 ---
 
-## 8. `mimo26flash` — MiMo V2.6 Flash MOPD（2026-10-03／05）
+## 8. `mimo26flash` — MiMo V2.6 Flash MOPD（2026-10-03／05／22）
 
 `docs/MIMO26FLASH_TP2_2026-10-03.md`（§7 延後調優、§11 變體定案）。
+
+### 8.1 全掃（2026-10-22，`BENCH_IGNORE_EOS=1`、400 tok、預設取樣、warm）
+
+| C | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|
+| aggregate tok/s | 29.3 | 36.2 | 44.0 | 55.9 | 59.6 | 61.6 | 58.5 | **63.1** |
+
+8 格 `any_errors=0`。**冷啟後第一發 C1 只有 9.1 tok/s**（JIT/compile 未熱、wall 44 s vs 熱 13.7 s），
+所以上表是 warm（先丟一發 warmup）；C7 < C6 屬噪聲。與 10-03 首發記錄（21.1 / 33.9 / — / 49.1 / — / — / — / 67.9）
+相比 C1 高、C8 略低，屬 lane 狀態與 warmup 差異，**不是效能變化**。
+證據：node0 `~/docker-stacks/logs/mimo26flash/bench-c-full-2026-10-22{,-warm}.txt`。
+
+### 8.2 首發記錄（2026-10-03）
 
 | C | 1 | 2 | 4 | 8 |
 |---|---|---|---|---|
@@ -430,6 +445,19 @@ node0 兩臂各 `--reps 6`（每個 C 覆蓋 6 個 prompt，避免 C=1 永遠只
   prefill 848–916 tok/s、vision ✅；`gb10 use` → READY ~6 分鐘、`cluster.py check` PASS；`restart` 327 s。
 - drafter 本身正常（首 token 57.5 %、~2.1 tokens/round），但 verify 成本（1 row 22.4 ms、4 rows 46.8 ms）
   讓投機打平偏虧 → **drafts off**。
+
+### 2026-10-22 全掃（`BENCH_IGNORE_EOS=1`、temp 0、thinking off、固定 250 tok、warm）
+
+| C | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|
+| `dsv41flash-exl3-vllm` | 23.8 | 36.1 | 46.2 | 63.9 | 60.0 | 87.8 | 82.2 | **90.2** |
+| `dsv41flash-tensorfold` | **41.9** | 64.1 | 74.7 | 109.4 | 123.4 | 137.5 | 158.4 | **158.9** |
+
+兩條 lane 各 8 格 `any_errors=0`。同日 `gb10 use` → `/health`：exl3 **6m25s**（11:51:02→11:57:27）、
+tensorfold **5m45s**（12:00:26→12:06:11）。與 2026-10-20 記錄相比：C1/C2 吻合（−1.7 %／−2.2 % 與
++6.6 %／+3.9 %），**C4/C8 偏高**（TF +24 %／+32 %）——10-20 那次沒有記錄 `ignore_eos`/`max_tokens`，
+差異**不宣稱是效能變化**，需同協定複驗。證據：node0
+`~/docker-stacks/logs/{dsv41flash-exl3-vllm,dsv41flash-tensorfold}/bench-c-full-2026-10-22.txt`。
 
 ### 2026-10-21 驗證（維持 262144 契約，不做 1M）
 
