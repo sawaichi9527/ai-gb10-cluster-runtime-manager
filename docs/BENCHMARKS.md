@@ -59,25 +59,31 @@ A/B 對決、噪聲底、量測協定與歷史數字。原始舊版 README（v1.
 | `dsv41flash-exl3-vllm` / `dsv41flash-tensorfold` | 2026-10-20／21 | §9 | `docs/evidence/dsv41-1017-validation-2026-10-21/` |
 | 已評估不採用 | — | §10 | `docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md` |
 
-**量測覆蓋範圍**：**現在 10 條服務 lane 都有完整 C1–C8**（2026-10-22 補測；`27b`/`35b` 另有
-2026-09-19 的 `MAX_TOKENS=2048` 非定長記錄與 single-node 數字，見 §2.2）。三種協定**不可互比**：
-① `27b`/`35b`/`qwen38flash`/`qwen38flash-tensorfold`/`mimo26flash` = `ignore_eos` 400 tok、預設取樣；
-② 兩條 1017 = `ignore_eos` 250 tok、temp 0、thinking off；③ 2026-09-19 舊記錄 = 2048 tok、非定長。
+**量測覆蓋範圍**：**10 條服務 lane ＋ 27B/35B 單節點都有完整 C1–C8**（2026-10-22 補測；§2.1、§2.2）。
+三種協定**不可互比**：① `27b`/`35b`/`qwen38flash`/`qwen38flash-tensorfold`/`mimo26flash` = `ignore_eos`
+400 tok、預設取樣；② 兩條 1017 = `ignore_eos` 250 tok、temp 0、thinking off；③ 2026-09-19 舊記錄 =
+2048 tok、非定長。
 
 ---
 
 ## 2. `27b` / `35b` — Qwen 27B / 35B-A3B NVFP4
 
-### 2.1 全掃（2026-10-22，TP2；`BENCH_IGNORE_EOS=1`、400 tok、warm）
+### 2.1 全掃（2026-10-22；`BENCH_IGNORE_EOS=1`、400 tok、warm）
 
 | C | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
 |---|---|---|---|---|---|---|---|---|
 | 27B cluster | 41.0 | 57.2 | 82.8 | 91.1 | 101.0 | 144.2 | 131.7 | **170.3** |
 | 35B cluster | 125.5 | 221.4 | 290.6 | 311.9 | 355.4 | 387.7 | 414.0 | **471.8** |
+| 27B single（node0） | 22.3 | 33.3 | 45.4 | 61.2 | 59.3 | 69.1 | 76.2 | **101.2** |
+| 35B single（node0） | 93.5 | 160.4 | 187.9 | 204.3 | 230.7 | 257.7 | 304.2 | **346.6** |
 
-8/8 格 `any_errors=0`。同日 `gb10 use` → `/health`：27b **250 s**（12:41:24→12:45:34）、
-35b **386 s**（12:48:22→12:54:48）。C6 > C7 屬噪聲。
-證據：node0 `~/docker-stacks/logs/{27b,35b}/bench-c-full-2026-10-22.txt`。
+8/8 格 `any_errors=0`。cluster↔single 比值：27B **1.68×**、35B **1.36×**（C8）。
+boot（`gb10 use`／`gb10-single use` → `/health`）：27b cluster **250 s**、single **5m43s**；
+35b cluster **386 s**、single **7m06s**。C6 > C7（27B cluster）屬噪聲。
+證據：node0 `~/docker-stacks/logs/{27b,35b}/bench-c-{full,single}-2026-10-22.txt`。
+
+> 2026-09-19 的 single 量測是在 **node1** 跑的（35B），本次兩者都在 node0；同型硬體，差異應在噪聲內。
+> 舊表用 `MAX_TOKENS=2048` 非定長，與上表不可直接相減。
 
 ### 2.2 首發記錄（2026-09-19；`bench-c` `MAX_TOKENS=2048`、非定長）
 

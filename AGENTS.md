@@ -535,6 +535,15 @@ Key rules:
   stacked dated "現況" blocks). Old README revisions live under `docs/_archive/`. When adding a
   lane or re-measuring, update README's lane block **and** `docs/BENCHMARKS.md` **and** the
   History table.
+- **`gb10-single` must treat kit lanes as TP2 (2026-10-22, `91ab20c`).** `tp2_active()` originally
+  matched only the compose container `cluster-node0`, so a live **kit** TP2 lane (no compose by
+  design) was invisible: `gb10-single use node0 27b` started the 27b container beside `qwen38-fn-tf`,
+  the health probe answered from the TP2 endpoint that still owned `:1234`, and the boot logged
+  READY **one second** after start (`/v1/models` still said `owned_by: tensorfold`). The detector now
+  also matches every `KIT_HEAD_CONTAINER`/`KIT_WORKER_CONTAINER` declared in
+  `cluster-profiles.d/*.conf`, and `ensure_tp2_down()` takes the runtime's `HEALTH_URL` and **fails
+  closed** if that endpoint still answers after `cluster-down`. Do not "simplify" this back to the
+  single container-name check.
 - `comfyui-jdaln` is the current (and only) Node1 ComfyUI runtime since 2026-10-14.
   Both older ComfyUI identities are retired: `comfyui`/aeon/Flux 2 Dev was dismantled
   2026-10-14 (see its bullet above), and the `comfyui-personal`/`comfyui-work` split is

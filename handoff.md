@@ -2943,6 +2943,23 @@ boot 漂移帶（normalized 0.80–1.32）內。證據：`~/docker-stacks/logs/q
 **C1 較低**（41.0 vs 46.1、125.5 vs 120.6）＝定長 400 tok 下 prefill 佔比不同，非回歸。
 證據：node0 `~/docker-stacks/logs/{mimo26flash,dsv41flash-exl3-vllm,dsv41flash-tensorfold,27b,35b}/bench-c-full-2026-10-22*.txt`。
 
+**單節點補測（2026-10-22 13:32–13:55）＋ 修掉一個 false-READY**：使用者要求補 27B/35B 單節點 C5/C6/C7。
+過程中發現 **`gb10-single use node0 27b` 在 TP2 kit lane 在線時根本沒拆 TP2**：`tp2_active()` 只比對 compose 的
+`cluster-node0`，而 kit lane（`qwen38-fn-tf` 等）刻意沒有 compose → 判定「TP2 不在」，27b 容器與 TP2 並存，
+`:1234` 仍由 TP2 回應 → boot **1 秒後**就寫 READY、`gb10-single status` 顯示 READY，但 `/v1/models` 還是
+`owned_by: tensorfold`（假 READY）。**已於 `91ab20c` 修好**：① `tp2_active()` 改為資料驅動——除 `cluster-node0`
+外再比對 `cluster-profiles.d/*.conf` 的 `KIT_HEAD_CONTAINER`/`KIT_WORKER_CONTAINER`；② `ensure_tp2_down()`
+收 `HEALTH_URL`，拆完後若端點仍回應就 **fail closed** 拒起。驗證：同情境會先印 `TP2 down complete` 再 boot，
+容器 `aeon-vllm-27b` 真的 Up，vLLM log 顯示 TP1／dflash n=7／prefix caching False。
+
+| lane | C1…C8（400 tok、warm） | boot |
+|---|---|---|
+| 27B single（node0） | 22.3 / 33.3 / 45.4 / 61.2 / 59.3 / 69.1 / 76.2 / 101.2 | **5m43s** |
+| 35B single（node0） | 93.5 / 160.4 / 187.9 / 204.3 / 230.7 / 257.7 / 304.2 / 346.6 | **7m06s** |
+
+8/8 格 `any_errors=0`。cluster/single C8 比：27B **1.68×**、35B **1.36×**。現役已還原（13:55:21 READY、
+`qwen38-fn-tf` Up、`/health` 200）。證據：`~/docker-stacks/logs/{27b,35b}/bench-c-single-2026-10-22.txt`。
+
 **工具改動**：`scripts/bench-c.sh` 新增 `BENCH_THINKING=off|on`（opt-in）。未設時 payload
 **byte-identical**（node0 以 jq 生成兩種 payload 比對相同，且 `bash -n` 0 failure）——這是必要的，
 因為 1017 兩條 lane 的 profile 預設 thinking ON（effort 75），其 decode 協定是 thinking off。

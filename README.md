@@ -232,18 +232,21 @@ compose 檔無法表達。`cluster-down` 會等（≤90 s）容器真的消失�
 35B：`qwen3.6-35b-a3b-heretic-nvfp4` ＋ `qwen3.6-35b-a3b-dflash`（n=6）
 **Image** `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-09-18-v0.29.0-omni` · **契約** 262144 ctx · 8 併發 · 27b GMU 0.85／35b GMU 0.80
 
-| 2026-10-22 全掃（TP2；`BENCH_IGNORE_EOS=1`、400 tok、warm） | C1 | C2 | C3 | C4 | C5 | C6 | C7 | C8 |
+| 2026-10-22 全掃（`BENCH_IGNORE_EOS=1`、400 tok、warm） | C1 | C2 | C3 | C4 | C5 | C6 | C7 | C8 |
 |---|---|---|---|---|---|---|---|---|
 | 27B cluster | 41.0 | 57.2 | 82.8 | 91.1 | 101.0 | 144.2 | 131.7 | **170.3** |
 | 35B cluster | 125.5 | 221.4 | 290.6 | 311.9 | 355.4 | 387.7 | 414.0 | **471.8** |
+| 27B single（node0） | 22.3 | 33.3 | 45.4 | 61.2 | 59.3 | 69.1 | 76.2 | **101.2** |
+| 35B single（node0） | 93.5 | 160.4 | 187.9 | 204.3 | 230.7 | 257.7 | 304.2 | **346.6** |
 
-- 2026-09-19 舊記錄（`MAX_TOKENS=2048`、**非定長**、含 single-node 與 245k prefill：27B 46.1→172.7、
-  35B 120.6→416.4）完整保留在 `docs/BENCHMARKS.md` §2。C8 兩次吻合（170.3 vs 172.7、471.8 vs 416.4），
-  C1 受定長/長度影響（41.0 vs 46.1、125.5 vs 120.6）。C6 144.2 > C7 131.7 屬噪聲。
+- cluster／single 比值：27B **1.68×**（C8 170.3 / 101.2）、35B **1.36×**（471.8 / 346.6）。
+- 2026-09-19 舊記錄（`MAX_TOKENS=2048`、**非定長**）完整保留在 `docs/BENCHMARKS.md` §2.2；C8 兩次量級一致
+  （cluster 170.3 vs 172.7、single 101.2 vs 117.2），差異來自協定。
 - **27B prefix caching 刻意 OFF**（理由與復活條件：`docs/ADR_2026-09-01_prefix_caching_dflash2.md`）；
   35B 已開啟。**此規則不適用其他模型家族。**
-- 27B 冷啟可達 ~40 min → `27b.conf` 覆寫 `HEALTH_TIMEOUT=3600`（`docs/ISSUE_27B_BROKEN_2026-09-18_IMAGE_2026-09-19.md`）；
-  2026-10-22 實測 27b **250 s**、35b **386 s**，兩者 `/health` 200。
+- 冷啟（2026-10-22）：27b cluster **250 s**／single **5m43s**、35b cluster **386 s**／single **7m06s**。
+  27B 可達 ~40 min → `27b.conf` 覆寫 `HEALTH_TIMEOUT=3600`
+  （`docs/ISSUE_27B_BROKEN_2026-09-18_IMAGE_2026-09-19.md`）。
 
 ### 5.2 `deepseek` — DeepSeek-V4-Flash-0731 mainline（fp8 DSpark）
 
