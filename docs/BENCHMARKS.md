@@ -59,6 +59,11 @@ A/B 對決、噪聲底、量測協定與歷史數字。原始舊版 README（v1.
 | `dsv41flash-exl3-vllm` / `dsv41flash-tensorfold` | 2026-10-20／21 | §9 | `docs/evidence/dsv41-1017-validation-2026-10-21/` |
 | 已評估不採用 | — | §10 | `docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md` |
 
+**量測覆蓋範圍**（README §2.2／§2.3 的 `—` 由此而來）：完整 C1–C8 只有 `deepseek`、`deepseek-nvfp4`、
+`deepseek-vision`、`qwen38flash` 有；`27b`／`35b` 只到 C1/2/3/4/8（另有 245k prefill）；
+`mimo26flash` 與兩條 1017 lane 只跑 C1/2/4/8；`qwen38flash-tensorfold` 的 A/B 同樣只跑 C1/2/4/8。
+要補齊得切換 lane 各 boot 一次（TP2 互斥，約 6–14 分鐘/lane）——**未量測不等於失敗**。
+
 ---
 
 ## 2. `27b` / `35b` — Qwen 27B / 35B-A3B NVFP4（2026-09-19）
