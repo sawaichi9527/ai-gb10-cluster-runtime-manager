@@ -146,3 +146,58 @@ gb10 restart qwen38flash-tensorfold   # 只重啟本 lane（down + --skip-down b
 - `README.md`、`AGENTS.md`、`handoff.md`（現況／Fact／交接）
 - node 側（非 repo）：image（兩節點）、`~/docker-stacks/mia-TensorFold-qwen38flashNext/`（clone + `.env`）、
   兩節點的 HF cache 橋接、`~/docker-stacks/logs/qwen38flash-tensorfold/`（boot/kit/image-pull/prepare log）
+
+## 9. 追加驗證（2026-10-22 08:59–09:19）：多深度檢索 + 20 分鐘高併發 soak
+
+本節是上線後的第二輪驗證（服務已在線，`gb10 restart qwen38flash-tensorfold` 一次以帶上
+`TF_FLASHNEXT_GRAPH_LOG=1`；兩 rank 的 container env 都確認有這個變數）。
+
+### 9.1 `tools/long_context.py`（needle 5 深度 + key=value 檢索）
+
+`API_URL=http://127.0.0.1:1234 MODEL=aeon`、`--max-tokens 512`、thinking off、greedy、seed 1。
+
+| size / test | 結果 | prompt | 備註 |
+|---|---|---|---|
+| 32k needles（深度 0.02/0.25/0.5/0.75/0.98） | **exact 5/5** | ~31.6k | — |
+| 32k kv（8 keys） | **exact 8/8** | ~31.8k | — |
+| 128k needles | **exact 5/5** | ~127.6k | — |
+| 128k kv | **exact 8/8** | ~128k | — |
+| 256k needles | **exact 5/5** | ~255.6k | 近硬限仍全中 |
+| 256k kv | **HTTP 400（預期）** | 275,135 | harness 對 kv 文件的 token 估算偏低（實測 1.99 chars/token），prompt 自身就超過 262,144；引擎**乾淨拒絕**、沒有截斷或半截答案 |
+| 240k kv（補跑） | **exact 8/8** | 257,814 | prefill **91.0 s ≈ 2,833 tok/s** |
+| 512k / 1M | **skipped** | — | 工具主動判定超過服務窗（262,144），不計分 |
+
+合計 `exact 31/31、present 31/31`（不含 240k 補跑的 8/8）。
+**Harness 提醒**：`--sizes 256k --tests kv` 會自己超標 ~7.5%；要驗近上限的 kv 檢索請用 `240k`。
+
+### 9.2 20 分鐘 soak（`scripts/bench-soak.py`，本 session 新增）
+
+`--concurrency 8 --duration 1200 --max-tokens 512 --thinking on`；mixed short/medium(3k)/long(12k) prompt，
+每 10 個請求一次 exact-token probe（`HELLO-SOAK-OK`）。
+
+```json
+SOAK {"duration_s": 1214.2, "concurrency": 8, "model": "aeon", "max_tokens": 512, "thinking": "on",
+      "requests": 893, "errors": 0, "truncated_empty_content": 223, "probe_mismatch": 0,
+      "completion_tokens": 242651, "tok_per_s": 199.9, "lat_p50_s": 8.312, "lat_p95_s": 22.68,
+      "by_family": {"short": 446, "medium": 224, "long": 223}}
+```
+
+- **0 errors、0 probe mismatch**；`finish_reason` 只有 `stop`(670) 與 `length`(223)。
+- **223 筆 `truncated` 全部是 thinking 吃掉 512 token 預算**（`finish_reason=length` + 空 content），
+  與本 repo 既有的 thinking 契約一致（客戶端要給 ≥1024 token）；不是引擎錯誤。
+- 延遲全程平穩：p50 8.28–8.60 s、p95 22.7–25.0 s（前 3 分鐘後就不動）；吞吐 199.9 tok/s（8 串流）。
+- 跑完 `free -g`：node0 36 GiB、node1 39 GiB available（起跑前 33.18 GiB KV pool + 10 GiB reserve，無洩漏）。
+
+### 9.3 CUDA graph（v1.1 修的就是這個）
+
+- 兩 rank 的 container 都帶 `TF_FLASHNEXT_GRAPH_LOG=1`。
+- **rank1（node1）的 docker log**：
+  `info: graphs after 8300 captures (shared): 0 solo, 13 shared live; 8300 instantiated; 13665 MiB device memory free`
+  —— 8300+ 次 capture/instantiate、**0 次失敗**、無 `CUDA_ERROR_NOT_PERMITTED`、無 `traceback`。
+- 重要細節：**這些 graph 統計只出現在 rank1 的 log**（node1 `docker logs qwen38-fn-tf`），
+  rank0/kit.log 一條都沒有。下次查這個問題要讀 **node1**。
+- Soak 後回歸：`BENCH_IGNORE_EOS=1 bench-c 8 400` = **283.0 tok/s**（soak 前 287.2，−1.5%，在噪聲內）、
+  `gb10 smoke` 200 `HELLO-TP2-OK`、`/health` 200、KV pool 33.18 GiB。
+
+**本節結論**：262,144 原生窗內的多深度檢索在 240k/256k 全中；20 分鐘 8 併發 thinking soak 零錯誤、
+延遲不漂移、graph 8300+ 次 instantiate 無失敗 → **v1.1 的 CUDA-graph 修復在本 cluster 站得住**。

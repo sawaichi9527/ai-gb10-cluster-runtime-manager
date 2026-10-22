@@ -147,6 +147,14 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
     at C1/C2/C4/C8 vs vLLM 40.6/42.0/89.5/157.6; cold prefill 3,465/3,240/2,989 vs 2,770/2,809/2,559;
     boot → `/health` **1m53s** vs 13m58s. Details + caveats:
     `docs/QWEN38FLASH_TENSORFOLD_DEPLOY_2026-10-22.md`.
+  - Sustained-load harness: **`scripts/bench-soak.py`** (stdlib, threads; N streams for a wall-clock
+    duration, mixed short/3k/12k prompts, exact-token probe every 10th request, per-request JSONL,
+    and it separates `truncated` (thinking ate `max_tokens`, `finish_reason=length`, empty content —
+    the documented contract) from real errors). 2026-10-22 baseline on this lane: C=8 × 1200 s →
+    893 requests, **0 errors / 0 probe mismatch**, 199.9 tok/s, p50 8.3 s / p95 22.7 s.
+    With `TF_FLASHNEXT_GRAPH_LOG=1` the engine's CUDA-graph counters appear **only in rank 1's
+    docker log on node1** (`docker logs qwen38-fn-tf`), never in `kit.log` — read node1 when
+    checking the v1.1 graph fix.
 - **`gb10 restart` stops a lane ONCE, and a dead kit launcher now fails fast (2026-10-21, `74ca594`).**
   `restart` runs `cluster-down` synchronously and then passes `--skip-down` to
   `gb10-boot-cluster` (`use`/`start` keep the full teardown) — the second stop used to

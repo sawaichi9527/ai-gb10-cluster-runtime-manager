@@ -915,9 +915,10 @@ Vision-Exp（多模態）已用**與 mainline deepseek 完全相同**的 image �
   已上線為正式對等 lane，`CONTEXT=262144`（1M/YaRN 未啟用，刻意）、A/B 與驗收證據見
   `docs/QWEN38FLASH_TENSORFOLD_DEPLOY_2026-10-22.md`。原本的「權重預設重下」假設**已被推翻**：
   兩節點既有的 25 檔 / 124 GiB 與官方 `fc694b54` 同檔名同大小 → 走 HF cache 相對 symlink 橋接，**零下載**）。
-  **剩下的後續**：① `tools/long_context.py`（128k/256k × 5 深度）；② 長時間 soak，開
-  `TF_FLASHNEXT_GRAPH_LOG=1` 觀察 v1.1 的 CUDA-graph graceful degrade（上游 v1.1 修的正是
-  「~15 分鐘高併發 thinking 後 instantiate 失敗」）；③ 8 併發 prefill（本次只量單請求）；
+  **剩下的後續**：① ~~`tools/long_context.py`（128k/256k × 5 深度）~~（**已完成 2026-10-22**：
+  needles 32k/128k/256k 全 5/5、kv 32k/128k 8/8、240k 補跑 8/8；256k kv 是 harness 自身超標被 400 拒絕）；
+  ② ~~長時間 soak~~（**已完成**：`scripts/bench-soak.py` C=8 × 1200 s，893 req、0 error、
+  graph 8300+ instantiate 0 失敗，見上）；③ 8 併發 prefill（本次仍只量單請求）；
   ④ `nvidia/…-FP4-Local`（QAD）雙引擎未驗證，列第二變數。
 - （可選）長圖文混搭、`--limit-mm-per-prompt` 上限（目前 8）、多輪 agent chain 長時間穩定性（見「定期檢討追蹤」#2）。
 - **benchmark 工具**：`scripts/bench-c.sh <C> [MAX_TOKENS]`（C=1 時 exit 1 為邊緣狀況，數值仍有效）、`scripts/bench-ctx.sh <NUM_WORDS> [MAX_TOKENS]`（`max_tokens=1`＝純 prefill）、**`scripts/bench-mm.sh [NUM_IMAGES] [C] [MAX_TOKENS]`（圖片；預設用 deepseek-vision profile 的測試圖，可用 `MM_IMAGE=` 覆寫）**。
@@ -2826,3 +2827,21 @@ FLUX.2 Dev（**只有藍圖、無 profile** → 手動放檔）；另註明 LTX-
 **Artifacts**：node0 `~/docker-stacks/logs/qwen38flash-tensorfold/{image-pull,image-transfer,prepare,kit,boot-cluster}.log`、
 `/tmp/bcf.*.txt`、`/tmp/bctx.*.txt`、`/tmp/vllm_bcf.*.txt`、`/tmp/vllm_bctx.*.txt`；
 repo `docs/QWEN38FLASH_TENSORFOLD_DEPLOY_2026-10-22.md`。
+
+#### 2026-10-22（後續）— 多深度檢索 + 20 分鐘 soak（§9 補驗）
+
+- **`tools/long_context.py`**（`--max-tokens 512`、seed 1）：32k/128k/256k needles **5/5 exact**、
+  32k/128k kv **8/8 exact**；256k kv 因 harness 自己把 prompt 做到 275,135 tok 而被引擎**正確 400 拒絕**
+  （無截斷），改跑 **240k kv → prompt 257,814、8/8 exact、prefill 91.0 s（≈2,833 tok/s）**；
+  512k/1M 由工具判定超出 262,144 窗而 skipped。合計 **exact 31/31（＋8/8）**。
+- **Soak（新工具 `scripts/bench-soak.py`）**：C=8、1200 s、thinking on、max_tokens 512，
+  mixed short/3k/12k prompt + 每 10 個請求一次 exact-token probe →
+  **893 requests、0 errors、0 probe mismatch**、242,651 completion tok、**199.9 tok/s**、
+  p50 8.31 s／p95 22.68 s（全程不漂移）；223 筆 `truncated` 全是 thinking 吃掉 512 預算
+  （`finish_reason=length` + 空 content，符合既有 thinking 契約，不是錯誤）。
+- **CUDA graph**：`TF_FLASHNEXT_GRAPH_LOG=1` 兩 rank 都帶；**統計只出現在 rank1（node1）的 docker log**：
+  `graphs after 8300 captures (shared): … 8300 instantiated`、**0 次失敗**、無 `CUDA_ERROR_NOT_PERMITTED`。
+  → v1.1 的 graph 修復在本 cluster 站得住。**下次查 graph 要讀 node1，不是 kit.log。**
+- Soak 後回歸：`bench-c 8` **283.0 tok/s**（前 287.2，−1.5% 噪聲內）、smoke 200、`/health` 200、
+  KV pool 33.18 GiB、記憶體 36/39 GiB available。
+- 證據檔（node0）：`~/docker-stacks/logs/qwen38flash-tensorfold/{long_context.log,long_context-2026-10-22.json,long_context-240k-kv.json,soak.log,soak-2026-10-22.jsonl}`。

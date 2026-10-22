@@ -172,6 +172,9 @@ harness = `scripts/bench-1017.py`（`prefill`／`conc`／`tools`／`soak`，輸�
   （比照 1017 兩條 lane 的 2026-10-21 裁示）。
 - **選擇依據**：decode／高併發／要最短 cold boot → `qwen38flash-tensorfold`；需要
   `response_format`／`logprobs` 等 vLLM 專有參數 → `qwen38flash`。
+- **壓力基線**（2026-10-22，`scripts/bench-soak.py`）：C=8 × 1200 s、thinking on → **893 請求、
+  0 error、0 probe mismatch**、199.9 tok/s、p50 8.3 s／p95 22.7 s；`TF_FLASHNEXT_GRAPH_LOG=1` 時
+  CUDA-graph 計數只出現在 **node1** 的 `docker logs qwen38-fn-tf`（`kit.log` 不會有）。
 - 共用資料：`~/docker-stacks/models/qwen3.8-flash-next-nvfp4`（**永不刪**）；
   TensorFold 透過 HF cache 橋接讀取（`HF_CACHE=~/docker-stacks/models`，
   `hub/models--nvidia--…/snapshots/fc694b54…` 用**相對** symlink 指回本目錄——絕對 symlink 在容器內會斷）。
