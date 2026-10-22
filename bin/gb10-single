@@ -430,18 +430,37 @@ default_file(){
   resolve "$last"
 }
 
-# ---- cross-protection: single-node runtime on node1 vs TP2 cluster ----
-# TP2 occupies BOTH nodes. Starting a single-node runtime on node1 needs
-# node1's GPU, so it must never coexist with an active TP2 cluster. This
-# hook auto-tears TP2 down before a node1 runtime comes up (做法 B).
+# ---- cross-protection: single-node runtime vs TP2 cluster ----
+# TP2 occupies BOTH nodes. Starting a single-node runtime needs that node's GPU
+# and the same LLM port, so it must never coexist with an active TP2 cluster.
+# This hook auto-tears TP2 down before a single-node runtime comes up (做法 B).
 tp2_active(){
-  docker ps -q -f name=cluster-node0 2>/dev/null | grep -q . && return 0 || return 1
+  # Compose lanes own cluster-node0; kit lanes run no compose at all and instead
+  # name their containers in KIT_HEAD_CONTAINER / KIT_WORKER_CONTAINER. Missing
+  # the kit case made this return false while a kit lane was serving, so a
+  # single-node runtime started beside it and then "went READY" against the TP2
+  # endpoint that already owned the port (observed 2026-10-22).
+  docker ps -q -f name=cluster-node0 2>/dev/null | grep -q . && return 0
+  local names c
+  names="$(grep -hE '^KIT_(HEAD|WORKER)_CONTAINER=' "${REPO_DIR}"/cluster-profiles.d/*.conf 2>/dev/null \
+            | cut -d= -f2- | tr -d '"' | sort -u)"
+  while IFS= read -r c; do
+    [[ -n "$c" ]] || continue
+    docker ps -q -f "name=^${c}$" 2>/dev/null | grep -q . && return 0
+  done <<< "$names"
+  return 1
 }
 
 ensure_tp2_down(){
+  local health_url="${1:-http://127.0.0.1:1234/health}"
   if tp2_active; then
     echo "TP2 cluster is running; tearing it down before starting a single-node runtime..."
     "${REPO_DIR}/scripts/cluster-down"
+    # Fail closed: if the LLM endpoint still answers, the new runtime's health
+    # probe would pass against the PREVIOUS server and report a false READY.
+    if curl -fsS -o /dev/null --connect-timeout 2 --max-time 3 "$health_url" 2>/dev/null; then
+      die "TP2 still answering on ${health_url} after cluster-down; refusing to start a single-node runtime"
+    fi
   fi
 }
 
@@ -499,7 +518,7 @@ case "$cmd" in
     # direction B: tear down TP2 before starting (unless already running)
     if [[ "$PLACEHOLDER" != true ]] && \
        { [[ "$MODE" != exclusive ]] || ! active_loaded "$node" || ! [[ "$(health_of "$node" "$f")" == READY ]]; }; then
-      ensure_tp2_down
+      ensure_tp2_down "$(load "$f"; echo "${HEALTH_URL}")"
     fi
 
     if [[ "$cmd" == "use" ]]; then
