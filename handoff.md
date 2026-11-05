@@ -3213,3 +3213,43 @@ challenger + incumbent，降低 warmup 峰值記憶體），屬 build-time patch
 `prerelease=false`、`target_commitish=main`，**body 與 annotated tag message 逐字相同**
 （以程式比對 `body.TrimEnd() == tag.contents` 兩邊皆 `True`）。兩邊 Release 清單同為
 **18 個**（`v1.0.0`…`v2.2.0`，tag 集合一致）。
+
+#### 2026-11-05 session close — Validation evidence
+
+**範圍**：b12x image 世代升級（三條 DeepSeek lane ＋ A/B lane）、多 boot 複驗、舊世代封存、
+舊 image／三個退役 checkpoint 刪除、`v2.2.0` 發版。**Runtime 變更：是**（四條 lane 都重開過）。
+**環境**：node0 `spark-25d5`（10.0.101.101）／node1 `spark-8095`（10.0.101.102）；
+image `eugr/spark-vllm-b12x:nightly-20261102`（vllm `0.1.dev21830+g8244d1c44`、
+flashinfer `9873d7a3…`）；Ubuntu 24.04.5、Docker 29.2.1。
+
+| # | 檢查 | 命令／方式 | 時間（CST） | 結果 |
+|---|---|---|---|---|
+| 1 | Repo 狀態 | `git status --short --branch`、`git diff --stat` | 21:03 | **clean**，HEAD `e354e28`（＝兩 remote） |
+| 2 | 節點 checkout | node0 `git pull --ff-only`、`git status -sb` | 21:03 | fast-forward 到 `e354e28`，`## main...origin/main` |
+| 3 | Shell 語法 | node0：repo 內所有 bash 檔＋`cluster-profiles.d/*.conf{,.base}`＋`runtimes.d/*.conf` 逐檔 `bash -n` | 21:03 | **checked=52 failures=0** |
+| 4 | Python 語法 | node0 `python3 -m py_compile scripts/*.py patches/eugr-spark-vllm-b12x/*.py _overdue_recipe/*/patches/*/*.py` | 21:03 | **rc=0（PY_OK）** |
+| 5 | 同步閘門 | node0 `bash scripts/check-git-sync.sh --block` | 21:03 | **rc=0**（無輸出） |
+| 6 | 封存完整性 | node0 `sha256sum` 五個封存檔 | 21:03 | **與 `_overdue_recipe/README.md` 表逐一相符**：`d86f03c3…`／`9324c452…`／`fe0bc068…`／`979cbefc…`／`962cb60d…` |
+| 7 | 兩 remote 一致 | `git ls-remote origin` vs `github`（全部 refs ＋ tags）、`main` SHA | 20:58 | **main 同為 `e354e28`；Compare-Object 差異 0（35 個 tag ref）** |
+| 8 | Release 一致 | 兩邊 API 取 18 筆，逐筆比 `body`（SHA256，正規化換行）＋`draft`／`prerelease` | 20:59 | **18 vs 18、0 筆不符** |
+
+**Runtime 證據（同一 session，已在各章節記錄）**：
+
+- 四條 lane boot → READY：tune 25m35s、`deepseek` 17m46s／16m51s、`vision` 17m46s／16m46s／16m46s、
+  `nvfp4` 24m46s／24m26s；每條 `cluster-compose-verify` 2/2 PASS、`gb10 smoke` OK。
+- decode：每條 2–3 次 boot × C1–C8 ×3 取中位（Σ 686.5／536.1／729.5）；prefix-hit 40.0×／44.1×／48.4×
+  逐字一致；garble 3/3；261K 1852.5／262K cold 1954.1 tok/s；影像 1img C=1 47.3／C=8 151.0 且內容正確。
+- KV pool：499,760／487,718／439,956 tok（+22.6／+17.8／+27.8 %）。
+- 還原 `dsv41flash-tensorfold` 20:23:16 READY、health 200。
+- **會後狀態**：使用者於 **20:55:16** 啟動 `deepseek-nvfp4`（非本 session 操作，`ps` 顯示
+  `gb10-boot-cluster deepseek-nvfp4`）；21:03 檢查時 status=`loading`、health=000，屬正常冷啟中，
+  **不列為本輪驗證證據**。
+
+**Artifacts**：node0 `~/bench-{deepseek,vision,nvfp4}-run{2,3}-20261102-rerun.txt`、
+`~/docker-stacks/logs/{deepseek,deepseek-vision,deepseek-nvfp4}/bench-c-full-2026-11-05.txt`、
+`~/docker-stacks/logs/*/boot-cluster.log`；repo `docs/BENCHMARKS.md` §12（12.1–12.7）、
+`_overdue_recipe/*nightly-20261006_20261105/`。
+
+**未驗證**：① 長時間 soak（僅 garble ×3，無數小時壓力測試）；② 長文風格／事實性 A/B；
+③ 其他 image 的 lane（27b/35b、qwen38flash、mimo26flash、兩條 1017）本輪未動、未重測；
+④ `nvfp4` C2 −11 % 的成因未定位（三次 boot 一致，屬已知變動，非回歸）。
