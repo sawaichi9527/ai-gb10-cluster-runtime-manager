@@ -1,0 +1,279 @@
+#!/usr/bin/env bash
+# =====================================================================
+# deepseek-nvfp4 cluster profile — DeepSeek-V4-Flash-0731-NVFP4
+# on eugr/spark-vllm-b12x (B12X kernels, 2-node GB10 TP2)
+# Authoritative profile data; consumed by scripts/cluster-common.sh loader.
+#
+# PURPOSE (2026-10-07): a SECOND DeepSeek lane on a MAINTAINED runtime.
+# The mainline/vision lanes pin ghcr.io/anemll/dspark-vllm-gx10:0.1.1,
+# which is believed to be unmaintained upstream; this lane moves the same
+# 0731 model class onto eugr/spark-vllm-b12x (DockerHub, nightly CI,
+# github.com/eugr/spark-vllm-docker) WITHOUT touching deepseek.conf or
+# deepseek-vision.conf. TP2 cluster-only; mutually exclusive with every
+# other lane (port 1234 + both nodes' GPUs) via `gb10 use`.
+#
+# NAME COLLISION NOTE: an earlier, unrelated placeholder lane also called
+# `deepseek-nvfp4` (AEON NVFP4 experiment) was retired to
+# ~/_archieve/cluster-profiles.d/deepseek-nvfp4.conf and deleted with
+# ~/_archieve. Same name, different model/runtime — this is NOT a revival
+# of that lane.
+#
+# PROVENANCE of the recipe below:
+#   - eugr/spark-vllm-docker recipes/deepseek-v4-flash-0731.yaml (cluster
+#     TP2 B12X contract: backends, b12x env block, dspark k=5 spec decode,
+#     block 256, capture 48, GMU 0.85) — the fp8 reference recipe;
+#   - huggingface.co/nvidia/DeepSeek-V4-Flash-0731-NVFP4 model card (NVFP4
+#     quant: MoE routed experts only, DSpark heads carried unquantized,
+#     kv-cache-dtype fp8, tokenizer-mode deepseek_v4, reasoning/tool parser
+#     deepseek_v4).
+# The two differ where noted inline; unknown knobs are listed as
+# BOOT-STAGE candidates rather than guessed at.
+#
+# BOOT-STAGE candidates (NOT set here; verify before adding):
+#   --attention_config.use_fp4_indexer_cache=True  (model card, B200/TP8;
+#       B12X attention backend support unverified)
+#   --enable-expert-parallel (model card TP8; eugr TP2 recipe omits it)
+#   VLLM_SPARSE_INDEXER_MAX_LOGITS_MB / GB10_HYBRID_NVFP4_M_THRESHOLD
+#       (Anemll-image env; eugr image has no such code — do not copy)
+#
+# KNOWN RISK (verify at boot, stage 3):
+#   - NVIDIA did NOT validate spec decode on this NVFP4 checkpoint
+#     ("enable it only after verifying it") — acceptance measured at boot.
+#   - SPEC ACCEPTANCE ROOT-CAUSED + HOTFIXED (2026-10-08): boot #3 measured
+#     ~1.1 accepted tok/step (pos0 0.10, pos1+ ~0, 16 tok/s single stream)
+#     because the in-checkpoint draft's NATIVE MXFP4 experts (mtp.*, exempt
+#     per the checkpoint's own quant ignore list) were built as
+#     ModelOptNvFp4FusedMoE: draft quant resolves moe_quant_algo lazily
+#     from the SHARED NVFP4 hf quant dict, silently loading ue8m0 g32
+#     scales into e4m3 g16 buffers -> garbage draft logits (upstream
+#     vllm-project/vllm#49133, closed unmerged; this image has only half
+#     of that fix). Remedy = CMD_WRAPPER hotfix below (Mxfp4 dispatch,
+#     same path as the official fp8/MXFP4 checkpoint). Gate after boot:
+#     temp=0 acceptance probe pos0 >= 0.3, decode > 16 tok/s, and the
+#     boot log MUST show the "Mxfp4 MoE backend" line (was 0 occurrences)
+#     with the modelopt w1/w3 warning GONE.
+#   - prefix caching ON follows the eugr recipe, but the dspark SWA-prefix
+#     truncation class of bug (mainline needed a hotfix for it) may or may
+#     not be fixed in this fork: boot gate MUST include the prefix-hit +
+#     completeness probe (scripts/bench-prefix-hit.sh); if answers truncate
+#     on cache hits, flip ENABLE_PREFIX_CACHING to "false" (correctness
+#     first) and re-gate.
+#   - B12X kernels JIT-compile at first use: first boot may be slow;
+#     HEALTH_TIMEOUT is raised to 3600s accordingly (27b precedent).
+#   - NVFP4 on GB10 has no native FP4 path in some kernels — watch for
+#     Marlin/weight-only fallback warnings in the boot log and record the
+#     effective quant path.
+# =====================================================================
+# =====================================================================
+# A/B EXPERIMENT LANE (2026-10-08): deepseek-nvfp4-tune is a byte-copy of
+# deepseek-nvfp4.conf except PROFILE_ID / DISPLAY_NAME / STACK_DIR /
+# COMPOSE_FILE and the lane-local cache + autotune roots. It exists so
+# that single-knob cells (N1..N5, scripts/ab-setcell.sh) never mutate the
+# production deepseek-nvfp4 profile -- the same discipline deepseek-tune
+# and deepseek-vision-tune apply to their lanes. Every cell starts from
+# the pristine baseline again:
+#   AB_CONF=cluster-profiles.d/deepseek-nvfp4-tune.conf \
+#   AB_BASE=cluster-profiles.d/deepseek-nvfp4-tune.conf.base \
+#   scripts/ab-setcell.sh N0
+# =====================================================================
+PROFILE_ID="deepseek-nvfp4-tune"
+DISPLAY_NAME="DeepSeek V4 Flash 0731 NVFP4 (A/B lane, single-knob experiments)"
+PLACEHOLDER="false"
+
+# Launch mechanism: compose (the unified lane).
+LAUNCH_STYLE="compose"
+
+# Node-local stack dir (image-named; node-local layout convention).
+STACK_DIR="${HOME}/docker-stacks/eugr-spark-vllm-b12x-tune"
+COMPOSE_FILE="docker-compose.deepseek-nvfp4-tune.yml"
+
+# Maintained upstream runtime (DockerHub nightly CI; digests advance!).
+# The registry manifest digest gate below pins the copy actually booted —
+# re-pull + re-pin is an explicit, reviewed step (see header).
+IMAGE="eugr/spark-vllm-b12x:latest"
+# Registry manifest digest gate (verify_profile_image_gate, fail-fast in
+# cluster-up; node0 classic store vs node1 containerd store report .Id
+# differently). Locked 2026-10-07 from the node0 pull:
+#   node0 = registry manifest digest (docker pull)
+#   node1 = same image byte-transferred over CX7 (docker save | ssh |
+#           docker load) — containerd RE-MANIFESTS it, so its RepoDigests
+#           digest legitimately differs. Content identity was proven
+#           BEFORE pinning: identical .RootFS.Layers (all 29 diff IDs,
+#           sha256 7b37fa7e…) and identical .Config (sha256 f5d86c25…) on
+#           both nodes. Hence the optional per-node pin
+#           (IMG_SHA256_NODE1; unset for every other profile = behaviour
+#           unchanged). Re-pull / re-transfer => re-pin both, explicitly.
+IMG_SHA256="sha256:036c307678dad66adbbb5a627ec8d3a0d8f9bbf8be4a679e6e441a0b2e1ab2c3"
+IMG_SHA256_NODE1="sha256:dc0e9faa61d4d4133e07ec81536107b99ab741c49f198b5d4fafbc8f2466b2eb"
+
+# NVIDIA NVFP4 checkpoint (0731 = mainline model class; DSpark heads
+# preserved unquantized). ~172 GB, 48 shards, non-gated, MIT. No /drafter
+# mount: the draft head lives in the same checkpoint.
+MODELS_BASE="$HOME/docker-stacks/models"
+BODY_REL="deepseek-v4-flash-0731-nvfp4"
+DRAF_REL=""
+
+# 256KB context / 8-way / 8192 batched (eugr recipe defaults; unified :1234
+# contract keeps MAXLEN at the cluster-standard 256K — the model itself
+# supports up to 1M, raise later only with a measured KV budget).
+MAXLEN="262144"
+NUMSEQ="8"
+BATCHED="8192"
+GMU="0.85"
+
+# Model-specific vLLM settings (profile-owned).
+# QUANTIZATION=none: the checkpoint carries hf_quant_config.json
+# (MIXED_PRECISION / NVFP4 group_size 16) and vLLM auto-detects it;
+# leaving this unset would emit --quantization compressed-tensors (wrong).
+QUANTIZATION="none"
+KV_DTYPE="fp8"                        # model card + eugr recipe agree
+# A/B 2026-10-08 (B cell = nvfp4_ds_mla): DETERMINISTIC BOOT FAIL, reverted.
+# Root cause (image 2026-10-06, three independent gates):
+#   1. models/deepseek_v4/attention.py _resolve_dsv4_kv_cache_dtype —
+#      DeepseekV4Attention.use_fp8_ds_mla_layout=True (ClassVar) rejects any
+#      kv-cache-dtype not starting with "fp8" (this is the crash we hit;
+#      config/cache.py's generic accepted-list admits nvfp4_ds_mla but the
+#      model layer overrides it).
+#   2. v1/attention/backends/mla/b12x_mla_sparse.py — "B12X nvfp4_ds_mla
+#      requires GLM5Next" (also at backend init): DeepSeekV4 excluded.
+#   3. v1/attention/backends/mla/flashmla_sparse.py — nvfp4_ds_mla requires
+#      device_capability.major==10 (SM100); GB10 is not.
+# No reachable path for DeepSeekV4 on GB10 in this image — do not retry
+# without an upstream change. A-side reference (fp8): KV pool 343,549 tokens,
+# 1.31x at 262144, bench-ctx 200K cold 1984.6 tok/s, C8 129.9 tok/s.
+# B12X kernel trio (eugr recipe, capitalisation as upstream emits it).
+ATTN_BACKEND="B12X"
+LINEAR_BACKEND="b12x"
+MOE_BACKEND="b12x"
+# Recipe compilation config verbatim (custom_ops all -> B12X op dispatch).
+COMPILATION_JSON='{"cudagraph_mode":"FULL_AND_PIECEWISE","custom_ops":["all"]}'
+CUDAGRAPH_CAPTURE="48"
+ENABLE_CHUNKED_PREFILL="true"
+# Prefix caching ON = eugr recipe. See header KNOWN RISK: gate with
+# bench-prefix-hit + completeness before trusting cache hits.
+ENABLE_PREFIX_CACHING="true"
+# eugr recipe keeps custom all-reduce (loader default would disable it).
+DISABLE_CUSTOM_ALL_REDUCE="false"
+SHM_SIZE="64g"
+
+# Container seccomp policy (generic 4th profile field; unset => no-op).
+# The Docker default seccomp profile blocks io_uring (probe 2026-10-07:
+# io_uring_setup -> EPERM), and the b12x checkpoint loader's bounce path
+# needs it — weight load died with "io_uring bounce initialization failed:
+# Operation not permitted" on first boot attempt. Upstream eugr
+# launch-cluster.sh never hits this because it runs --privileged by
+# default. Probes: default -> EPERM, seccomp=unconfined -> OK (fd 3);
+# memlock-unlimited control still EPERM (compose already has memlock -1).
+# Relax seccomp ONLY — cap_add / ipc=host / ulimits stay as the shared
+# contract; revisit if a later boot needs more of what --privileged grants.
+SECURITY_OPT=("seccomp=unconfined")
+
+# DSpark same-model draft in-checkpoint (eugr recipe: k=5 probabilistic
+# with B12X attention; nvidia requires >= dspark_block_size=5).
+# NOT yet validated by NVIDIA on this NVFP4 checkpoint — acceptance must
+# be measured at boot (stage 3) before this lane is called healthy.
+# The measured collapse was draft-quant, not spec semantics: requires the
+# CMD_WRAPPER hotfix below (KNOWN RISK #2), or acceptance stays ~1.1.
+SPEC_CONFIG='{"method":"dspark","num_speculative_tokens":5,"draft_sample_method":"probabilistic","attention_backend":"B12X"}'
+
+# OpenAI tools + reasoning (both cards / recipe agree on deepseek_v4).
+REASONING_PARSER="deepseek_v4"
+TOOL_CALL_PARSER="deepseek_v4"
+ENABLE_AUTO_TOOL_CHOICE="true"
+
+# Recipe extras the shared builder does not cover.
+EXTRA_ARGS=(
+  --tokenizer-mode deepseek_v4
+  # Loader: safetensors (header contingency, taken at boot #2 2026-10-07).
+  # --load-format b12x died loading the DRAFT head with
+  #   NotImplementedError: strided dtype conversion: mtp.1.ffn.experts.0.w1.scale
+  # (b12x/loader/_checkpoint.py:494 refuses dtype conversion on a strided
+  # view; no bypass env exists in the loader). Upstream validated b12x
+  # only against the official deepseek-ai checkpoint — this NVFP4
+  # checkpoint's draft scale layout is outside that contract. Load format
+  # governs cold-start IO only: the b12x RUNTIME backends below
+  # (--moe/--linear/--attention) consume nn.Parameters and are unchanged.
+  --load-format safetensors
+  --block-size 256
+  # Reasoning shape + template defaults, verbatim from the eugr recipe.
+  # NOTE for benches: thinking=true is the serving default here; garble/
+  # completeness probes must pass "thinking":false (see
+  # scripts/bench-prefix-hit.sh L61-L66 for the known trap).
+  --reasoning-config '{"reasoning_parser":"deepseek_v4","reasoning_start_str":"","reasoning_end_str":""}'
+  --default-chat-template-kwargs.thinking=true
+  --default-chat-template-kwargs.reasoning_effort=high
+  # Cluster executor (mainline deepseek contract; eugr's own runner is
+  # external to the container).
+  --distributed-executor-backend mp
+)
+
+# Container env: eugr b12x recipe block + our RoCE/NCCL cluster contract
+# (builder provides VLLM_HOST_IP / NCCL_SOCKET_IFNAME / GLOO_SOCKET_IFNAME /
+# NCCL_IB_HCA / NCCL_IB_GID_INDEX / PYTORCH_CUDA_ALLOC_CONF).
+# Deliberately NOT copied from deepseek.conf: Anemll-image-only env
+# (ENABLE_VLLM_GB10_PATCH, GB10_HYBRID_NVFP4_M_THRESHOLD, DG_JIT_*,
+# TILELANG_*, CUDA_HOME/PATH, FLASHINFER_* arch pins) — that code does not
+# exist in this image.
+EXTRA_ENV=(
+  # ---- eugr recipes/deepseek-v4-flash-0731.yaml env block ----
+  CUTE_DSL_ARCH=sm_121a
+  VLLM_USE_AOT_COMPILE=1
+  VLLM_USE_BREAKABLE_CUDAGRAPH=0
+  VLLM_USE_MEGA_AOT_ARTIFACT=1
+  VLLM_MEMORY_PROFILE_INCLUDE_ATTN=1
+  VLLM_USE_FLASHINFER_SAMPLER=1
+  VLLM_USE_B12X_WO_PROJECTION=1
+  VLLM_USE_B12X_MHC=1
+  VLLM_USE_B12X_FP8_GEMM=1
+  VLLM_USE_B12X_MOE=1
+  VLLM_USE_B12X_SPARSE_INDEXER=1
+  VLLM_USE_V2_MODEL_RUNNER=1
+  VLLM_MOE_SKIP_PADDING=0
+  B12X_MLA_SM120_UNIFIED=1
+  B12X_MOE_FORCE_A8=1
+  # ---- offline + lane-local cache root ----
+  HF_HUB_OFFLINE=1
+  TRANSFORMERS_OFFLINE=1
+  VLLM_ALLOW_LONG_MAX_MODEL_LEN=1
+  VLLM_CACHE_ROOT=/cache/vllm
+  FLASHINFER_WORKSPACE_BASE=/cache/vllm/flashinfer
+  # ---- RoCE/NCCL cluster contract (same as mainline deepseek) ----
+  TP_SOCKET_IFNAME=${NCCL_SOCKET_IFNAME}
+  NCCL_NET=IB
+  NCCL_IB_DISABLE=0
+  NCCL_IB_ROCE_VERSION_NUM=2
+  NCCL_IB_ADDR_FAMILY=AF_INET
+  NCCL_IB_TIMEOUT=22
+  NCCL_IB_RETRY_CNT=7
+  NCCL_CROSS_NIC=1
+  NCCL_CUMEM_ENABLE=0
+  NCCL_IGNORE_CPU_AFFINITY=1
+  NCCL_NVLS_ENABLE=0
+)
+
+# Lane-isolated JIT/compile cache root (persists across boots; ${HOME}
+# resolves per node). cluster-only, so no -cluster suffix.
+# Boot-stage hotfix (2026-10-08): the eugr recipe itself needs no mods
+# (mods: []), but the shared-NVFP4-dict draft quant bug does (KNOWN RISK
+# #2): CMD_WRAPPER applies the region-pinned, fail-closed patch at
+# container start; source of truth = repo patches/eugr-spark-vllm-b12x/,
+# staged to both nodes' ${STACK_DIR}/patches by SYNC_DIRS below.
+CMD_WRAPPER='python3 /opt/eugr-patches/hotfix-dspark-draft-mxfp4.py || exit 1'
+
+EXTRA_MOUNTS=(
+  -v "${HOME}/.cache/vllm-deepseek-nvfp4-tune:/cache/vllm"
+  -v "${STACK_DIR}/patches:/opt/eugr-patches:ro"
+)
+
+# Auto-provision the runtime patch dir on BOTH nodes (Node1 does not host
+# the repo; cluster-up SYNC_DIRS hook, same as deepseek-vision).
+SYNC_DIRS=(
+  "${REPO_DIR}/patches/eugr-spark-vllm-b12x:${STACK_DIR}/patches"
+)
+
+# Per-boot FlashInfer autotune reset follows this (see cluster-common.sh).
+AUTOTUNE_CACHE_REL=".cache/vllm-deepseek-nvfp4-tune/flashinfer_autotune_cache"
+
+# B12X kernels JIT-compile on first use (build metadata, not prebuilt
+# CUDA) → first cold boot can exceed the 2400s default (27b precedent).
+HEALTH_TIMEOUT="3600"

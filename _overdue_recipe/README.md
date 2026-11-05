@@ -25,16 +25,22 @@ tag 的點去掉（`0.1.1` → `011`）；日期 = 退役（封存）日。
 |---|---|---|---|---|
 | `deepseek_anemll-dspark-vllm-gx10-011_20261009/` | `deepseek` + `deepseek-tune` | `ghcr.io/anemll/dspark-vllm-gx10:0.1.1` | 2026-10-09 | 舊主線（官方 0731 fp8 + DSpark k=7）；被 eugr-b12x + Dspark-Ablit 配方繼承 |
 | `deepseek-vision_anemll-dspark-vllm-gx10-011_20261009/` | `deepseek-vision` + `deepseek-vision-tune` | 同上 | 2026-10-09 | 舊 Vision-Exp lane（`CMD_WRAPPER` + 17 個 MiaAI hotfix）；被 eugr-b12x 原生 vision 配方繼承 |
+| `deepseek_eugr-spark-vllm-b12x-nightly-20261006_20261105/` | `deepseek` | `eugr/spark-vllm-b12x:nightly-20261006` | 2026-11-05 | eugr-b12x 配方的**舊 image 世代**（B12X 仍為獨立 `lukealonso/b12x` wheel）；被 `nightly-20261102` 取代 |
+| `deepseek-vision_eugr-spark-vllm-b12x-nightly-20261006_20261105/` | `deepseek-vision` | 同上 | 2026-11-05 | 同上（原生 vision 分支） |
+| `deepseek-nvfp4_eugr-spark-vllm-b12x-nightly-20261006_20261105/` | `deepseek-nvfp4` + `deepseek-nvfp4-tune` | 同上 | 2026-11-05 | 同上 ＋ **draft-MXFP4 hotfix 的 2026-10-06 pin**（單 image pin，見該目錄 README） |
 
 每個子目錄包含：
 
 - `*.conf` / `*.conf.base` — byte-identical 封存 profile（SHA256 見下表）
-- `docker-compose.<profile>.yml` — **於 2026-10-09 由封存 conf 重新渲染**的
-  deploy-contract compose（conf 才是 source of truth；compose 每次啟動都重渲染，
-  此檔供比對／參考）。`--api-key` 已置換為 placeholder `<REDACTED:from-cluster.env>`
+- `docker-compose.<profile>.yml` — **由封存 conf 重新渲染**的 deploy-contract compose
+  （conf 才是 source of truth；compose 每次啟動都重渲染，此檔供比對／參考）。
+  `--api-key` 已置換為 placeholder `<REDACTED:from-cluster.env>`
   —— 真實 key 在 `~/docker-stacks/config/cluster.env`，永不同時入庫。
-- `patches/dspark-vision/` — 對應 repo 根目錄相對路徑的 runtime patch 快照
-  （conf 的 `SYNC_DIRS` 解析 `${REPO_DIR}/patches/dspark-vision`），含 `NOTICE.md`
+  Anemll 世代於 2026-10-09 渲染；`nightly-20261006` 世代於 2026-11-05 渲染。
+- `patches/<dir>/` — **僅在該配方依賴 runtime patch 時存在**，內容是對應 repo 根目錄
+  相對路徑的快照（`nightly-20261006` 世代的 `deepseek-nvfp4` 帶
+  `patches/eugr-spark-vllm-b12x/hotfix-dspark-draft-mxfp4.py` 的舊 pin；
+  Anemll 世代帶 `patches/dspark-vision/` 與 `NOTICE.md`）
 - `recipe_README.md` — 配方身分、歷史 benchmark 記錄、退役對決、還原步驟
 
 封存檔案 SHA256（2026-10-09 驗證）：
@@ -48,13 +54,30 @@ tag 的點去掉（`0.1.1` → `011`）；日期 = 退役（封存）日。
 
 （兩組 tune `.conf` 與 `.base` 相同 = campaign 結束時已還原成 pristine 基線。）
 
+封存檔案 SHA256（2026-11-05 驗證，`nightly-20261006` 世代）：
+
+| 檔案 | sha256 |
+|---|---|
+| `deepseek.conf` | `d86f03c384d13cb3bd11d0b050a093e050c9a82eb788606a2b10264c9994fa61` |
+| `deepseek-vision.conf` | `9324c45241dddad50c0e636b3d6fe9c298ee9f1b8f42d4eef070e95ffc498070` |
+| `deepseek-nvfp4.conf` | `fe0bc068d7416c83d2c0ea5c077bcd330b5844c8849aa6e46b904f51b8c7ddf8` |
+| `deepseek-nvfp4-tune.conf` = `.base` | `979cbefc704fd992bb39682ab7cde2a341d7d317b77184dfad3c6eeb9464a7df` |
+| `patches/eugr-spark-vllm-b12x/hotfix-dspark-draft-mxfp4.py` | `962cb60d5118098e341c590a2a3b17d9b6fb17f549a42d19c4a843abaab69bc3` |
+
+（`deepseek-nvfp4-tune.conf` 與 `.base` 相同 → 2026-10-08 campaign 結束時已還原為 pristine N0，
+與當時記錄的 `sha 979cbefc704fd992` 一致。該 hotfix 是**舊 pin**：live 樹已改釘
+`nightly-20261102`，兩者不可混用。）
+
 **不入庫（by design）：**
 
-- Docker image `ghcr.io/anemll/dspark-vllm-gx10:0.1.1` — digest pin 在各 conf
-  （`IMG_SHA256`），還原步驟會要求雙節點驗證；若已被 prune 需 re-pull 到 node0
-  再經 CX7 byte-transfer 到 node1
+- Docker image —— 所有世代的 digest pin 都記在各 conf 的 `IMG_SHA256` /
+  `IMG_SHA256_NODE1`，還原步驟說明如何取回。**`nightly-20261006` 世代已於 2026-11-05
+  依使用者決定從兩節點直接刪除**（不保留 rollback 實體，僅保留設定與 pin；要還原須重新
+  `docker pull` 該 dated tag，若 Docker Hub 已 prune 則無法還原）。
+  Anemll 世代的 `ghcr.io/anemll/dspark-vllm-gx10:0.1.1` 同樣未入庫。
 - 模型權重 — 各配方的模型路徑、pinned revision 與保留狀態見
-  `recipe_README.md`
+  `recipe_README.md`；`nightly-20261006` 世代的三個 checkpoint **仍在使用中**
+  （同一份權重由新 image 的 lane 讀取），不是封存物。
 
 ## Loader 安全性
 
