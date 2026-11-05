@@ -365,7 +365,8 @@ cold boot **1 min 53 s**、soak 893 請求 0 error、長文檢索 exact 31/31 ·
 
 - **定案 MXFP4（2026-10-05）**：NVFP4 變體只贏 prefill（+12~28 %）與低併發，卻以 **41 % KV 容量**
   （8.81× → 5.21× @256K）、官方 QAT／`SHA256SUMS`、21 GB 磁碟為代價；decode 差距多在噪聲內。
-  要回 NVFP4 只需 flip `BODY_REL` ＋ `DISPLAY_NAME`（`models/mimo-v2.6-flash-mopd-nvfp4` 因此保留）。
+  **NVFP4 權重已於 2026-11-05 兩節點刪除**（186 GB/節點）；要再用需重新下載
+  `ProCreations/MiMo-V2.6-Flash-MOPD-NVFP4` @ `da654d8e…` 並先補 `SHA256SUMS`。
 - DFlash cliff 探測兩變體皆過（1024-token 滑窗 NaN cliff 在本棧無法重現）；image/draft 變更後以
   `node0:/tmp/dflash-cliff.sh` 重跑。延後調優（`repetition_penalty` A/B、`long-prefill-token-threshold`、
   tool-parser truncation）見 docs §7。

@@ -3176,20 +3176,23 @@ challenger + incumbent，降低 warmup 峰值記憶體），屬 build-time patch
 | `anemll-dspark-vllm-gx10`、`-miaFlaver`、`-miaFlaver-tune` | both | 320K ×3 | 舊 patch staging；17 個 hotfix 已在 `_overdue_recipe/…anemll…/patches/dspark-vision/`，無任何 `STACK_DIR` 指向 |
 | `deepseek-v4-flash-0731-official` | both | **156G** | Anemll 時代主線；配方已繼承並封存，**觀察一個月後**裁示刪除 |
 | `deepseek-v4-flash-vision-exp` | both | **157G** | 同上（vision 分支） |
+| `mimo-v2.6-flash-mopd-nvfp4` | both | **186G** | 2026-10-05 A/B 落敗的 NVFP4 變體；使用者於 2026-11-05（同日稍後）裁示一併刪除 |
 | `comfyui-dgx-spark-build.log`／`-build2.log`／`-clone.log` | node1 | 1.3M | 建置日誌 |
 | `docker-stacks/docs/handoffs/`（4 份 7–8 月 handoff） | node0 | 92K | 已被 repo `handoff.md`／`docs/` 取代 |
 
-- 磁碟：node0 **2.3T/1.3T（66 %）→ 2.0T/1.6T（57 %）**；node1 **2.5T/1.1T（70 %）→ 2.2T/1.4T（61 %）**
-  → 每節點回收 ~313 GB、合計 **~626 GB**。
-- 還原含義：兩份權重不再存在。`_overdue_recipe` 的兩份 Anemll `recipe_README.md` §4 已改寫為
-  「重新下載（revision 記錄在上表）」。
+- 磁碟：node0 **66 % → 52 %**（2.3T/1.3T → **1.8T/1.7T**）；node1 **70 % → 56 %**
+  （2.5T/1.1T → **2.0T/1.6T**）→ 每節點回收 **~499 GB**、合計 **~998 GB**
+  （Anemll 兩份模型 313 GB ＋ NVFP4 變體 186 GB）。
+- 還原含義：這三份權重都不再存在。`_overdue_recipe` 的兩份 Anemll `recipe_README.md` §4 已改寫為
+  「重新下載（revision 記錄在上表）」；MiMo NVFP4 的 revision 記在
+  `docs/MIMO26FLASH_TP2_2026-10-03.md` §10。
 
 **刻意保留（不是殘留）**：
 
 | 目錄 | 大小 | 理由 |
 |---|---|---|
 | `models/deepseek-v4.1-flash-1017-engram-packed` | 95G | **現役掛載**：`dsv41flash-tensorfold` 容器 `…/engram-packed/head:/engram:ro` |
-| `models/mimo-v2.6-flash-mopd-nvfp4` | 186G | A/B 的 NVFP4 變體；README 文件化的 fallback（flip `BODY_REL` 即可切回）。**現役 `mimo26flash` 用的是 `mimo-v2.6-flash-mopd`（MXFP4，`BODY_REL` 第 97 行），不是這個目錄** |
+| `models/mimo-v2.6-flash-mopd` | 170G/166G | 現役 `mimo26flash`（MXFP4，官方 QAT ＋ SHA256SUMS） |
 | `comfyui-dgx-spark`（node0 235G / node1 235G） | — | node1 現役；node0 是 failover 鏡像 |
 | `aeon-vllm-omni`、`eugr-spark-vllm-b12x{,-deepseek,-vision,-tune}`、`mia-*`、`tonyd2wild-*`、`x00byte-*`、`models/hub`、`dsv41flash-1017-bundle` | — | 全部對應現役 lane／kit／symlink |
 
