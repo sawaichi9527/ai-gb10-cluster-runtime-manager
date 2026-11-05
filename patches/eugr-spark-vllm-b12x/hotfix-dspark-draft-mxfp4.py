@@ -30,6 +30,13 @@ identity-pinned to this image's stock and patched bytes (the image itself is
 digest-gated by IMG_SHA256/IMG_SHA256_NODE1); same-directory atomic replace;
 already-patched targets are verified, never rewritten; anything else fails
 closed (exit 1) and aborts the container start.
+
+RE-PINNED 2026-11-05 for `eugr/spark-vllm-b12x:nightly-20261102`
+(vllm 0.1.dev21830+g8244d1c44, `dev/karmic-kraken`; stock utils.py grew
+5257 -> 5756 bytes but the patch region is byte-identical, verified by
+re-deriving the transform against the new image). The pins below are
+SINGLE-IMAGE: this file no longer applies to nightly-20261006. Rolling the
+image back therefore also re-pins this hotfix (git revert of the bump).
 """
 from __future__ import annotations
 
@@ -46,7 +53,7 @@ PRODUCTION_TARGET = Path(
     "/usr/local/lib/python3.12/dist-packages/vllm/"
     "v1/worker/gpu/spec_decode/dspark/utils.py"
 )
-EXPECTED_VLLM_VERSION = "0.1.dev21554+geda1715e9.d20261006"
+EXPECTED_VLLM_VERSION = "0.1.dev21830+g8244d1c44.d20261102"
 LABEL = "spec_decode/dspark/utils.py"
 MARK = "# [dspark-draft-mxfp4]"
 
@@ -90,10 +97,10 @@ REGION_NEW = "\n".join(
     ]
 ).encode("ascii") + b"\n"
 
-STOCK_SHA256 = "ea48801fbc80afc518ea3a5a4d3d00e401525d9cbdd8e914ad88adfa9bde5647"
-STOCK_SIZE = 5_257
-PATCHED_SHA256 = "7099e1624e1eee81bc781d1a069803b67bdc8f84fa3b3ffc8734c0a49a78eed5"
-PATCHED_SIZE = 6_478
+STOCK_SHA256 = "a92f4243f2b9d887768986f6a165c703db4effb013d30dcac839149464d0f0f9"
+STOCK_SIZE = 5_756
+PATCHED_SHA256 = "56dcb6cae97d0be99de9f759dd4d37c45fd8c5291890dd5e4572ff39f409c41c"
+PATCHED_SIZE = 6_977
 
 
 class HotfixError(RuntimeError):

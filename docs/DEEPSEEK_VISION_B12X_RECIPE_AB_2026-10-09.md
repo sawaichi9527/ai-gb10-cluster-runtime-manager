@@ -1,5 +1,11 @@
 # DeepSeek-Vision recipe succession A/B — `deepseek-vision-b12x` vs README record — 2026-10-09
 
+> **NOTE (2026-11-05).** The B1/B2 numbers below are on
+> `eugr/spark-vllm-b12x:nightly-20261006` (vllm `0.1.dev21554+geda1715e9`).
+> The lane now runs **`nightly-20261102`** (vllm `0.1.dev21830+g8244d1c44`,
+> B12X via FlashInfer `9873d7a3…`); the recipe itself is unchanged. See
+> `README.md` §5.3 for the current pins and the re-gate result.
+
 Goal (user decision 2026-10-09): evaluate the combination
 **`eugr/spark-vllm-b12x:latest` + `deepseek-v4-flash-vision-exp-ablit`**
 against the benchmark record annotated in `README.md` for the production

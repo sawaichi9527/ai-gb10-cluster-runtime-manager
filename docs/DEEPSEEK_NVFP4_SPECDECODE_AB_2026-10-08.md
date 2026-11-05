@@ -1,5 +1,13 @@
 # DeepSeek V4 Flash 0731 NVFP4 TP2 — spec-decode A/B campaign (2026-10-08)
 
+> **NOTE (2026-11-05).** Every measurement below was taken on
+> `eugr/spark-vllm-b12x:nightly-20261006` (vllm `0.1.dev21554+geda1715e9`,
+> b12x from the standalone `lukealonso/b12x` wheel). The three DeepSeek lanes
+> have since moved to **`nightly-20261102`** (vllm `0.1.dev21830+g8244d1c44`,
+> B12X via FlashInfer `9873d7a3…`); current pins and re-gate results live in
+> `README.md` §5.2/§5.4 and `cluster-profiles.d/*.conf`. Treat the numbers
+> here as the **old-image baseline**, not as a description of what runs now.
+
 **Question.** Can the live `deepseek-nvfp4` lane (eugr/spark-vllm-b12x,
 spec decode `num_speculative_tokens=5`) be made faster on C1 (single-stream
 tok/s) by (a) raising the DSpark depth k to 6/7, (b) turning on

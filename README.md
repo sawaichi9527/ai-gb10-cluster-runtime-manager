@@ -55,7 +55,7 @@ Node1  spark-8095  192.168.23.216 / 10.0.101.102   rank1 · headless worker
 |---|---|---|---|---|
 | `27b` | vLLM · `aeon-vllm-ultimate:2026-09-18-v0.29.0-omni` | 27B NVFP4-mixed ＋ DFlash2 n=7 | 262144 · 8 | C1 **41.0** → C8 **170.3** · 245k prefill 611.5 · 冷啟 250 s · 詳 **§5.1** |
 | `35b` | 同上 | 35B-A3B NVFP4 ＋ DFlash n=6 | 262144 · 8 | C1 **125.5** → C8 **471.8** · 245k prefill 3951.9 · 冷啟 386 s · 詳 **§5.1** |
-| `deepseek` | vLLM · `eugr/spark-vllm-b12x:latest` | `deepseek-v4-flash-0731-dspark-ablit` | 262144 · 8 · KV fp8 | C1 **43.2** → C8 **119.9**（Σ 693.3）· 261K prefill 1947.1 · 12.8 min · 詳 **§5.2** |
+| `deepseek` | vLLM · `eugr/spark-vllm-b12x:nightly-20261102` | `deepseek-v4-flash-0731-dspark-ablit` | 262144 · 8 · KV fp8 | C1 **43.2** → C8 **119.9**（Σ 693.3）· 261K prefill 1947.1 · 12.8 min · 詳 **§5.2** |
 | `deepseek-nvfp4` | 同上（digest 雙節點 pin） | `DeepSeek-V4-Flash-0731-NVFP4` ＋ DSpark k=5 | 262144 · 8 · KV fp8 | C1 **47.1** → C8 **129.9**（2.76×）· 200K prefill 1984.6 · ~21 min · 詳 **§5.4** |
 | `deepseek-vision` | 同上 | `…vision-exp-ablit`（原生 vision）＋ DSpark k=6 | 262144 · 8 · KV fp8 | C1 **39.7** → C8 **96.1**（Σ 535.3）· 261K prefill 1823.7 · 詳 **§5.3** |
 | `qwen38flash` | vLLM · `vllm-openai:qwen38-flash-next` | `qwen3.8-flash-next-nvfp4`（125B）＋ MTP n=3 | 262144 · 8 · KV fp8 | C1 **45.5** → C8 **196.8** · 245K prefill 2592.5 · 13 min 58 s · 詳 **§5.5** |
@@ -253,7 +253,7 @@ compose 檔無法表達。`cluster-down` 會等（≤90 s）容器真的消失�
 ### 5.2 `deepseek` — DeepSeek-V4-Flash-0731 mainline（fp8 DSpark）
 
 **權重** `models/deepseek-v4-flash-0731-dspark-ablit`（166.9 GB / 48 shards；26 個 body `wo_b` 張量改寫，
-**MTP/draft 與官方逐位元組相同**）· **Image** `eugr/spark-vllm-b12x:latest`（雙節點 digest pin，recipe `deepseek-v4-flash-0731.yaml`）
+**MTP/draft 與官方逐位元組相同**）· **Image** `eugr/spark-vllm-b12x:nightly-20261102`（dated tag ＋ 雙節點 digest pin，recipe `deepseek-v4-flash-0731.yaml`）
 **契約** 262144 ctx · 8 併發 · KV fp8 · `aeon` · **旋鈕** k=7、`CUDAGRAPH_CAPTURE=64`（`seqs×(k+1)`=8×8）、batched 8192、GMU 0.85、prefix caching ON（**無 hotfix**）
 **最新實測** Σ **693.3** tok/s（C1 43.2 → C8 119.9）、accept **33.4 %**、131K/200K/261K prefill 2174/2043/1947、
 prefix-hit **38.5×**（逐字一致）、KV 407,775 tok、冷啟 12.8 min · **詳細** `docs/DEEPSEEK_B12X_RECIPE_AB_2026-10-09.md`
@@ -280,7 +280,7 @@ accept 25.0~25.4 %、prefix-hit **50.9×**（三名輸出位元組一致）、KV
 ### 5.4 `deepseek-nvfp4` — 0731 NVFP4（含 DSpark draft MXFP4 hotfix）
 
 **權重** `nvidia/DeepSeek-V4-Flash-0731-NVFP4`（~172 GB / 48 shards，MIT，非 gated）
-**Image** `eugr/spark-vllm-b12x:latest`（2026-10-06 nightly；`IMG_SHA256` ＋ `IMG_SHA256_NODE1` 雙 pin）
+**Image** `eugr/spark-vllm-b12x:nightly-20261102`（dated tag；`IMG_SHA256` `19ab778d…` ＋ `IMG_SHA256_NODE1` `75a682a2…` 雙 pin；2026-11-05 由 `nightly-20261006` 升版）
 **契約** 262144 ctx · 8 併發 · KV fp8 · `aeon` · KV pool 344,195 tok（256K 單流 1.31×）
 **旋鈕** `QUANTIZATION=none`（自動偵測）、**`--load-format safetensors`**、capture 48、GMU 0.85、`SECURITY_OPT=("seccomp=unconfined")`
 **最新實測** C1 **47.1** → C8 **129.9**（**2.76×**）、accept **41–50 % 全程不崩**、200K cold prefill **1984.6**、
@@ -292,6 +292,13 @@ prefix-hit **44.8×**、garble soak 3/3 · **詳細** `docs/DEEPSEEK_NVFP4_SPECD
   `patches/eugr-spark-vllm-b12x/hotfix-dspark-draft-mxfp4.py`。
 - **NVFP4 KV（`nvfp4_ds_mla`）是負結果，已回退 fp8**：三重硬閘（DeepSeekV4 fp8 layout resolver／B12X 需
   GLM5Next／FlashMLA 需 SM100），未有上游變更勿重試。同名舊 lane（AEON NVFP4 實驗）已刪，**不是復活**。
+- **2026-11-05 image 升版（`nightly-20261006` → `nightly-20261102`）**：`IMAGE` 改用**不可變 dated tag**，
+  不再寫 `:latest`；digest 雙 pin 更新為 node0 `19ab778d…`／node1 `75a682a2…`（26 層，內容以
+  `docker save | ssh | docker load` 傳輸並以 `.RootFS.Layers`／`.Config` hash 對齊兩節點）。
+  這次跨越 eugr **2026-10-07「B12X 併入 FlashInfer」**的分界：kernel 來源由獨立 `b12x` wheel
+  （`lukealonso/b12x@master`）改為 FlashInfer commit `9873d7a3…`，backend flag 名稱不變。
+  本 lane 的 draft-MXFP4 hotfix 已**同步 re-pin**（version `0.1.dev21830+g8244d1c44`；
+  stock `a92f4243…`/5756 B → patched `56dcb6ca…`/6977 B），舊 image 需 `git revert` 才可回退。
 
 ### 5.5 `qwen38flash` — Qwen3.8 Flash-Next 125B NVFP4（vLLM，TP2+EP）
 
@@ -446,6 +453,7 @@ compose 檔與 `patches/` staging 都放在該目錄內。`anemll-dspark-vllm-gx
 
 | 版本 | 日期 | 重點 |
 |---|---|---|
+| （未發版） | 2026-11-05 | 三條 DeepSeek lane 共用 image 由 `nightly-20261006` 升到 **`nightly-20261102`**；`IMAGE` 改為不可變 dated tag（不再 `:latest`）；跨越 eugr「B12X 併入 FlashInfer」分界（kernel 來源改 FlashInfer `9873d7a3…`）；`deepseek-nvfp4` 的 draft-MXFP4 hotfix 同步 re-pin |
 | **v2.1.0** | 2026-10-22 | **全 lane 補齊 C1–C8**（10 條 TP2 ＋ 27B/35B 單節點）、`bench-c.sh` 新增 `BENCH_THINKING`、**修 `gb10-single` 假 READY**（kit lane 未被視為 TP2）、README 現役改以 `gb10 status` 為準 |
 | **v2.0.0** | 2026-10-22 | **README v2 佈局**：整合同模型新舊數據、單一「現役」來源、新增本 History；詳細量測歷史移入 `docs/BENCHMARKS.md`；v1.x README 封存 `docs/_archive/`。**無 runtime／CLI 行為變更。** |
 | v1.9.0 | 2026-10-22 | 新 lane `qwen38flash-tensorfold`（TensorFold TP2，與 `qwen38flash` 共用 checkpoint、對等 lane）；`LAUNCH_STYLE=kit` 第三例；`scripts/bench-soak.py`；A/B decode 287.2 vs 157.6、冷啟 1m53s vs 13m58s |

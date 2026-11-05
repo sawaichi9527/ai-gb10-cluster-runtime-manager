@@ -1,5 +1,11 @@
 # DeepSeek V4 Flash 0731 mainline — eugr-b12x recipe succession A/B (2026-10-09)
 
+> **NOTE (2026-11-05).** The D0/P0 numbers below are on
+> `eugr/spark-vllm-b12x:nightly-20261006` (vllm `0.1.dev21554+geda1715e9`).
+> The lane now runs **`nightly-20261102`** (vllm `0.1.dev21830+g8244d1c44`,
+> B12X via FlashInfer `9873d7a3…`); the recipe itself is unchanged. See
+> `README.md` §5.2 for the current pins and the re-gate result.
+
 **Verdict: PASSED → promoted.** `cluster-profiles.d/deepseek.conf` now runs
 the eugr-b12x + Dspark-Ablit recipe; the old Anemll recipe is archived
 byte-identical at `_overdue_recipe/deepseek_anemll-dspark-vllm-gx10-011_20261009/`

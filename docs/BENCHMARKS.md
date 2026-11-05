@@ -154,6 +154,10 @@ prefix caching ON ＋ `hotfix-vllm-dspark-swa-prefix.py`（fail-closed）、
 `docs/DEEPSEEK_B12X_RECIPE_AB_2026-10-09.md`。配方差異：KV **fp8**、`CUDAGRAPH_CAPTURE=64`（8×8）、
 batched 8192、GMU 0.85、k=7 保留、prefix caching ON **無 hotfix**。
 
+> 下表為 **2026-10-09／`nightly-20261006`** 的基準。2026-11-05 起同一配方改跑
+> `nightly-20261102`（B12X 改由 FlashInfer 提供）；重跑後的數字會在本節就地更新，
+> 舊值保留在 `docs/DEEPSEEK_B12X_RECIPE_AB_2026-10-09.md`。
+
 | C | E5 記錄（舊配方） | **D0（新配方 2026-10-09）** | Δ |
 |---|---|---|---|
 | 1 | 42.3 | **43.2** | +2.1 % |

@@ -36,7 +36,7 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   the `~/` root.** Lanes that run BOTH cluster and single (27b/35b) suffix the compose
   `-cluster`/`-single`; cluster-only lanes use `docker-compose.<profile>.yml`.
 - **deepseek-vision recipe succession (2026-10-09).** `deepseek-vision.conf` now runs
-  `eugr/spark-vllm-b12x:latest` + `models/deepseek-v4-flash-vision-exp-ablit`
+  `eugr/spark-vllm-b12x:nightly-20261102` + `models/deepseek-v4-flash-vision-exp-ablit`
   (upstream vision recipe, native vision — NO `CMD_WRAPPER`/`SYNC_DIRS`/patches;
   promoted knob `CUDAGRAPH_CAPTURE=56`; evidence
   `docs/DEEPSEEK_VISION_B12X_RECIPE_AB_2026-10-09.md`). The old Anemll recipe is a
@@ -49,7 +49,7 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   stays on BOTH nodes pending a user decision — do not delete it as promotion
   residue.**
 - **deepseek mainline recipe succession (2026-10-09).** `deepseek.conf` now runs
-  `eugr/spark-vllm-b12x:latest` + `models/deepseek-v4-flash-0731-dspark-ablit`
+  `eugr/spark-vllm-b12x:nightly-20261102` + `models/deepseek-v4-flash-0731-dspark-ablit`
   (drowzeys `keys-…-Dspark-Abliterated-Anchored-Tensors`; 26 body `wo_b` tensors
   edited, **MTP/draft byte-official** → b12x loader contract holds). Promoted from
   the `deepseek-b12x` candidate lane after the full-recipe A/B beat the README E5
@@ -69,6 +69,24 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   **The old official model
   `models/deepseek-v4-flash-0731-official` stays on BOTH nodes pending a user
   decision — do not delete it as promotion residue.**
+- **b12x image pin policy (2026-11-05).** All three DeepSeek lanes
+  (`deepseek` / `deepseek-vision` / `deepseek-nvfp4`, plus the A/B lane
+  `deepseek-nvfp4-tune`) share ONE image reference and the SAME two digest pins;
+  changing it is a four-lane change. `IMAGE` names an **immutable dated tag**
+  (`eugr/spark-vllm-b12x:nightly-20261102`), never `:latest` — the nightly tag
+  moves, so a bare pull would silently change the runtime and only fail later at
+  `verify_profile_image_gate`. Current pins: node0 `19ab778d…`, node1
+  `75a682a2…` (node1 re-manifests on `docker save | ssh | docker load`; content
+  proven by identical `.RootFS.Layers` (26) / `.Config` hashes). Bump order:
+  pull dated tag on node0 → transfer CX7 → measure BOTH digests → edit the 5 conf
+  files → gate. **The 2026-11-05 bump crossed eugr's 2026-10-07 "B12X is now part
+  of FlashInfer" migration**: kernels now come from FlashInfer commit
+  `9873d7a3…` (not the standalone `lukealonso/b12x` wheel), image 11.2 → 9.5 GB
+  compressed, `--load-format b12x` / `b12x` backends unchanged. The
+  `deepseek-nvfp4` draft-MXFP4 hotfix is **single-image pinned** (version +
+  stock/patched sha256): it now targets vllm `0.1.dev21830+g8244d1c44` and no
+  longer applies to `nightly-20261006`, so rolling the image back also requires
+  reverting the hotfix.
 - **Caches are per-lane and never shared**: `~/.cache/vllm-<profile>` (cluster-only) or
   `~/.cache/vllm-<profile>-{cluster,single}`. The cluster `AUTOTUNE_CACHE_REL` in each
   conf points the per-boot FlashInfer reset at the lane's own root. **Logs are unified**
@@ -233,7 +251,7 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   placeholder was **retired 2026-09-05**, and `gb10-single list` no longer shows
   `deepseek`. On the TP2 cluster, `cluster-profiles.d/deepseek.conf` is **mainline
   (PLACEHOLDER=false since 2026-09-07)**; since the **2026-10-09 recipe
-  succession** it runs `eugr/spark-vllm-b12x:latest` + the dspark-ablit 0731
+  succession** it runs `eugr/spark-vllm-b12x:nightly-20261102` + the dspark-ablit 0731
   checkpoint (see the succession bullet) — previously official fp8 checkpoint +
   public Anemll runtime `ghcr.io/anemll/dspark-vllm-gx10:0.1.1`. Weights at the
   shared pool `~/docker-stacks/models` — `gb10 use deepseek` is a real launch,
