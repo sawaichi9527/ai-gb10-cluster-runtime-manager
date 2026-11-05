@@ -264,7 +264,7 @@ compose 檔無法表達。`cluster-down` 會等（≤90 s）容器真的消失�
   舊官方模型 `models/deepseek-v4-flash-0731-official` 依裁示**兩節點暫留**，勿當殘留刪除。
 - **2026-11-05 image 升版**（`nightly-20261006` → `nightly-20261102`）：`cluster-compose-verify` 兩 rank **PASS**、
   `gb10 smoke` OK；**完整 C1–C8 ×3 重跑**見 `docs/BENCHMARKS.md` §12.1（Σ **687.6** vs 舊 693.3，
-  逐格全在 ±7 % 內）。prefix-hit 未重測。
+  逐格全在 ±7 % 內）。**prefix-hit 正確性 PASS**：32k×3 加速 **40.0×**、三輪內容逐字相同（§12.5）。
 
 ### 5.3 `deepseek-vision` — DeepSeek-V4-Flash-Vision-EXP（原生多模態）
 
@@ -282,7 +282,8 @@ compose 檔無法表達。`cluster-down` 會等（≤90 s）容器真的消失�
   舊模型 `models/deepseek-v4-flash-vision-exp` 同樣**暫留待議**。
 - **2026-11-05 image 升版**：verify 兩 rank **PASS**、smoke OK；**完整 C1–C8 ×3** 見
   `docs/BENCHMARKS.md` §12.2（Σ **541.9** vs 舊 535.3，單格 C1 −16.4 %／C7 +12.6 %）。
-  **未做**影像輸入（`bench-mm`）與 prefix-hit 複驗。
+  **prefix-hit PASS**：32k×3 加速 **44.1×**、三輪逐字相同（§12.5）。
+  **未做**影像輸入（`bench-mm.sh`）複驗。
 
 ### 5.4 `deepseek-nvfp4` — 0731 NVFP4（含 DSpark draft MXFP4 hotfix）
 
@@ -310,6 +311,7 @@ accept **46.6 %**、冷啟 **24m46s**；200K cold prefill **1984.6**、KV 344,19
 - **2026-11-05 image 升版**：verify 兩 rank **PASS**、smoke OK；hotfix 啟動即 `applied`，boot log 出現
   `Using 'B12X_MXFP4_MXFP8' Mxfp4 MoE backend`；temp-0 驗收 **pos0 83.0 %**（gate ≥30 %）。
   **完整 C1–C8 ×3** 見 `docs/BENCHMARKS.md` §12.3（Σ **732.2** vs 舊 728.7；唯一超噪聲格 C2 −12.2 %）。
+  **prefix-hit PASS**：32k×3 加速 **48.4×**、三輪逐字相同（§12.5）→ prefix caching 維持 ON。
 
 ### 5.5 `qwen38flash` — Qwen3.8 Flash-Next 125B NVFP4（vLLM，TP2+EP）
 

@@ -575,3 +575,22 @@ C5 `92.3/89.9/88.8`，C6 `114.5/107.8/115.0`，C7 `126.1/127.3/117.9`，C8 `122.
 2. `deepseek-nvfp4` 的 **temp 0 驗收協定**（pos0 ≥ 0.3）是另一個量測，不可與本表混用。
 3. 單次量測不可用：`deepseek` C8 首輪單次 125.3 → x3 中位 **122.3**，差 2.5 %。
 4. 原始檔（node0）：`~/docker-stacks/logs/{deepseek,deepseek-vision,deepseek-nvfp4}/bench-c-full-2026-11-05.txt`。
+
+### 12.5 prefix-cache 正確性（新 image，`bench-prefix-hit.sh 32000 3`）
+
+固定 32k-word prompt、`temperature=0`、無 nonce、round 2/3 必然命中；判準是 **round2/3 的內容
+必須與 round1 逐字相同且非空**（degenerate DSpark draft 在 cache hit 時會截斷／garble）。
+
+| lane | round1 | round2 | round3 | speedup | 逐字一致 | 判定 | 舊 image 記錄 |
+|---|---|---|---|---|---|---|---|
+| `deepseek` | 14.494 s（2,208.7 tok/s） | 0.362 s | 0.362 s | **40.0×** | 2/2 identical | **PASS** | 38.5× |
+| `deepseek-vision` | 14.985 s（2,136.3 tok/s） | 0.344 s | 0.340 s | **44.1×** | 2/2 identical | **PASS** | 50.9× |
+| `deepseek-nvfp4` | 15.571 s（2,056.0 tok/s） | 0.335 s | 0.322 s | **48.4×** | 2/2 identical | **PASS** | 44.8× |
+
+三條的 `pt` 都是 32,013、`content=PREFIX-OK`、`content_len=9`、`reasoning_len=0`、
+`verdict: completion=OK identical_across_rounds=yes`。
+
+**結論**：2026-10-09「eugr fork 不復現 DSpark SWA-prefix 截斷」的結論在 `nightly-20261102`
+仍然成立 → **prefix caching 三條都維持 ON，不需要任何 hotfix**。
+（若日後某次 nightly 出現 `DIFFERS` 或空 content，處置順序：先關該 lane 的 prefix caching，
+再考慮移植 `dspark-swa-prefix`。）

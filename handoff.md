@@ -3090,13 +3090,29 @@ challenger + incumbent，降低 warmup 峰值記憶體），屬 build-time patch
 - 冷啟（新 image）：`deepseek` 17m46s／`deepseek-vision` 17m46s／`deepseek-nvfp4` 24m46s／
   canary tune 25m35s（舊 image 記錄 12.8／~21 min；新 image 首次 boot 含 JIT，尚未確認是否為常態）。
 
+**同日補跑：prefix-cache 正確性**（`bench-prefix-hit.sh 32000 3`，temp 0、無 nonce，round2/3 必命中；
+判準＝逐字相同且非空）：
+
+| lane | round1 | round2/3 | speedup | 逐字一致 | 判定 | 舊記錄 |
+|---|---|---|---|---|---|---|
+| `deepseek` | 14.494 s（2,208.7 tok/s） | 0.362 s | **40.0×** | 2/2 identical | **PASS** | 38.5× |
+| `deepseek-vision` | 14.985 s（2,136.3 tok/s） | 0.344 / 0.340 s | **44.1×** | 2/2 identical | **PASS** | 50.9× |
+| `deepseek-nvfp4` | 15.571 s（2,056.0 tok/s） | 0.335 / 0.322 s | **48.4×** | 2/2 identical | **PASS** | 44.8× |
+
+- 三條都是 `pt=32013`、`content=PREFIX-OK`（len 9）、`completion=OK identical_across_rounds=yes`。
+- → **2026-10-09「eugr fork 不復現 DSpark SWA-prefix 截斷」在新 image 仍成立；prefix caching 三條維持 ON，
+  不需要任何新 hotfix。** 若未來 nightly 出現 `DIFFERS`／空 content：先關該 lane 的 prefix caching，
+  再考慮移植 `dspark-swa-prefix`。
+- 第二次 boot 的冷啟：16m51s／16m46s／24m26s（與同日第一次一致 → **~17／~25 分鐘是常態**，
+  不是首次 JIT）。
+
 **Rollback**：`git revert 4730218`（confs ＋ hotfix 一起回到 10-06 的 pin）→ 對目標 lane
 `gb10 use <lane>`。兩節點的 `nightly-20261006` image 與 `:latest` 標籤都還在。
 
-**未驗證（下一輪再補）**：① ~~完整 C1–C8 ×3~~（**已完成**，見上表）；② `bench-prefix-hit.sh` 正確性
-（本 lane prefix caching ON，這是最該補的一項）；③ vision 的影像輸入（`bench-mm.sh`）；
+**未驗證（下一輪再補）**：① ~~完整 C1–C8 ×3~~（**已完成**，見上表）；② ~~`bench-prefix-hit.sh` 正確性~~
+（**已完成**，三條全 PASS，見上表）；③ vision 的影像輸入（`bench-mm.sh`）；
 ④ 262K 近硬限與 garble soak；⑤ `mimo26flash` 等**其他** image 的 lane 未動（本輪只動 b12x）；
-⑥ 新 image 冷啟比舊記錄長 3–5 分鐘（13→18／21→25），尚未判定是首次 JIT 或常態。
+⑥ ~~新 image 冷啟是否為常態~~（**已確認**：第二次 boot 16m51s／16m46s／24m26s，與第一次一致）。
 
 **Files**：`cluster-profiles.d/{deepseek,deepseek-vision,deepseek-nvfp4,deepseek-nvfp4-tune}.conf`、
 `…-tune.conf.base`、`patches/eugr-spark-vllm-b12x/hotfix-dspark-draft-mxfp4.py`、
