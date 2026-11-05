@@ -475,7 +475,7 @@ compose 檔與 `patches/` staging 都放在該目錄內。`anemll-dspark-vllm-gx
 
 | 版本 | 日期 | 重點 |
 |---|---|---|
-| （未發版） | 2026-11-05 | 三條 DeepSeek lane 共用 image 由 `nightly-20261006` 升到 **`nightly-20261102`**；`IMAGE` 改為不可變 dated tag（不再 `:latest`）；跨越 eugr「B12X 併入 FlashInfer」分界（kernel 來源改 FlashInfer `9873d7a3…`）；`deepseek-nvfp4` 的 draft-MXFP4 hotfix 同步 re-pin；**完整 C1–C8 ×3 重跑**：Σ 687.6／541.9／732.2（舊 693.3／535.3／728.7）；舊世代設定封存 `_overdue_recipe/…nightly-20261006_20261105/`、**舊 image 兩節點刪除**（不保留 rollback） |
+| **v2.2.0** | 2026-11-05 | 三條 DeepSeek lane（＋A/B tune lane）image 由 `nightly-20261006` 升到 **`nightly-20261102`**；`IMAGE` 改不可變 dated tag、雙節點 digest 重 pin；跨越 eugr「B12X 併入 FlashInfer」分界（kernel 來源改 FlashInfer `9873d7a3…`）；`deepseek-nvfp4` 的 draft-MXFP4 hotfix re-pin；**C1–C8 ×3 以 2–3 boots 複驗**（Σ 686.5／536.1／729.5，皆在 ±1 % 內）、prefix-hit 40.0×／44.1×／48.4× 逐字一致、garble 3/3、262K、影像全過；**KV 容量 +17.8~27.8 %**（GMU 未動）；舊世代設定封存 `_overdue_recipe/…nightly-20261006_20261105/`、舊 image 與三個退役 checkpoint 刪除（兩節點合計回收 ~1 TB） |
 | **v2.1.0** | 2026-10-22 | **全 lane 補齊 C1–C8**（10 條 TP2 ＋ 27B/35B 單節點）、`bench-c.sh` 新增 `BENCH_THINKING`、**修 `gb10-single` 假 READY**（kit lane 未被視為 TP2）、README 現役改以 `gb10 status` 為準 |
 | **v2.0.0** | 2026-10-22 | **README v2 佈局**：整合同模型新舊數據、單一「現役」來源、新增本 History；詳細量測歷史移入 `docs/BENCHMARKS.md`；v1.x README 封存 `docs/_archive/`。**無 runtime／CLI 行為變更。** |
 | v1.9.0 | 2026-10-22 | 新 lane `qwen38flash-tensorfold`（TensorFold TP2，與 `qwen38flash` 共用 checkpoint、對等 lane）；`LAUNCH_STYLE=kit` 第三例；`scripts/bench-soak.py`；A/B decode 287.2 vs 157.6、冷啟 1m53s vs 13m58s |
