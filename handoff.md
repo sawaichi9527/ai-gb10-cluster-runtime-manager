@@ -3164,6 +3164,35 @@ challenger + incumbent，降低 warmup 峰值記憶體），屬 build-time patch
 >   `dc0e9faa61d4`），現在只剩 `nightly-20261102`。node0 可用空間 1.2T → **1.3T**。
 > - **模型權重不動**：三份 checkpoint 仍由 `nightly-20261102` 的 lane 讀取。
 
+**同日（2026-11-05）— `~/docker-stacks/` 兩節點清點與清理**
+
+清點方式：`du -sh ~/docker-stacks/*` ＋ 對照 `cluster-profiles.d/*.conf` 的 `STACK_DIR` /
+`BODY_REL` / `EXTRA_MODEL_DIRS` / `KIT_DIR`，再以 `docker inspect` 確認實際掛載。
+
+刪除（使用者裁示）：
+
+| 對象 | 節點 | 大小 | 依據 |
+|---|---|---|---|
+| `anemll-dspark-vllm-gx10`、`-miaFlaver`、`-miaFlaver-tune` | both | 320K ×3 | 舊 patch staging；17 個 hotfix 已在 `_overdue_recipe/…anemll…/patches/dspark-vision/`，無任何 `STACK_DIR` 指向 |
+| `deepseek-v4-flash-0731-official` | both | **156G** | Anemll 時代主線；配方已繼承並封存，**觀察一個月後**裁示刪除 |
+| `deepseek-v4-flash-vision-exp` | both | **157G** | 同上（vision 分支） |
+| `comfyui-dgx-spark-build.log`／`-build2.log`／`-clone.log` | node1 | 1.3M | 建置日誌 |
+| `docker-stacks/docs/handoffs/`（4 份 7–8 月 handoff） | node0 | 92K | 已被 repo `handoff.md`／`docs/` 取代 |
+
+- 磁碟：node0 **2.3T/1.3T（66 %）→ 2.0T/1.6T（57 %）**；node1 **2.5T/1.1T（70 %）→ 2.2T/1.4T（61 %）**
+  → 每節點回收 ~313 GB、合計 **~626 GB**。
+- 還原含義：兩份權重不再存在。`_overdue_recipe` 的兩份 Anemll `recipe_README.md` §4 已改寫為
+  「重新下載（revision 記錄在上表）」。
+
+**刻意保留（不是殘留）**：
+
+| 目錄 | 大小 | 理由 |
+|---|---|---|
+| `models/deepseek-v4.1-flash-1017-engram-packed` | 95G | **現役掛載**：`dsv41flash-tensorfold` 容器 `…/engram-packed/head:/engram:ro` |
+| `models/mimo-v2.6-flash-mopd-nvfp4` | 186G | A/B 的 NVFP4 變體；README 文件化的 fallback（flip `BODY_REL` 即可切回）。**現役 `mimo26flash` 用的是 `mimo-v2.6-flash-mopd`（MXFP4，`BODY_REL` 第 97 行），不是這個目錄** |
+| `comfyui-dgx-spark`（node0 235G / node1 235G） | — | node1 現役；node0 是 failover 鏡像 |
+| `aeon-vllm-omni`、`eugr-spark-vllm-b12x{,-deepseek,-vision,-tune}`、`mia-*`、`tonyd2wild-*`、`x00byte-*`、`models/hub`、`dsv41flash-1017-bundle` | — | 全部對應現役 lane／kit／symlink |
+
 **未驗證（下一輪再補）**：① ~~完整 C1–C8 ×3~~（**已完成**，且已用 **2–3 次 boot 的中位**複驗，見上表）；
 ② ~~`bench-prefix-hit.sh` 正確性~~（**已完成**，三條全 PASS）；③ ~~vision 影像輸入~~（**已完成**）；
 ④ ~~262K 近硬限與 garble soak~~（**已完成**）；⑤ `mimo26flash` 等**其他** image 的 lane 未動；

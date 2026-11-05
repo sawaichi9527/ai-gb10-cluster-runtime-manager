@@ -99,8 +99,9 @@ cp -r _overdue_recipe/deepseek-vision_anemll-dspark-vllm-gx10-011_20261009/patch
 但其基線已隨配方繼承失效；**未來 vision 調優請從現役配方另立新 lane +
 新 `.base`，不要直接複活這份**。
 
-## 4. 模型保留（使用者決定 2026-10-09）
+## 4. 模型保留（更新：2026-11-05 已刪除）
 
-**舊官方模型 `~/docker-stacks/models/deepseek-v4-flash-vision-exp`
-依使用者決定暫留兩節點（node0 + node1），後續再議** —— 不要當成 promotion
-殘渣清掉；它是本備用配方的模型依賴（還原步驟 4）。
+使用者於 **2026-11-05**（觀察一個月後）裁示**刪除**這份權重：
+`~/docker-stacks/models/deepseek-v4-flash-vision-exp` 已自 node0 + node1 移除。
+還原時改為**重新下載**（官方 Vision-Exp checkpoint，revision
+`6821d6ad3681a4b137b066b76094fa82ebd0a380`），不是還原已刪除的位元組。

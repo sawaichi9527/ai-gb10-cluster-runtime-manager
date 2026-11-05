@@ -46,8 +46,9 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   `recipe_README.md`; migrated from `cluster-profiles.d/_backup/` 2026-10-09 — the
   repo-root dir is never scanned by the loader); restore steps in that
   `recipe_README.md`. **The old official model `models/deepseek-v4-flash-vision-exp`
-  stays on BOTH nodes pending a user decision — do not delete it as promotion
-  residue.**
+  was DELETED from both nodes on 2026-11-05 (user decision after a month of
+  observation); the archive records its HF revision, so restoring means
+  re-downloading, not restoring the deleted bytes.**
 - **deepseek mainline recipe succession (2026-10-09).** `deepseek.conf` now runs
   `eugr/spark-vllm-b12x:nightly-20261102` + `models/deepseek-v4-flash-0731-dspark-ablit`
   (drowzeys `keys-…-Dspark-Abliterated-Anchored-Tensors`; 26 body `wo_b` tensors
@@ -67,8 +68,9 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   hotfix dependency `patches/dspark-vision/` + `recipe_README.md` (migrated from
   `cluster-profiles.d/_backup/` 2026-10-09); restore steps in that `recipe_README.md`.
   **The old official model
-  `models/deepseek-v4-flash-0731-official` stays on BOTH nodes pending a user
-  decision — do not delete it as promotion residue.**
+  `models/deepseek-v4-flash-0731-official` was DELETED from both nodes on
+  2026-11-05 (user decision after a month of observation); the archive records
+  its HF revision, so restoring means re-downloading.**
 - **b12x image pin policy (2026-11-05).** All three DeepSeek lanes
   (`deepseek` / `deepseek-vision` / `deepseek-nvfp4`, plus the A/B lane
   `deepseek-nvfp4-tune`) share ONE image reference and the SAME two digest pins;

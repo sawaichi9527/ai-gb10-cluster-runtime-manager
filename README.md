@@ -262,7 +262,8 @@ prefill 131K/200K/261K 2174/2043/1947 **沿用 2026-10-09 舊 image 量測** · 
 - 2026-10-09 配方繼承：對舊 Anemll E5 記錄 decode **+3.4 %**（8/8 格全正）、prefill **+16~18 %**、
   accept **+2.3 pp**；生產複驗 P0 也正（Σ 673.2、+0.4 %）。
 - 舊配方封存 `_overdue_recipe/deepseek_anemll-dspark-vllm-gx10-011_20261009/`（**僅備份**）；
-  舊官方模型 `models/deepseek-v4-flash-0731-official` 依裁示**兩節點暫留**，勿當殘留刪除。
+  舊官方模型 `models/deepseek-v4-flash-0731-official` 已於 **2026-11-05 兩節點刪除**（使用者裁示；
+  archive 的 `recipe_README.md` 留有 HF revision，還原需重新下載）。
 - **2026-11-05 image 升版**（`nightly-20261006` → `nightly-20261102`）：`cluster-compose-verify` 兩 rank **PASS**、
   `gb10 smoke` OK；**完整 C1–C8 ×3 重跑**見 `docs/BENCHMARKS.md` §12.1（Σ **687.6** vs 舊 693.3，
   逐格全在 ±7 % 內）。**prefix-hit 正確性 PASS**：32k×3 加速 **40.0×**、三輪內容逐字相同（§12.5）。
@@ -282,7 +283,7 @@ accept **~25 %**、冷啟 **17m46s**、**KV 487,718 tok（舊 413,967，+17.8 %�
 - `CUDAGRAPH_CAPTURE=56` 是唯一升版旋鈕：上游 verbatim 48 在 C7/C8 掉出 capture range（Σ −6 %）。
   262144-word（＝上限）會被拒 → 實用上限 prompt ≤ 262143 tokens。
 - 舊 Anemll 配方封存 `_overdue_recipe/deepseek-vision_anemll-dspark-vllm-gx10-011_20261009/`；
-  舊模型 `models/deepseek-v4-flash-vision-exp` 同樣**暫留待議**。
+  舊模型 `models/deepseek-v4-flash-vision-exp` 已於 **2026-11-05 兩節點刪除**（同 #5.2 的裁示與還原方式）。
 - **2026-11-05 image 升版**：verify 兩 rank **PASS**、smoke OK；**完整 C1–C8 ×3** 見
   `docs/BENCHMARKS.md` §12.2（Σ **541.9** vs 舊 535.3，單格 C1 −16.4 %／C7 +12.6 %）。
   **prefix-hit PASS**：32k×3 加速 **44.1×**、三輪逐字相同（§12.5）。

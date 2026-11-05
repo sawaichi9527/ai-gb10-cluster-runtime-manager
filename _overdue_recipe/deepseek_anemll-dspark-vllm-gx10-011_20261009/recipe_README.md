@@ -106,8 +106,9 @@ cp -r _overdue_recipe/deepseek_anemll-dspark-vllm-gx10-011_20261009/patches/dspa
 但其「production sibling」前提已隨配方繼承失效；**未來 mainline 調優請從
 現役配方另立新 lane + 新 `.base`，不要直接複活這份**。
 
-## 4. 模型保留（使用者決定 2026-10-09）
+## 4. 模型保留（更新：2026-11-05 已刪除）
 
-**舊官方模型 `~/docker-stacks/models/deepseek-v4-flash-0731-official`
-依使用者決定暫留兩節點（node0 + node1），後續再議** —— 不要當成 promotion
-殘渣清掉；它是本備用配方的模型依賴（還原步驟 4）。
+使用者於 **2026-11-05**（觀察一個月後）裁示**刪除**這份權重：
+`~/docker-stacks/models/deepseek-v4-flash-0731-official` 已自 node0 + node1 移除。
+本備用配方的還原步驟 4 因此改為**重新下載**（官方 deepseek-ai fp8 checkpoint，pinned
+revision `9e165c30e27…`，HF 上仍可取得），不是還原已刪除的位元組。
