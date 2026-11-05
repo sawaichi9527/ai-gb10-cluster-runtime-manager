@@ -3011,3 +3011,65 @@ GitHub `id=420500651`）。三個 Release 的 body 都與 tag message 逐字相�
 **Runtime test**：N/A（純文件；未重啟任何 lane，現役 lane 全程未中斷）。
 **未驗證**：README 的「數字」皆沿用各 lane 既有實測（來源見 `docs/BENCHMARKS.md` §1 索引），
 本輪**沒有重跑任何 benchmark**。
+
+---
+
+### 2026-11-05 — b12x image 升版 `nightly-20261006` → `nightly-20261102`（三條 DeepSeek lane）
+
+**決策（使用者 2026-11-05）**：不改 vLLM v0.33.0。理由：b12x 是 `local-inference-lab/vllm`
+的 dev 分支（`dev/karmic-kraken`），eugr preset 明文**不允許** `--vllm-ref`，v0.33.0（2026-11-02 發布）
+在 b12x 沒有任何支援路徑；官方 vLLM recipe 也明寫 DGX Spark 的 DeepSeek-V4 要用
+`eugr/spark-vllm-b12x`。改為只把 image 往前推到最新 nightly。同時 `IMAGE` 由 `:latest`
+改為**不可變 dated tag**（`:latest` 會移動，兩週拉兩次就是兩個 image；vLLM blog／sparkrun／
+eugr issue #309 的建議一致）。
+
+**影響範圍**：`deepseek`／`deepseek-vision`／`deepseek-nvfp4`（服務）＋ `deepseek-nvfp4-tune`
+（A/B，含 `.base`）—— 五個 conf 共用同一組 pin，必須一起改。
+
+| 項目 | 舊 | 新 |
+|---|---|---|
+| image | `eugr/spark-vllm-b12x:latest`（＝ `nightly-20261006`） | `eugr/spark-vllm-b12x:nightly-20261102` |
+| node0 digest | `sha256:036c3076…` | **`sha256:19ab778d…`**（registry manifest） |
+| node1 digest | `sha256:dc0e9faa…` | **`sha256:75a682a2…`**（`docker save \| ssh \| docker load` 後 containerd 重新 manifest） |
+| 內容一致性 | 29 層 | **26 層**、`.RootFS.Layers` `c567376f…`、`.Config` `f5d86c25…`（兩節點相同） |
+| vllm | `0.1.dev21554+geda1715e9`（`dev/karmic-kraken`） | `0.1.dev21830+g8244d1c44`（同分支） |
+| B12X 來源 | 獨立 wheel `lukealonso/b12x@master` | **FlashInfer `9873d7a3…`**（`cubin=0`、`jit_cache=0`） |
+| image 大小 | 11.2 GB（壓縮） | 9.5 GB |
+
+**跨越的邊界**：eugr CHANGELOG **2026-10-07**「B12X is now part of FlashInfer」。也就是說
+一切 ≥ 10-07 的 nightly 都已換 kernel 來源，選 `20261015` 不會比 `20261102` 少付這筆成本，
+因此直接取最新。`--load-format b12x`／`--linear-backend b12x`／`--moe-backend b12x`／
+`B12X` attention 名稱皆不變。
+
+**hotfix re-pin（必要）**：`patches/eugr-spark-vllm-b12x/hotfix-dspark-draft-mxfp4.py`
+是**單 image pin**（version ＋ stock/patched sha256）。在新 image 上實測原本會 fail-closed
+（`unsupported vllm version '0.1.dev21830…'; expected '0.1.dev21554…'`）。patch region 逐位元組
+不變，已 re-pin：stock `a92f4243…`/5756 B → patched `56dcb6ca…`/6977 B。
+**代價**：它不再適用 `nightly-20261006`，所以 image rollback 必須連 hotfix 一起 `git revert`。
+
+**Gate（2026-11-05，node0；canary → 服務 → 還原）**：
+
+| # | lane | boot → READY | compose-verify | smoke | C1（400 tok） | C8 | acceptance |
+|---|---|---|---|---|---|---|---|
+| 1 | `deepseek-nvfp4-tune`（canary） | 11:12:04 → 11:37:39（**25m35s**） | 2/2 PASS | OK | 42.5（temp 0） | — | **45.2 %**、pos0 **71.6 %** |
+| 2 | `deepseek` | 11:38:10 → 11:55:56（**17m46s**） | 2/2 PASS | OK | **43.1**（舊 43.2） | **125.3**（舊 119.9） | 32.5／33.1 %（舊 33.4 %） |
+| 3 | `deepseek-vision` | 11:56:45 → 12:14:31（**17m46s**） | 2/2 PASS | OK | **41.3**（舊 39.7） | **97.1**（舊 96.1） | 33.3／24.6 %（舊 25.0–25.4 %） |
+| 4 | `deepseek-nvfp4`（服務） | 12:15:29 → 12:40:15（**24m46s**） | 2/2 PASS | OK | 40.2（temp 0，不可與舊 47.1 直比） | **123.9**（舊 129.9） | **41.5 %**、pos0 **83.0 %**（gate ≥30 %） |
+| 5 | 還原 `dsv41flash-tensorfold` | 12:41:01 → 12:46:02（**5m01s**） | — | — | — | — | — |
+
+- nvfp4 兩條 lane 的 boot log 都有 `dspark-draft-mxfp4: applied (...)` 與
+  `Using 'B12X_MXFP4_MXFP8' Mxfp4 MoE backend.` → hotfix 生效、MoE 走對的 backend。
+- 全部 C1/C8 都是 `BENCH_IGNORE_EOS=1`、400 tok；差異都在該 lane ±7 % 噪聲帶內。
+- 舊 image **兩節點都保留**（node0 24.8 GB／node1 25 GB）作為 rollback。
+
+**Rollback**：`git revert 4730218`（confs ＋ hotfix 一起回到 10-06 的 pin）→ 對目標 lane
+`gb10 use <lane>`。兩節點的 `nightly-20261006` image 與 `:latest` 標籤都還在。
+
+**未驗證（下一輪再補）**：① 完整 C1–C8 ×3（本次只打 C1/C8）；② `bench-prefix-hit.sh` 正確性
+（本 lane prefix caching ON，這是最該補的一項）；③ vision 的影像輸入（`bench-mm.sh`）；
+④ 262K 近硬限與 garble soak；⑤ `mimo26flash` 等**其他** image 的 lane 未動（本輪只動 b12x）。
+
+**Files**：`cluster-profiles.d/{deepseek,deepseek-vision,deepseek-nvfp4,deepseek-nvfp4-tune}.conf`、
+`…-tune.conf.base`、`patches/eugr-spark-vllm-b12x/hotfix-dspark-draft-mxfp4.py`、
+`README.md`（§2.2／§5.2／§5.3／§5.4／§9）、`AGENTS.md`（pin policy Fact）、
+`docs/BENCHMARKS.md`、三份 DeepSeek A/B 文件（加「舊 image 基準」註記）。

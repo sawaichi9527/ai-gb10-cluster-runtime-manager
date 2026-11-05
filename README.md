@@ -262,6 +262,10 @@ prefix-hit **38.5×**（逐字一致）、KV 407,775 tok、冷啟 12.8 min · **
   accept **+2.3 pp**；生產複驗 P0 也正（Σ 673.2、+0.4 %）。
 - 舊配方封存 `_overdue_recipe/deepseek_anemll-dspark-vllm-gx10-011_20261009/`（**僅備份**）；
   舊官方模型 `models/deepseek-v4-flash-0731-official` 依裁示**兩節點暫留**，勿當殘留刪除。
+- **2026-11-05 image 升版 spot check**（`nightly-20261006` → `nightly-20261102`）：READY **17m46s**、
+  `cluster-compose-verify` 兩 rank **PASS**、`gb10 smoke` OK；C1 **43.1**／C8 **125.3**
+  （`BENCH_IGNORE_EOS=1` 400 tok；舊 image 43.2／119.9 → Δ −0.2 %／**+4.5 %**，在 ±7 % 噪聲內）、
+  acceptance 32.5／33.1 %（舊 33.4 %）。**未做**完整 C1–C8 與 prefix-hit 複驗。
 
 ### 5.3 `deepseek-vision` — DeepSeek-V4-Flash-Vision-EXP（原生多模態）
 
@@ -276,6 +280,9 @@ accept 25.0~25.4 %、prefix-hit **50.9×**（三名輸出位元組一致）、KV
   262144-word（＝上限）會被拒 → 實用上限 prompt ≤ 262143 tokens。
 - 舊 Anemll 配方封存 `_overdue_recipe/deepseek-vision_anemll-dspark-vllm-gx10-011_20261009/`；
   舊模型 `models/deepseek-v4-flash-vision-exp` 同樣**暫留待議**。
+- **2026-11-05 image 升版 spot check**（`nightly-20261102`）：READY **17m46s**、verify 兩 rank **PASS**、
+  smoke OK；C1 **41.3**／C8 **97.1**（`ignore_eos` 400 tok；舊 39.7／96.1 → Δ +4.0 %／+1.0 %）、
+  acceptance 33.3／24.6 %（舊 25.0–25.4 %）。**未做**影像輸入（`bench-mm`）與 prefix-hit 複驗。
 
 ### 5.4 `deepseek-nvfp4` — 0731 NVFP4（含 DSpark draft MXFP4 hotfix）
 
@@ -299,6 +306,10 @@ prefix-hit **44.8×**、garble soak 3/3 · **詳細** `docs/DEEPSEEK_NVFP4_SPECD
   （`lukealonso/b12x@master`）改為 FlashInfer commit `9873d7a3…`，backend flag 名稱不變。
   本 lane 的 draft-MXFP4 hotfix 已**同步 re-pin**（version `0.1.dev21830+g8244d1c44`；
   stock `a92f4243…`/5756 B → patched `56dcb6ca…`/6977 B），舊 image 需 `git revert` 才可回退。
+- **2026-11-05 升版 re-gate**：READY **24m46s**、verify 兩 rank **PASS**、smoke OK；hotfix 啟動即
+  `applied`，boot log 出現 `Using 'B12X_MXFP4_MXFP8' Mxfp4 MoE backend`；acceptance（temp 0）
+  **41.5 %**、**pos0 83.0 %**（gate ≥30 %）；C8 **123.9**（舊 129.9，−4.6 %）。C1 的 40.2 是
+  temp 0 驗收協定，**不可**與舊 47.1（預設取樣）直接相比。
 
 ### 5.5 `qwen38flash` — Qwen3.8 Flash-Next 125B NVFP4（vLLM，TP2+EP）
 
