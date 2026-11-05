@@ -265,6 +265,7 @@ compose 檔無法表達。`cluster-down` 會等（≤90 s）容器真的消失�
 - **2026-11-05 image 升版**（`nightly-20261006` → `nightly-20261102`）：`cluster-compose-verify` 兩 rank **PASS**、
   `gb10 smoke` OK；**完整 C1–C8 ×3 重跑**見 `docs/BENCHMARKS.md` §12.1（Σ **687.6** vs 舊 693.3，
   逐格全在 ±7 % 內）。**prefix-hit 正確性 PASS**：32k×3 加速 **40.0×**、三輪內容逐字相同（§12.5）。
+  **garble soak 3/3 PASS**、261K **1852.5**／262K cold **1954.1** tok/s（§12.6）。
 
 ### 5.3 `deepseek-vision` — DeepSeek-V4-Flash-Vision-EXP（原生多模態）
 
@@ -283,7 +284,7 @@ compose 檔無法表達。`cluster-down` 會等（≤90 s）容器真的消失�
 - **2026-11-05 image 升版**：verify 兩 rank **PASS**、smoke OK；**完整 C1–C8 ×3** 見
   `docs/BENCHMARKS.md` §12.2（Σ **541.9** vs 舊 535.3，單格 C1 −16.4 %／C7 +12.6 %）。
   **prefix-hit PASS**：32k×3 加速 **44.1×**、三輪逐字相同（§12.5）。
-  **未做**影像輸入（`bench-mm.sh`）複驗。
+  **影像輸入 PASS**：1img C=1 **47.3**／C=8 **151.0** tok/s、0 error，單張內容正確（§12.6）。
 
 ### 5.4 `deepseek-nvfp4` — 0731 NVFP4（含 DSpark draft MXFP4 hotfix）
 

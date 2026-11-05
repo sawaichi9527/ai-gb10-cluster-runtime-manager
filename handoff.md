@@ -3106,13 +3106,29 @@ challenger + incumbent，降低 warmup 峰值記憶體），屬 build-time patch
 - 第二次 boot 的冷啟：16m51s／16m46s／24m26s（與同日第一次一致 → **~17／~25 分鐘是常態**，
   不是首次 JIT）。
 
+**同日補跑：其餘正確性 gate**（`deepseek` ＋ `deepseek-vision`）：
+
+| gate | 結果 | 舊 image |
+|---|---|---|
+| garble soak ×3（temp 0、400 tok、thinking off、primes 101–149） | **PASS 3/3** — `finish=stop`、`reasoning_len=0`、十質數 10/10 無多餘、三輪逐字相同 | PASS 3/3 |
+| 261K 近硬限（`bench-ctx.sh 261000 1`） | **1852.5 tok/s**（140.9 s） | 1947.1 |
+| 262K 近硬限（`BENCH_COLD=1`） | **1954.1 tok/s**（134.1 s，accepted） | 1951.7 |
+| 影像吞吐（`bench-mm.sh`） | 1img C=1 **47.3**／C=8 **151.0** tok/s、`any_errors=0` | 40.5／135.7 |
+| 影像正確性（單張 carrots.jpeg） | `finish=stop`、prompt 328 tok、內容 **"Four orange carrots with green stems on a white background."** | 同類正確 |
+
+- **量測陷阱**：261K 之後直接跑 262K 會命中 prefix cache（1.4 s／187,245 tok/s，因為 262K prompt
+  以 261K 為前綴）→ 近硬限**必須** `BENCH_COLD=1`。第一次就是這樣被騙，已重跑。
+- `/health` 200；本輪結束後已還原 `dsv41flash-tensorfold`（5m01s，health 200）。
+
 **Rollback**：`git revert 4730218`（confs ＋ hotfix 一起回到 10-06 的 pin）→ 對目標 lane
 `gb10 use <lane>`。兩節點的 `nightly-20261006` image 與 `:latest` 標籤都還在。
 
-**未驗證（下一輪再補）**：① ~~完整 C1–C8 ×3~~（**已完成**，見上表）；② ~~`bench-prefix-hit.sh` 正確性~~
-（**已完成**，三條全 PASS，見上表）；③ vision 的影像輸入（`bench-mm.sh`）；
-④ 262K 近硬限與 garble soak；⑤ `mimo26flash` 等**其他** image 的 lane 未動（本輪只動 b12x）；
-⑥ ~~新 image 冷啟是否為常態~~（**已確認**：第二次 boot 16m51s／16m46s／24m26s，與第一次一致）。
+**未驗證（下一輪再補）**：① ~~完整 C1–C8 ×3~~（**已完成**）；② ~~`bench-prefix-hit.sh` 正確性~~
+（**已完成**，三條全 PASS）；③ ~~vision 影像輸入~~（**已完成**：吞吐 ＋ 單張內容正確）；
+④ ~~262K 近硬限與 garble soak~~（**已完成**：1852.5／1954.1 tok/s、garble 3/3）；
+⑤ `mimo26flash` 等**其他** image 的 lane 未動（本輪只動 b12x）；
+⑥ ~~新 image 冷啟是否為常態~~（**已確認**：16m51s／16m46s／24m26s）。
+**本輪沒有做的**：長時間 soak（僅 garble ×3、無數小時壓力測試）與長文風格／事實性 A/B。
 
 **Files**：`cluster-profiles.d/{deepseek,deepseek-vision,deepseek-nvfp4,deepseek-nvfp4-tune}.conf`、
 `…-tune.conf.base`、`patches/eugr-spark-vllm-b12x/hotfix-dspark-draft-mxfp4.py`、

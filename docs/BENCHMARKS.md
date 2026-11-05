@@ -594,3 +594,18 @@ C5 `92.3/89.9/88.8`，C6 `114.5/107.8/115.0`，C7 `126.1/127.3/117.9`，C8 `122.
 仍然成立 → **prefix caching 三條都維持 ON，不需要任何 hotfix**。
 （若日後某次 nightly 出現 `DIFFERS` 或空 content，處置順序：先關該 lane 的 prefix caching，
 再考慮移植 `dspark-swa-prefix`。）
+
+### 12.6 其餘正確性 gate（`deepseek` / `deepseek-vision`）
+
+| gate | 指令 | 結果 | 舊 image |
+|---|---|---|---|
+| garble soak ×3 | `temp=0`、`max_tokens=400`、`thinking:false`、primes 101–149 | **PASS 3/3** — `finish=stop`、`reasoning_len=0`、十個質數 **10/10 且無多餘數字**、三輪逐字相同 | PASS 3/3 |
+| 261K 近硬限 | `bench-ctx.sh 261000 1` | **1852.5 tok/s**（140.9 s，`finish=length`＝max_tokens=1 正常） | 1947.1 |
+| 262K 近硬限 | `BENCH_COLD=1 bench-ctx.sh 262000 1` | **1954.1 tok/s**（134.1 s，accepted） | 1951.7 |
+| 影像輸入（吞吐） | `bench-mm.sh 1 1 200` / `1 8 200` | C=1 **47.3 tok/s**（prompt 406 tok）；C=8 **151.0 tok/s**；`any_errors=0` | 40.5 / 135.7 |
+| 影像輸入（正確性） | 單張 carrots.jpeg、`temp=0`、thinking off | `finish=stop`、prompt 328 tok、內容 **"Four orange carrots with green stems on a white background."** | 同類敘述正確 |
+| `/health` | — | **200** | 200 |
+
+**踩到的量測陷阱（務必記得）**：261K 之後**直接**跑 262K 會是 **prefix-cache 命中**（實測 1.4 s、
+187,245 tok/s），因為 262K 的 prompt 以 261K 為前綴。**近硬限一定要 `BENCH_COLD=1`**（每 run 加 nonce），
+否則數字毫無意義。舊記錄的 1951.7 應也是 cold 協定。
