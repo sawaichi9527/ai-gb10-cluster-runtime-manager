@@ -55,9 +55,9 @@ Node1  spark-8095  192.168.23.216 / 10.0.101.102   rank1 · headless worker
 |---|---|---|---|---|
 | `27b` | vLLM · `aeon-vllm-ultimate:2026-09-18-v0.29.0-omni` | 27B NVFP4-mixed ＋ DFlash2 n=7 | 262144 · 8 | C1 **41.0** → C8 **170.3** · 245k prefill 611.5 · 冷啟 250 s · 詳 **§5.1** |
 | `35b` | 同上 | 35B-A3B NVFP4 ＋ DFlash n=6 | 262144 · 8 | C1 **125.5** → C8 **471.8** · 245k prefill 3951.9 · 冷啟 386 s · 詳 **§5.1** |
-| `deepseek` | vLLM · `eugr/spark-vllm-b12x:nightly-20261102` | `deepseek-v4-flash-0731-dspark-ablit` | 262144 · 8 · KV fp8 | C1 **45.6** → C8 **122.3**（Σ 687.6）· 261K prefill 1947.1 · 17m46s · 詳 **§5.2** |
-| `deepseek-nvfp4` | 同上（digest 雙節點 pin） | `DeepSeek-V4-Flash-0731-NVFP4` ＋ DSpark k=5 | 262144 · 8 · KV fp8 | C1 **49.0** → C8 **122.9**（2.51×）· 200K prefill 1984.6 · 24m46s · 詳 **§5.4** |
-| `deepseek-vision` | 同上 | `…vision-exp-ablit`（原生 vision）＋ DSpark k=6 | 262144 · 8 · KV fp8 | C1 **33.2** → C8 **89.3**（Σ 541.9）· 261K prefill 1823.7 · 詳 **§5.3** |
+| `deepseek` | vLLM · `eugr/spark-vllm-b12x:nightly-20261102` | `deepseek-v4-flash-0731-dspark-ablit` | 262144 · 8 · KV fp8 | C1 **45.0** → C8 **122.0**（Σ 686.5 · 2 boots）· 261K prefill 1947.1 · **KV 499,760 tok** · 17m46s · 詳 **§5.2** |
+| `deepseek-nvfp4` | 同上（digest 雙節點 pin） | `DeepSeek-V4-Flash-0731-NVFP4` ＋ DSpark k=5 | 262144 · 8 · KV fp8 | C1 **45.6** → C8 **128.7**（2.82× · 3 boots）· 200K prefill 1984.6 · **KV 439,956 tok** · 24m46s · 詳 **§5.4** |
+| `deepseek-vision` | 同上 | `…vision-exp-ablit`（原生 vision）＋ DSpark k=6 | 262144 · 8 · KV fp8 | C1 **33.2** → C8 **92.0**（Σ 536.1 · 3 boots）· 261K prefill 1823.7 · **KV 487,718 tok** · 詳 **§5.3** |
 | `qwen38flash` | vLLM · `vllm-openai:qwen38-flash-next` | `qwen3.8-flash-next-nvfp4`（125B）＋ MTP n=3 | 262144 · 8 · KV fp8 | C1 **45.5** → C8 **196.8** · 245K prefill 2592.5 · 13 min 58 s · 詳 **§5.5** |
 | `qwen38flash-tensorfold` | TensorFold · `…tensorfold:zig-db28187-f3e1300f4f62` | 同一份 checkpoint（MTP drafts） | 262144 · 8 · KV fp8 | C1 **55.5** → C8 **284.4** · 261K prefill 2989 · **1 min 53 s** · 詳 **§5.6** |
 | `mimo26flash` | vLLM · `tonyd2wild/vllm-glm53-flash:sm121-v11-dflash2` | `mimo-v2.6-flash-mopd`（MXFP4 QAT）＋ DFlash2 n=7 | 262144 · 8 · KV fp8 | C1 **29.3** → C8 **63.1** · 245K prefill 724.3 · 詳 **§5.7** |
@@ -255,8 +255,9 @@ compose 檔無法表達。`cluster-down` 會等（≤90 s）容器真的消失�
 **權重** `models/deepseek-v4-flash-0731-dspark-ablit`（166.9 GB / 48 shards；26 個 body `wo_b` 張量改寫，
 **MTP/draft 與官方逐位元組相同**）· **Image** `eugr/spark-vllm-b12x:nightly-20261102`（dated tag ＋ 雙節點 digest pin，recipe `deepseek-v4-flash-0731.yaml`）
 **契約** 262144 ctx · 8 併發 · KV fp8 · `aeon` · **旋鈕** k=7、`CUDAGRAPH_CAPTURE=64`（`seqs×(k+1)`=8×8）、batched 8192、GMU 0.85、prefix caching ON（**無 hotfix**）
-**最新實測**（2026-11-05、`nightly-20261102`、x3 中位）Σ **687.6**（C1 45.6 → C8 122.3）、accept **30.8 %**、
-冷啟 **17m46s**；prefill 131K/200K/261K 2174/2043/1947、KV 407,775 tok、prefix-hit 38.5× **沿用 2026-10-09 舊 image 量測** · **詳細** `docs/BENCHMARKS.md` §12
+**最新實測**（2026-11-05、`nightly-20261102`、**2 boots** × x3 中位）Σ **686.5**（C1 45.0 → C8 122.0）、
+accept **31–33 %**、冷啟 **17m46s**、**KV 499,760 tok（舊 407,775，+22.6 %）**、prefix-hit **40.0×**；
+prefill 131K/200K/261K 2174/2043/1947 **沿用 2026-10-09 舊 image 量測** · **詳細** `docs/BENCHMARKS.md` §12.7
 
 - 2026-10-09 配方繼承：對舊 Anemll E5 記錄 decode **+3.4 %**（8/8 格全正）、prefill **+16~18 %**、
   accept **+2.3 pp**；生產複驗 P0 也正（Σ 673.2、+0.4 %）。
@@ -272,9 +273,10 @@ compose 檔無法表達。`cluster-down` 會等（≤90 s）容器真的消失�
 **權重** `models/deepseek-v4-flash-vision-exp-ablit`（167.8 GB / 48 shards）· **Image** 同 `deepseek`
 **契約** 262144 ctx · 8 併發 · KV fp8 · `--limit-mm-per-prompt {"image":8}` · 每圖約 320–390 prompt tokens
 **旋鈕** DSpark k=6（probabilistic B12X）、`CUDAGRAPH_CAPTURE=56`、batched 8192、GMU 0.85、prefix caching ON
-**最新實測**（2026-11-05、`nightly-20261102`、x3 中位）Σ **541.9**（C1 33.2 → C8 89.3）、accept **24.7 %**、
-冷啟 **17m46s**；131K–261K prefill **+9~14 %**、KV **413,967 tok** **沿用 2026-10-09 舊 image 量測**
-（單格散佈大：C1 −16.4 %、C7 +12.6 %，Σ 才是判準）· **詳細** `docs/BENCHMARKS.md` §12
+**最新實測**（2026-11-05、`nightly-20261102`、**3 boots** × x3 中位）Σ **536.1**（C1 33.2 → C8 92.0）、
+accept **~25 %**、冷啟 **17m46s**、**KV 487,718 tok（舊 413,967，+17.8 %）**、prefix-hit **44.1×**；
+131K–261K prefill **+9~14 %** 沿用 2026-10-09 舊 image 量測。C1 三次都是 33.2–33.4
+（舊 B1 的 39.7 是那 boot 的高點，B2 34.8／舊 README prod 33.6 同水位）· **詳細** `docs/BENCHMARKS.md` §12.7
 
 - **原生 vision**：`CMD_WRAPPER`、`SYNC_DIRS`、17 個 MiaAI hotfix 全部移除（只有舊配方需要）。
 - `CUDAGRAPH_CAPTURE=56` 是唯一升版旋鈕：上游 verbatim 48 在 C7/C8 掉出 capture range（Σ −6 %）。
@@ -292,9 +294,11 @@ compose 檔無法表達。`cluster-down` 會等（≤90 s）容器真的消失�
 **Image** `eugr/spark-vllm-b12x:nightly-20261102`（dated tag；`IMG_SHA256` `19ab778d…` ＋ `IMG_SHA256_NODE1` `75a682a2…` 雙 pin；2026-11-05 由 `nightly-20261006` 升版）
 **契約** 262144 ctx · 8 併發 · KV fp8 · `aeon` · KV pool 344,195 tok（256K 單流 1.31×）
 **旋鈕** `QUANTIZATION=none`（自動偵測）、**`--load-format safetensors`**、capture 48、GMU 0.85、`SECURITY_OPT=("seccomp=unconfined")`
-**最新實測**（2026-11-05、`nightly-20261102`、x3 中位）C1 **49.0** → C8 **122.9**（**2.51×**，Σ 732.2）、
-accept **46.6 %**、冷啟 **24m46s**；200K cold prefill **1984.6**、KV 344,195 tok **沿用 2026-10-08 舊 image 量測**
-· **詳細** `docs/BENCHMARKS.md` §12
+**最新實測**（2026-11-05、`nightly-20261102`、**3 boots** × x3 中位）C1 **45.6** → C8 **128.7**（**2.82×**，Σ 729.5）、
+accept **~45 %**、冷啟 **24m26s**、**KV 439,956 tok（舊 344,195，+27.8 %）**、prefix-hit **48.4×**；
+200K cold prefill **1984.6** 沿用 2026-10-08 舊 image 量測。**C2 三次一致低約 11 %**（61.4 vs 69.0，
+由 C3 +8 % 等抵掉，Σ 不變）
+· **詳細** `docs/BENCHMARKS.md` §12.7
 
 - Phase 3 四個 boot 的修復（皆為通用能力）：seccomp/io_uring → `SECURITY_OPT`；b12x loader strided scale →
   `safetensors`；**DSpark draft 根因**：checkpoint 的 `mtp.*` 是原生 MXFP4，卻被共享的 NVFP4 quant dict 建成

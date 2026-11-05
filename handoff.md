@@ -3120,6 +3120,34 @@ challenger + incumbent，降低 warmup 峰值記憶體），屬 build-time patch
   以 261K 為前綴）→ 近硬限**必須** `BENCH_COLD=1`。第一次就是這樣被騙，已重跑。
 - `/health` 200；本輪結束後已還原 `dsv41flash-tensorfold`（5m01s，health 200）。
 
+**同日再補：多 boot 複驗 ＋ KV pool**（單 boot 無法分離「單格散佈」與「boot 間散佈」）：
+
+| lane | boots | C1 | C2 | C3 | C4 | C5 | C6 | C7 | C8 | Σ | ΔΣ |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `deepseek`（舊） | 1 | 43.2 | 58.9 | 72.2 | 88.9 | 93.2 | 100.3 | 116.7 | 119.9 | 693.3 | — |
+| `deepseek`（新） | 2 | 45.0 | 56.8 | 70.6 | 85.7 | 94.6 | 102.8 | 109.0 | 122.0 | 686.5 | −1.0 % |
+| `deepseek-vision`（舊 B1） | 1 | 39.7 | 43.9 | 55.7 | 69.7 | 74.9 | 74.1 | 81.2 | 96.1 | 535.3 | — |
+| `deepseek-vision`（新） | 3 | **33.2** | 49.4 | 56.8 | 62.2 | 72.4 | 78.9 | 91.2 | 92.0 | 536.1 | +0.1 % |
+| `deepseek-nvfp4`（舊） | 1 | 47.1 | 69.0 | 71.3 | 90.7 | 87.1 | 110.1 | 123.4 | 129.9 | 728.7 | — |
+| `deepseek-nvfp4`（新） | 3 | 45.6 | **61.4** | **77.0** | 92.2 | 88.7 | 113.6 | 122.3 | 128.7 | 729.5 | +0.1 % |
+
+- `vision` C1 **33.2／33.4／33.2**（三次幾乎一致）→ 舊 39.7 是**那一個 boot 的高點**：舊 B2 34.8、
+  更舊 README prod 33.6，所以新值是同水位，**不是回歸**；C7 +12.3 %／C2 +12.5 % 三次一致＝真的變快。
+- `nvfp4` C2 **61.4 vs 69.0（−11.0 %，三次一致）＝真的變慢一格**，由 C3 **+8.0 %** 等抵掉，Σ 不變。
+- `deepseek` 全部在 ±7 %（最大 C7 −6.6 %）。
+
+**KV pool（同批 boot，`docker logs cluster-node0`）**：
+
+| lane | 舊 image | 新 image | Δ |
+|---|---|---|---|
+| `deepseek` | 407,775 | **499,760**（1.91× @262K） | **+22.6 %** |
+| `deepseek-vision` | 413,967 | **487,718／487,004**（1.86×） | **+17.8 %** |
+| `deepseek-nvfp4` | 344,195 | **439,956／425,567**（1.68×／1.62×） | **+26 %** |
+
+→ 換 image 的**最大正向影響是 KV 容量**（同 GMU 0.85，未動旋鈕）。合理歸因：B12X 併入 FlashInfer
+後的記憶體行為 ＋ 10-26 的 `patch_vllm_b12x_tuning_batch.py`（autotune 只保留一個 challenger）。
+原始檔：node0 `~/bench-{deepseek,vision,nvfp4}-run{2,3}-20261102-rerun.txt`。
+
 **Rollback**：`git revert 4730218`（confs ＋ hotfix 一起回到 10-06 的 pin）→ 對目標 lane
 `gb10 use <lane>`。兩節點的 `nightly-20261006` image 與 `:latest` 標籤都還在。
 
@@ -3136,12 +3164,12 @@ challenger + incumbent，降低 warmup 峰值記憶體），屬 build-time patch
 >   `dc0e9faa61d4`），現在只剩 `nightly-20261102`。node0 可用空間 1.2T → **1.3T**。
 > - **模型權重不動**：三份 checkpoint 仍由 `nightly-20261102` 的 lane 讀取。
 
-**未驗證（下一輪再補）**：① ~~完整 C1–C8 ×3~~（**已完成**）；② ~~`bench-prefix-hit.sh` 正確性~~
-（**已完成**，三條全 PASS）；③ ~~vision 影像輸入~~（**已完成**：吞吐 ＋ 單張內容正確）；
-④ ~~262K 近硬限與 garble soak~~（**已完成**：1852.5／1954.1 tok/s、garble 3/3）；
-⑤ `mimo26flash` 等**其他** image 的 lane 未動（本輪只動 b12x）；
-⑥ ~~新 image 冷啟是否為常態~~（**已確認**：16m51s／16m46s／24m26s）。
-**本輪沒有做的**：長時間 soak（僅 garble ×3、無數小時壓力測試）與長文風格／事實性 A/B。
+**未驗證（下一輪再補）**：① ~~完整 C1–C8 ×3~~（**已完成**，且已用 **2–3 次 boot 的中位**複驗，見上表）；
+② ~~`bench-prefix-hit.sh` 正確性~~（**已完成**，三條全 PASS）；③ ~~vision 影像輸入~~（**已完成**）；
+④ ~~262K 近硬限與 garble soak~~（**已完成**）；⑤ `mimo26flash` 等**其他** image 的 lane 未動；
+⑥ ~~新 image 冷啟是否為常態~~（**已確認**）；⑦ ~~KV pool 未量~~（**已量**：三條各 +18~26 %）。
+**本輪沒有做的**：長時間 soak（僅 garble ×3、數小時級壓力測試未做）與長文風格／事實性 A/B。
+**已知單格變動（非回歸但請記住）**：`deepseek-nvfp4` **C2 −11 %**、`deepseek` C7 −6.6 %（邊界）。
 
 **Files**：`cluster-profiles.d/{deepseek,deepseek-vision,deepseek-nvfp4,deepseek-nvfp4-tune}.conf`、
 `…-tune.conf.base`、`patches/eugr-spark-vllm-b12x/hotfix-dspark-draft-mxfp4.py`、
