@@ -3123,6 +3123,19 @@ challenger + incumbent，降低 warmup 峰值記憶體），屬 build-time patch
 **Rollback**：`git revert 4730218`（confs ＋ hotfix 一起回到 10-06 的 pin）→ 對目標 lane
 `gb10 use <lane>`。兩節點的 `nightly-20261006` image 與 `:latest` 標籤都還在。
 
+> **2026-11-05 後續（使用者裁示）**：一旦同意以 `nightly-20261102` 取代，**不考慮回滾舊版**，
+> 因此本節上面的 rollback 路徑**已作廢**。舊世代改為「設定封存 ＋ image 刪除」：
+>
+> - 封存：`_overdue_recipe/{deepseek,deepseek-vision,deepseek-nvfp4}_eugr-spark-vllm-b12x-nightly-20261006_20261105/`
+>   —— byte-identical 的 pre-bump confs（5 檔）、`deepseek-nvfp4-tune.conf`/`.base`、
+>   4 個由封存 conf 重新渲染的 compose（`--api-key` 已脫敏）、以及
+>   **draft-MXFP4 hotfix 的 2026-10-06 pin**（`962cb60d…`；live 檔案已釘 11-02，兩者不可混用）。
+>   conf 位元組以 `git hash-object` 對 pre-bump commit 驗證一致；SHA256 記在
+>   `_overdue_recipe/README.md`。
+> - 刪除：兩節點 `docker image rm eugr/spark-vllm-b12x:latest`（node0 `6ae909821ce3`／node1
+>   `dc0e9faa61d4`），現在只剩 `nightly-20261102`。node0 可用空間 1.2T → **1.3T**。
+> - **模型權重不動**：三份 checkpoint 仍由 `nightly-20261102` 的 lane 讀取。
+
 **未驗證（下一輪再補）**：① ~~完整 C1–C8 ×3~~（**已完成**）；② ~~`bench-prefix-hit.sh` 正確性~~
 （**已完成**，三條全 PASS）；③ ~~vision 影像輸入~~（**已完成**：吞吐 ＋ 單張內容正確）；
 ④ ~~262K 近硬限與 garble soak~~（**已完成**：1852.5／1954.1 tok/s、garble 3/3）；

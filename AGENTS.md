@@ -87,6 +87,17 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   stock/patched sha256): it now targets vllm `0.1.dev21830+g8244d1c44` and no
   longer applies to `nightly-20261006`, so rolling the image back also requires
   reverting the hotfix.
+- **`nightly-20261006` generation is archived AND its images deleted (2026-11-05).**
+  User decision: once replaced, this generation is not rolled back. The settings
+  are kept, self-contained, under
+  `_overdue_recipe/{deepseek,deepseek-vision,deepseek-nvfp4}_eugr-spark-vllm-b12x-nightly-20261006_20261105/`
+  (byte-identical pre-bump confs + the `deepseek-nvfp4-tune.conf`/`.base` pair +
+  re-rendered composes with the API key redacted + the **2026-10-06 pin** of the
+  draft-MXFP4 hotfix).
+  The docker image is **NOT** archived: `docker image rm eugr/spark-vllm-b12x:latest`
+  was run on both nodes (digest `036c3076…` / `dc0e9faa…` stay recorded in the
+  archived confs and in `_overdue_recipe/README.md`). The weights are untouched —
+  the same checkpoints are read by the `nightly-20261102` lanes.
 - **Caches are per-lane and never shared**: `~/.cache/vllm-<profile>` (cluster-only) or
   `~/.cache/vllm-<profile>-{cluster,single}`. The cluster `AUTOTUNE_CACHE_REL` in each
   conf points the per-boot FlashInfer reset at the lane's own root. **Logs are unified**

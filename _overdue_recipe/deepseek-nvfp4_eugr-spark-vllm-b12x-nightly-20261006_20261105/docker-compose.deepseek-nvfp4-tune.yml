@@ -1,0 +1,140 @@
+name: tp2-deepseek-nvfp4-tune
+services:
+  worker:
+    image: eugr/spark-vllm-b12x:latest
+    container_name: cluster-node1
+    entrypoint: []
+    command:
+      - "bash"
+      - "-lc"
+      - "python3 /opt/eugr-patches/hotfix-dspark-draft-mxfp4.py || exit 1; exec /usr/local/bin/vllm serve /model --served-model-name aeon --headless --tensor-parallel-size 2 --nnodes 2 --node-rank 1 --master-addr 10.0.101.101 --master-port 29501 --kv-cache-dtype fp8 --max-model-len 262144 --max-num-seqs 8 --max-num-batched-tokens 8192 --gpu-memory-utilization 0.85 --attention-backend B12X --linear-backend b12x --moe-backend b12x --enable-chunked-prefill --enable-prefix-caching --compilation-config \\{\\\"cudagraph_mode\\\":\\\"FULL_AND_PIECEWISE\\\"\\,\\\"custom_ops\\\":\\[\\\"all\\\"\\]\\} --max-cudagraph-capture-size 48 --speculative-config \\{\\\"method\\\":\\\"dspark\\\"\\,\\\"num_speculative_tokens\\\":5\\,\\\"draft_sample_method\\\":\\\"probabilistic\\\"\\,\\\"attention_backend\\\":\\\"B12X\\\"\\} --trust-remote-code --tokenizer-mode deepseek_v4 --load-format safetensors --block-size 256 --reasoning-config \\{\\\"reasoning_parser\\\":\\\"deepseek_v4\\\"\\,\\\"reasoning_start_str\\\":\\\"\\\"\\,\\\"reasoning_end_str\\\":\\\"\\\"\\} --default-chat-template-kwargs.thinking=true --default-chat-template-kwargs.reasoning_effort=high --distributed-executor-backend mp"
+    environment:
+      VLLM_HOST_IP: "10.0.101.102"
+      NCCL_SOCKET_IFNAME: "enp1s0f0np0"
+      GLOO_SOCKET_IFNAME: "enp1s0f0np0"
+      NCCL_IB_HCA: "rocep1s0f0:1"
+      NCCL_IB_GID_INDEX: "3"
+      PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
+      CUTE_DSL_ARCH: "sm_121a"
+      VLLM_USE_AOT_COMPILE: "1"
+      VLLM_USE_BREAKABLE_CUDAGRAPH: "0"
+      VLLM_USE_MEGA_AOT_ARTIFACT: "1"
+      VLLM_MEMORY_PROFILE_INCLUDE_ATTN: "1"
+      VLLM_USE_FLASHINFER_SAMPLER: "1"
+      VLLM_USE_B12X_WO_PROJECTION: "1"
+      VLLM_USE_B12X_MHC: "1"
+      VLLM_USE_B12X_FP8_GEMM: "1"
+      VLLM_USE_B12X_MOE: "1"
+      VLLM_USE_B12X_SPARSE_INDEXER: "1"
+      VLLM_USE_V2_MODEL_RUNNER: "1"
+      VLLM_MOE_SKIP_PADDING: "0"
+      B12X_MLA_SM120_UNIFIED: "1"
+      B12X_MOE_FORCE_A8: "1"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      VLLM_ALLOW_LONG_MAX_MODEL_LEN: "1"
+      VLLM_CACHE_ROOT: "/cache/vllm"
+      FLASHINFER_WORKSPACE_BASE: "/cache/vllm/flashinfer"
+      TP_SOCKET_IFNAME: "enp1s0f0np0"
+      NCCL_NET: "IB"
+      NCCL_IB_DISABLE: "0"
+      NCCL_IB_ROCE_VERSION_NUM: "2"
+      NCCL_IB_ADDR_FAMILY: "AF_INET"
+      NCCL_IB_TIMEOUT: "22"
+      NCCL_IB_RETRY_CNT: "7"
+      NCCL_CROSS_NIC: "1"
+      NCCL_CUMEM_ENABLE: "0"
+      NCCL_IGNORE_CPU_AFFINITY: "1"
+      NCCL_NVLS_ENABLE: "0"
+    volumes:
+      - "/home/eye/docker-stacks/models/deepseek-v4-flash-0731-nvfp4:/model:ro"
+      - "/home/eye/.cache/vllm-deepseek-nvfp4-tune:/cache/vllm"
+      - "/home/eye/docker-stacks/eugr-spark-vllm-b12x-tune/patches:/opt/eugr-patches:ro"
+    network_mode: host
+    ipc: host
+    security_opt:
+      - seccomp=unconfined
+    shm_size: 64g
+    devices:
+      - /dev/infiniband
+    cap_add:
+      - IPC_LOCK
+    ulimits:
+      memlock: {soft: -1, hard: -1}
+      stack: {soft: 67108864, hard: 67108864}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+  head:
+    image: eugr/spark-vllm-b12x:latest
+    container_name: cluster-node0
+    entrypoint: []
+    command:
+      - "bash"
+      - "-lc"
+      - "python3 /opt/eugr-patches/hotfix-dspark-draft-mxfp4.py || exit 1; exec /usr/local/bin/vllm serve /model --served-model-name aeon --host 0.0.0.0 --port 1234 --tensor-parallel-size 2 --nnodes 2 --node-rank 0 --master-addr 10.0.101.101 --master-port 29501 --kv-cache-dtype fp8 --max-model-len 262144 --max-num-seqs 8 --max-num-batched-tokens 8192 --gpu-memory-utilization 0.85 --attention-backend B12X --linear-backend b12x --moe-backend b12x --enable-chunked-prefill --enable-prefix-caching --compilation-config \\{\\\"cudagraph_mode\\\":\\\"FULL_AND_PIECEWISE\\\"\\,\\\"custom_ops\\\":\\[\\\"all\\\"\\]\\} --max-cudagraph-capture-size 48 --speculative-config \\{\\\"method\\\":\\\"dspark\\\"\\,\\\"num_speculative_tokens\\\":5\\,\\\"draft_sample_method\\\":\\\"probabilistic\\\"\\,\\\"attention_backend\\\":\\\"B12X\\\"\\} --reasoning-parser deepseek_v4 --tool-call-parser deepseek_v4 --enable-auto-tool-choice --trust-remote-code --tokenizer-mode deepseek_v4 --load-format safetensors --block-size 256 --reasoning-config \\{\\\"reasoning_parser\\\":\\\"deepseek_v4\\\"\\,\\\"reasoning_start_str\\\":\\\"\\\"\\,\\\"reasoning_end_str\\\":\\\"\\\"\\} --default-chat-template-kwargs.thinking=true --default-chat-template-kwargs.reasoning_effort=high --distributed-executor-backend mp --api-key <REDACTED:from-cluster.env>"
+    environment:
+      VLLM_HOST_IP: "10.0.101.101"
+      NCCL_SOCKET_IFNAME: "enp1s0f0np0"
+      GLOO_SOCKET_IFNAME: "enp1s0f0np0"
+      NCCL_IB_HCA: "rocep1s0f0:1"
+      NCCL_IB_GID_INDEX: "3"
+      PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
+      CUTE_DSL_ARCH: "sm_121a"
+      VLLM_USE_AOT_COMPILE: "1"
+      VLLM_USE_BREAKABLE_CUDAGRAPH: "0"
+      VLLM_USE_MEGA_AOT_ARTIFACT: "1"
+      VLLM_MEMORY_PROFILE_INCLUDE_ATTN: "1"
+      VLLM_USE_FLASHINFER_SAMPLER: "1"
+      VLLM_USE_B12X_WO_PROJECTION: "1"
+      VLLM_USE_B12X_MHC: "1"
+      VLLM_USE_B12X_FP8_GEMM: "1"
+      VLLM_USE_B12X_MOE: "1"
+      VLLM_USE_B12X_SPARSE_INDEXER: "1"
+      VLLM_USE_V2_MODEL_RUNNER: "1"
+      VLLM_MOE_SKIP_PADDING: "0"
+      B12X_MLA_SM120_UNIFIED: "1"
+      B12X_MOE_FORCE_A8: "1"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      VLLM_ALLOW_LONG_MAX_MODEL_LEN: "1"
+      VLLM_CACHE_ROOT: "/cache/vllm"
+      FLASHINFER_WORKSPACE_BASE: "/cache/vllm/flashinfer"
+      TP_SOCKET_IFNAME: "enp1s0f0np0"
+      NCCL_NET: "IB"
+      NCCL_IB_DISABLE: "0"
+      NCCL_IB_ROCE_VERSION_NUM: "2"
+      NCCL_IB_ADDR_FAMILY: "AF_INET"
+      NCCL_IB_TIMEOUT: "22"
+      NCCL_IB_RETRY_CNT: "7"
+      NCCL_CROSS_NIC: "1"
+      NCCL_CUMEM_ENABLE: "0"
+      NCCL_IGNORE_CPU_AFFINITY: "1"
+      NCCL_NVLS_ENABLE: "0"
+    volumes:
+      - "/home/eye/docker-stacks/models/deepseek-v4-flash-0731-nvfp4:/model:ro"
+      - "/home/eye/.cache/vllm-deepseek-nvfp4-tune:/cache/vllm"
+      - "/home/eye/docker-stacks/eugr-spark-vllm-b12x-tune/patches:/opt/eugr-patches:ro"
+    network_mode: host
+    ipc: host
+    security_opt:
+      - seccomp=unconfined
+    shm_size: 64g
+    devices:
+      - /dev/infiniband
+    cap_add:
+      - IPC_LOCK
+    ulimits:
+      memlock: {soft: -1, hard: -1}
+      stack: {soft: 67108864, hard: 67108864}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
