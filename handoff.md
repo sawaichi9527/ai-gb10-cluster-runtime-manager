@@ -3041,6 +3041,19 @@ eugr issue #309 的建議一致）。
 因此直接取最新。`--load-format b12x`／`--linear-backend b12x`／`--moe-backend b12x`／
 `B12X` attention 名稱皆不變。
 
+**上游 recipe 參數差異（10-06 → 11-02）**：兩支 DeepSeek recipe（`deepseek-v4-flash-0731.yaml`、
+`deepseek-v4-flash-vision-exp.yaml`）在 **2026-10-26 `b62168e` "Resolve CI issues"** 只改了一個值：
+`gpu_memory_utilization` **0.85 → 0.80**（新增註解：留給 host 與 distributed worker 在 Spark 共享
+RAM 的餘裕）。**其餘 env block、`--max-cudagraph-capture-size 48`、`k=5/6`、block 256、batched 8192、
+prefix caching、thinking 預設、dspark probabilistic、B12X backends 全部逐字相同**；該 commit 的
+CHANGELOG **沒有記錄**（公開 CHANGELOG 最新仍是 2026-10-16），是靜默變更。同一顆 commit 另加了
+image 內的 `docker/patch_vllm_b12x_tuning_batch.py`（把 B12X autotune 同時存活候選收斂為 1 個
+challenger + incumbent，降低 warmup 峰值記憶體），屬 build-time patch、不是使用者旋鈕。
+**我方三條 lane 都自行釘 `GMU="0.85"`**，所以上游的 0.80 不會自動生效；本輪 gate 在 0.85 全過，
+故維持不動，僅把 0.80 記為「若出現 host 記憶體壓力／boot OOM 時的第一個候選」。
+注意 eugr README 的 Vision 啟動範例仍寫 `0.85` 與 `--load-format instanttensor`（未同步），
+**以 recipe YAML 為準**。
+
 **hotfix re-pin（必要）**：`patches/eugr-spark-vllm-b12x/hotfix-dspark-draft-mxfp4.py`
 是**單 image pin**（version ＋ stock/patched sha256）。在新 image 上實測原本會 fail-closed
 （`unsupported vllm version '0.1.dev21830…'; expected '0.1.dev21554…'`）。patch region 逐位元組
