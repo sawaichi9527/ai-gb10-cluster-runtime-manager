@@ -3062,12 +3062,28 @@ eugr issue #309 的建議一致）。
 - 全部 C1/C8 都是 `BENCH_IGNORE_EOS=1`、400 tok；差異都在該 lane ±7 % 噪聲帶內。
 - 舊 image **兩節點都保留**（node0 24.8 GB／node1 25 GB）作為 rollback。
 
+**同日補跑：完整 C1–C8 ×3**（同協定 `BENCH_IGNORE_EOS=1`、400 tok、每格取中位；詳 `docs/BENCHMARKS.md` §12）：
+
+| lane | C1 | C2 | C3 | C4 | C5 | C6 | C7 | C8 | Σ（舊） | ΔΣ |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `deepseek` | **45.6** | 57.8 | 69.4 | 84.2 | 98.1 | 101.2 | 109.0 | **122.3** | **687.6**（693.3） | −0.8 % |
+| `deepseek-vision` | **33.2** | 51.5 | 56.8 | 65.6 | 72.6 | 81.5 | 91.4 | **89.3** | **541.9**（535.3） | +1.2 % |
+| `deepseek-nvfp4` | **49.0** | 60.6 | 77.0 | 92.2 | 89.9 | 114.5 | 126.1 | **122.9** | **732.2**（728.7） | +0.5 % |
+
+- 三條 Σ 都在 ±1.2 % 內；多數單格在 ±7 % 噪聲帶。
+- **超噪聲單格**（列複驗、不當回歸）：`vision` C1 **−16.4 %**／C7 +12.6 %／C6 +10.0 %、`nvfp4` C2 **−12.2 %**。
+  `vision` 的 boot-to-boot 單格散佈本來就有 10–17 %（舊記錄 B1 vs B2），因此以 Σ 判讀。
+- 原始檔：node0 `~/docker-stacks/logs/{deepseek,deepseek-vision,deepseek-nvfp4}/bench-c-full-2026-11-05.txt`。
+- 冷啟（新 image）：`deepseek` 17m46s／`deepseek-vision` 17m46s／`deepseek-nvfp4` 24m46s／
+  canary tune 25m35s（舊 image 記錄 12.8／~21 min；新 image 首次 boot 含 JIT，尚未確認是否為常態）。
+
 **Rollback**：`git revert 4730218`（confs ＋ hotfix 一起回到 10-06 的 pin）→ 對目標 lane
 `gb10 use <lane>`。兩節點的 `nightly-20261006` image 與 `:latest` 標籤都還在。
 
-**未驗證（下一輪再補）**：① 完整 C1–C8 ×3（本次只打 C1/C8）；② `bench-prefix-hit.sh` 正確性
+**未驗證（下一輪再補）**：① ~~完整 C1–C8 ×3~~（**已完成**，見上表）；② `bench-prefix-hit.sh` 正確性
 （本 lane prefix caching ON，這是最該補的一項）；③ vision 的影像輸入（`bench-mm.sh`）；
-④ 262K 近硬限與 garble soak；⑤ `mimo26flash` 等**其他** image 的 lane 未動（本輪只動 b12x）。
+④ 262K 近硬限與 garble soak；⑤ `mimo26flash` 等**其他** image 的 lane 未動（本輪只動 b12x）；
+⑥ 新 image 冷啟比舊記錄長 3–5 分鐘（13→18／21→25），尚未判定是首次 JIT 或常態。
 
 **Files**：`cluster-profiles.d/{deepseek,deepseek-vision,deepseek-nvfp4,deepseek-nvfp4-tune}.conf`、
 `…-tune.conf.base`、`patches/eugr-spark-vllm-b12x/hotfix-dspark-draft-mxfp4.py`、
