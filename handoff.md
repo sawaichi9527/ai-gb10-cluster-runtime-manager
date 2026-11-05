@@ -24,7 +24,7 @@
 
 ## 目前狀態（本機 checkout）
 
-- 分支：`main`，HEAD = 本檔所在的 commit（`git log -1`）；最新正式版本 tag = **`v1.9.0`**（2026-10-22，兩 remote 各一 Release，tag 指向本 commit；`v1.8.0`→`271b1e9`、`v1.7.0`→`32e79c4`、`v1.6.0`→`84f343c`、`v1.5.0`→`3201363`、`v1.4.1`→`cc76cbd`、`v1.4.0`→`6aff00d`、`v1.3.4`→`a92d2bc`、`v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、`v1.3.3`→`9bb2006`）。早期：2026-09-20 session 共 22 個 commit `a1cba34`…`79a79cb`，其後為本檔的 sync commit。
+- 分支：`main`，HEAD = 本檔所在的 commit（`git log -1`）；最新正式版本 tag = **`v2.2.0`**（2026-11-05，tag 物件 `4d4ccc7`，兩 remote 各一 Release：Forgejo `id=32`、GitHub `id=435206364`，body 與 tag message 逐字相同；往前 `v2.1.0`→`bf75e07`、`v2.0.0`→`85ae333`、`v1.9.0`→`d7a1d17`、`v1.8.0`→`271b1e9`、`v1.7.0`→`32e79c4`、`v1.6.0`→`84f343c`、`v1.5.0`→`3201363`、`v1.4.1`→`cc76cbd`、`v1.4.0`→`6aff00d`、`v1.3.4`→`a92d2bc`、`v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、`v1.3.3`→`9bb2006`）。早期：2026-09-20 session 共 22 個 commit `a1cba34`…`79a79cb`，其後為本檔的 sync commit。
 - **cluster profile 現況（2026-10-22 校正）**：`cluster-profiles.d/` 有 **10 條服務 lane**（`27b`/`35b`/`deepseek`/`deepseek-vision`/`deepseek-nvfp4`/`qwen38flash`/`qwen38flash-tensorfold`/`mimo26flash` ＋ 兩條 1017：`dsv41flash-exl3-vllm`/`dsv41flash-tensorfold`，**兩組皆為對等 lane、無主/備**）＋ 1 條 A/B 專用（`deepseek-nvfp4-tune`）；`deepseek-nvfp4` 於 **2026-10-08** Phase 3 完成上線。**2026-10-09 兩次配方繼承（promote）**：`deepseek`（mainline）與 `deepseek-vision` 皆改為 `eugr/spark-vllm-b12x:latest` ＋ dspark-ablit 系 checkpoint（舊 Anemll 配方 byte-identical 封存於 `_overdue_recipe/`，僅為備份）。`mimo26flash` 自 10-03 上線做 NVFP4 A/B ＋ cliff 探測後**定案 MXFP4**、待命（見 `docs/…2026-10-03.md` §11）。**現役＝`qwen38flash-tensorfold`**（2026-10-22 00:18 READY）。body/image 詳見下方「Profile 現況」表。
 - 同步狀態：**本機＝Forgejo（origin，`829522`）＝GitHub（`sawaichi9527`）**，本次文件校正即為最新 commit。**node0 live lane 依使用者裁定不校正**：2026-10-15 09:22 快照實際為 `aeon-vllm-27b`（`comfyui-jdaln` 調試態）；使用者已裁定此為**刻意進行中**的 `gb10-single` 部署／調試狀態，TP2 `deepseek`／`deepseek-nvfp4` 為**後續目標態**（詳見 2026-10-15 章節）。
 - `handoff.md` 已納版控（`37bee4c` 起；本次更新亦將 commit）
@@ -3207,3 +3207,9 @@ challenger + incumbent，降低 warmup 峰值記憶體），屬 build-time patch
 `…-tune.conf.base`、`patches/eugr-spark-vllm-b12x/hotfix-dspark-draft-mxfp4.py`、
 `README.md`（§2.2／§5.2／§5.3／§5.4／§9）、`AGENTS.md`（pin policy Fact）、
 `docs/BENCHMARKS.md`、三份 DeepSeek A/B 文件（加「舊 image 基準」註記）。
+
+**版本對照（v2.2.0）**：annotated tag 物件 **`5587e62`** → commit **`4d4ccc7`**（README History 那一筆）；
+兩 remote 各一 Release —— Forgejo **`id=32`**、GitHub **`id=435206364`**，皆 `draft=false`、
+`prerelease=false`、`target_commitish=main`，**body 與 annotated tag message 逐字相同**
+（以程式比對 `body.TrimEnd() == tag.contents` 兩邊皆 `True`）。兩邊 Release 清單同為
+**18 個**（`v1.0.0`…`v2.2.0`，tag 集合一致）。
