@@ -36,7 +36,12 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   since 2026-11-26 TP2 and single run **different tags** of the same
   `ghcr.io/aeon-7/aeon-vllm-ultimate` repo (TP2's tag is in the cluster conf `IMAGE`, single's
   in `standalone.env` `AEON_IMAGE` + its own compose), so a mode-specific dir name would be a
-  lie. `aeon-vllm-reasoning-eos/` is retired.
+  lie. `aeon-vllm-reasoning-eos/` is retired. **The two nodes' `docker-compose-*-single.yml` are
+  the deploy contract and must stay byte-identical**: a 2026-11-26 audit found node1's
+  `docker-compose-27b-single.yml` still binding three `*_029_patched.py` files that had been
+  archived on 2026-09-20 (node0's copy did not), which made node1's 27b single un-bootable —
+  Docker creates a **directory** for a missing bind source and masks the `.py`, so the failure
+  only surfaces as an import error. Compare hashes, not intentions.
 - **Node-local layout (2026-09-20; vision updated 2026-10-09).** Every runtime's
   node-side artifacts live under `~/docker-stacks/<stack>/`, the stack named after
   the image source: `aeon-vllm-ultimate` (27b/35b), `anemll-dspark-vllm-gx10` (deepseek),

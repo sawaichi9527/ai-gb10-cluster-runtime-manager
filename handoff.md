@@ -3302,3 +3302,49 @@ POST /v1/chat/completions (128×128 PNG "A")
 
 **Files**：`docs/CLIENT_VISION_CAPABILITY_2026-11-26.md`（完整證據與選項）、`AGENTS.md`
 （新增 Fact）、`README.md` §3.3。
+
+### 2026-11-26（續）— AEON 佈局歸位：stack 改名 `aeon-vllm-ultimate` ＋ 權重進共用池
+
+**動機**：0.33 換版把 27b/35b 的 image **按部署模式拆成兩個 tag**（TP2 ＝
+`2026-11-23-v0.33.0-omni-dflash2`、single ＝ `2026-11-25-…-ngram-disk`），而 stack 目錄名
+`aeon-vllm-omni` 既綁了「世代」（v0.27.1 的 omni／語音層，27b/35b 從未使用）也容易讓人以為
+目錄＝單一 image。同時 27b/35b 是全 repo **最後兩個 override `MODELS_BASE`** 的 lane
+（其餘 8 條都用 `~/docker-stacks/models`）。
+
+**完成（commit `5db136f`，兩 remote 已推、node0 已 pull，`check-git-sync --block` SYNC_OK）**：
+
+| 項目 | 變更 |
+|---|---|
+| stack 目錄（兩節點） | `~/docker-stacks/aeon-vllm-omni/` → **`aeon-vllm-ultimate/`**（同檔系統，`mv`＝瞬間 rename；目錄內只剩 4 個 compose ＋ `flash_attn_029_patched.py` ＋ 一個 root-owned 的舊 `logs/`） |
+| 權重（兩節點） | 4 個 checkpoint → 共用池 `~/docker-stacks/models/`：27b body **78 檔/24 G**、27b drafter **40 檔（node1 5 檔）/7.2 G（node1 3.6 G）**、35b body **42 檔/22 G**、35b drafter **4 檔/905 M** |
+| repo | `STACK_DIR` ×4、`MODELS_BASE` ×2、35b 的 `flash_attn_029_patched.py` mount 路徑；AGENTS／handoff／README 現況條目（歷史條目一字不動） |
+| image 選擇 | **零改動**：TP2 的 tag 仍只在 cluster conf `IMAGE`、single 仍只在 `standalone.env` `AEON_IMAGE` |
+
+**過程中發現並修掉的三個既有落差（都不是改名造成的）**：
+
+1. **node1 的 `docker-compose-27b-single.yml` 掛了三個已被封存的 0.29 patch**
+   （`modelopt_029_patched.py`、`qwen3_dflash2_029_patched.py`、`triton_attn_029_patched.py`）——
+   這三個檔在 2026-09-20 清理時已移入 `~/_archieve/`，node0 的同一份 compose 沒有這些行。
+   **也就是說 node1 的 27b single 從 09-20 起就是不可開機的**（docker 會把不存在的 host 檔案
+   建成目錄，覆蓋到 `.py` 上，import 才爆）。已用 node0 的版本覆蓋 → 兩節點 sha256 一致
+   `3b519a45…`。
+2. **兩節點的 `docker-compose-35b-single.yml` 仍用舊目錄名綁 `flash_attn_029_patched.py`**
+   —— 改名後會指到不存在的路徑（同樣是「目錄覆蓋 `.py`」的雷）。已改指
+   `aeon-vllm-ultimate/…`（**仍掛著**，它只在 0.29 需要；0.33 換版時必須移除）。
+   兩節點 sha256 `b5476522…`。
+3. **node1 的 stack `models/` 內還有一個 node0 沒有的備份**
+   `qwen3.6-35b-a3b-dflash-zlab-backup-20260910`（21 檔/737 M）→ 一併移入共用池，未刪。
+
+**未動**：node0 的 `qwen3.8-27b-dflash2` 是 git clone（40 檔/7.2 G 含 `.git`），node1 是
+materialized（5 檔/3.6 G）；兩邊 `model.safetensors` 都是 **3,848,817,896 B**、`config.json`
+同為 1,239 B → 權重同一份，`.git` 只是 LFS 物件，**不刪**。
+
+**驗證（唯讀，未動執行中的服務）**：TP2 現役為 `deepseek-nvfp4`（`cluster-node0/1` 皆
+`nightly-20261102`，health 200，Up 22 h），**沒有任何容器掛在舊目錄下**（全容器 mount 掃描
+NONE）→ 因此本次搬移**沒有停服務**。改後以 loader 實跑（`load_profile` + `build_docker_env 0`）
+確認 BODY/DRAF 解析到共用池、35b 的 4 個 mount 正確；兩節點四個 single compose 的
+`docker compose config --quiet` 全 **CFG_OK**、舊路徑殘留 **0**。
+
+**尚未做**：真實 boot 驗證（會拆掉 `deepseek-nvfp4`）—— 留給 0.33 campaign 的第一臂
+（舊 image 基準臂）一起驗。
+
