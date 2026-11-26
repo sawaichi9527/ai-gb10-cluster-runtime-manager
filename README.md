@@ -453,7 +453,7 @@ _overdue_recipe/      退役配方自帶式封存（conf + compose + patches + r
 `boot-cluster.*.pid`、`kit.*.pid`、`kit.*.rc`；TP2 在線時單機端**不該**有 `last-runtime`。
 
 **節點側** `~/docker-stacks/`（不在 repo 內）：每個 lane 一個以 image 來源命名的 `<stack>/`
-（`aeon-vllm-omni`、`eugr-spark-vllm-b12x{,-deepseek,-vision}`、`mia-vllm-openai-qwen38flashNext`、
+（`aeon-vllm-ultimate`、`eugr-spark-vllm-b12x{,-deepseek,-vision}`、`mia-vllm-openai-qwen38flashNext`、
 `mia-TensorFold-qwen38flashNext`、`tonyd2wild-vllm-mimo26flash`、`mia-vllm-dsv41flash`、
 `x00byte-TensorFold-dsv41flash`（190 GB build sources）、`comfyui-dgx-spark`），
 compose 檔與 `patches/` staging 都放在該目錄內。`anemll-dspark-vllm-gx10{,-miaFlaver,-miaFlaver-tune}`

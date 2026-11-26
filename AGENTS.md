@@ -25,10 +25,21 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   portable and do NOT need the repo to live at a fixed path. Keep it that way.
 - **Compose = source of truth; CLI = convenience layer.** Day-to-day ops go through
   `gb10`/`gb10-single`; compose files under `~/docker-stacks/` are the deploy contract.
-- **Unified AEON stack dir (2026-09-13; filenames updated 2026-09-20)**: since 27b and 35b both run the v0.29.0-omni image, their composes/models/patches live under one dir `~/docker-stacks/aeon-vllm-omni/` (`docker-compose-27b-{cluster,single}.yml` + `docker-compose-35b-{cluster,single}.yml` + `models/` + `flash_attn_029_patched.py`). `aeon-vllm-reasoning-eos/` is retired.
+- **Unified AEON stack dir = `~/docker-stacks/aeon-vllm-ultimate/` (renamed from
+  `aeon-vllm-omni` 2026-11-26; unified 2026-09-13, filenames updated 2026-09-20).** 27b and
+  35b share one dir that holds **only deployment artifacts**: the four composes
+  (`docker-compose-27b-{cluster,single}.yml` + `docker-compose-35b-{cluster,single}.yml`) and
+  `flash_attn_029_patched.py` (a **0.29-only** bind; it must NOT be mounted on 0.33).
+  **The weights moved to the shared pool `~/docker-stacks/models/` in the same change** (they
+  were `aeon-vllm-omni/models/`; 27b/35b were the last two lanes overriding `MODELS_BASE`).
+  The dir is named after the **image source**, never a generation or a deployment mode —
+  since 2026-11-26 TP2 and single run **different tags** of the same
+  `ghcr.io/aeon-7/aeon-vllm-ultimate` repo (TP2's tag is in the cluster conf `IMAGE`, single's
+  in `standalone.env` `AEON_IMAGE` + its own compose), so a mode-specific dir name would be a
+  lie. `aeon-vllm-reasoning-eos/` is retired.
 - **Node-local layout (2026-09-20; vision updated 2026-10-09).** Every runtime's
   node-side artifacts live under `~/docker-stacks/<stack>/`, the stack named after
-  the image source: `aeon-vllm-omni` (27b/35b), `anemll-dspark-vllm-gx10` (deepseek),
+  the image source: `aeon-vllm-ultimate` (27b/35b), `anemll-dspark-vllm-gx10` (deepseek),
   `eugr-spark-vllm-b12x` (deepseek-nvfp4), `eugr-spark-vllm-b12x-vision`
   (deepseek-vision, since 2026-10-09; the retired `anemll-dspark-vllm-gx10-miaFlaver`
   is history), `mia-vllm-openai-qwen38flashNext` (qwen38flash). A stack dir holds
