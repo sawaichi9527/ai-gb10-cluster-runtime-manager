@@ -214,6 +214,22 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   patch third-party code for it) — both ids answer, prefer `aeon`.
   Key parsing note: `cluster.env` holds `export VLLM_API_KEY=...` and mentions the same name
   in a comment first, so any parser must skip `#` lines and let the **last** assignment win.
+- **Image input is a CLIENT declaration; `aeon` cannot advertise it (established 2026-11-26).**
+  vLLM's `/v1/models` has no capability field (only `id/root/max_model_len/permission`), and the
+  three clients in use never ask the endpoint: dsh (pi-ai) resolves `input` → bundled catalog →
+  route `defaultInput` → `["text"]` and **refuses the image before attaching it**; OpenCode reads
+  `models.<id>.modalities`; hermes-agent reads models.dev or `model.supports_vision`. So patching
+  `/v1/models`, adding a served name, or injecting capability metadata does **nothing** for them —
+  the bytes never leave the client. Each client needs a ONE-OFF declaration (the `aeon` id is
+  stable, so it survives every `gb10 use`): dsh `input: [text, image]` (dsh 0.2.2's live config is
+  `~/.dsh/profiles/<profile>/cordis.patch.yml`; `~/.dsh/settings.yaml` was migrated to
+  `.imported` and is dead), OpenCode `modalities.input`, hermes `supports_vision: true`. Cost: on
+  text-only lanes (`deepseek`/`deepseek-nvfp4`/`27b`/`35b`) the provider answers
+  400 `"aeon is not a multimodal model"` and dsh does not fall back; a graceful-degradation
+  (image→placeholder) patch is still pending. dsh's modality vocabulary is `text|image` only
+  (pi-ai `ModelInputModalitySchema`), so never declare `audio` there; tools are not gated by dsh
+  at all (its `compat` switches only reshape the request). Full write-up:
+  `docs/CLIENT_VISION_CAPABILITY_2026-11-26.md`.
 - **`qwen38flash` draft vocab: default is `zh` (measured 2026-10-21), not the upstream 47k.**
   `Q38_DRAFT_VOCAB=en_code_47k|es|zh|ja|de|pt|fr|ru` selects the MTP drafter head for one
   launch. The default is `zh` because the measured Chinese decode gain is large and the

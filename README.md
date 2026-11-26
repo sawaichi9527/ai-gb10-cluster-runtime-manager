@@ -172,6 +172,14 @@ exclusive 的 `use` 會清掉同節點其他 exclusive runtime 並先拆 TP2；�
 
 - **model id 一律 `aeon`**。`dsv41flash-tensorfold` 接受任意 id，但 `/v1/models` 仍廣告
   `deepseek-flash`（名字寫死在上游 vendored 程式，無旋鈕）——兩個都能用，統一用 `aeon`。
+- **影像能力不是 `aeon` 的一部份，必須由 client 自己宣告**（2026-11-26）。vLLM 的
+  `/v1/models` 沒有 capability 欄位，而 dsh／OpenCode／hermes-agent **都不會查 endpoint**
+  （dsh 在送出前就把圖擋掉），所以「切到 vision lane」不會讓 client 自動改用視覺。
+  一次性宣告即可（id 固定 `aeon`，切 lane 不用改）：dsh `input: [text, image]`、
+  OpenCode `models.aeon.modalities.input`、hermes `model.supports_vision: true`。
+  純文字 lane（`deepseek`/`deepseek-nvfp4`/`27b`/`35b`）收到圖會回
+  **400 `aeon is not a multimodal model`**，dsh 不會自動降級。詳見
+  `docs/CLIENT_VISION_CAPABILITY_2026-11-26.md`。
 - **需要 key**：無 `Authorization: Bearer <key>` → **401**（`/v1/models`、`/v1/chat/completions` 皆同）。
 - **thinking 預設開啟**（1017 兩條、qwen38 兩條）：`max_tokens` 太小會被 reasoning 吃光，
   回應變 `finish_reason=length` ＋ **空 `content`**。要格式化輸出請給 ≥1024 tokens，或自行送

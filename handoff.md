@@ -3253,3 +3253,52 @@ flashinfer `9873d7a3…`）；Ubuntu 24.04.5、Docker 29.2.1。
 **未驗證**：① 長時間 soak（僅 garble ×3，無數小時壓力測試）；② 長文風格／事實性 A/B；
 ③ 其他 image 的 lane（27b/35b、qwen38flash、mimo26flash、兩條 1017）本輪未動、未重測；
 ④ `nvfp4` C2 −11 % 的成因未定位（三次 boot 一致，屬已知變動，非回歸）。
+
+### 2026-11-26 — `aeon` 多模態能力：client 宣告才是唯一有效路徑（dsh／OpenCode／hermes 實測）
+
+**症狀**：切到 `deepseek-vision` 後，前端 **dsh** 讀 PowerPoint 簡報圖仍走 OCR；dsh 回覆
+「`aeon` 沒有宣告 image input 能力」。
+
+**根因（不是設定漏了，是協定層沒有可讀的能力宣告）**：
+
+1. vLLM `/v1/models` 只有 `id / root / max_model_len / permission`（v0.10.2 與 main 皆同），
+   沒有 `input_modalities` / `capabilities`。
+2. 使用中的三個 client **都不查 endpoint**：
+   - **dsh**（`@deepseek-ai/dsh` 0.2.2-rc.5，走 `llm-pi-ai`）解析序：
+     model `input` → 內建 catalog → route `defaultInput` → `["text"]`；原始碼註解
+     **"nothing can interrogate a gateway for its modalities"**。
+   - **OpenCode** 讀 config `models.<id>.modalities`（schema enum 含 audio/video/pdf）。
+   - **hermes-agent** 讀 models.dev catalog 或 `model.supports_vision`。
+3. dsh 在判定 text-only 時 **"refuses the image before it is attached"** → 圖片位元組從未
+   離開 client。**因此 patch `/v1/models`／加 served name／gateway 注入 capability 對這三者
+   都是零效果**（先前評估的「綁 image patch」路線在此撤回）。
+
+**當日實測**（node0 `:1234`，當時在線為純文字 DeepSeek lane，`/version`
+`0.1.dev21830+g8244d1c44.d20261102`）：
+
+```text
+POST /v1/chat/completions (128×128 PNG "A")
+-> 400 {"message":"aeon is not a multimodal model","type":"BadRequestError","code":400}
+```
+
+→ 證實 over-claim 的失敗模式（dsh 不會 fallback），也證明「lane 正常、只是沒有視覺」。
+
+**已做的改動（只動 client，node0 / lane / repo runtime 零改動）**：
+
+- dsh：`~/.dsh/profiles/web/cordis.patch.yml` 的 `aeon` 加 `input: [text, image]`；
+  `dsh --profile web --dump-config` 已驗證。**注意**：dsh 0.2.2 已把 `settings.yaml` 遷移成
+  `settings.yaml.imported`（死檔），live 設定在 profile patch layer。
+- OpenCode：`~/.config/opencode/opencode.jsonc` 的 `aeon` 加
+  `modalities: {input:[text,image], output:[text]}`。
+- hermes：**未做**（不在本機）；待加 `model.supports_vision: true`。
+
+**能力矩陣**（同一 id、隨 lane 變）：image = `deepseek-vision`／`qwen38flash(-tensorfold)`／
+`mimo26flash`／兩條 1017；tools = 全部 lane；audio = 只有 `mimo26flash`。dsh 的 modality
+字彙只有 `text|image`，`audio` 會被 schema 拒絕（走 STT 外掛），tools 則完全不被 dsh gate。
+
+**未完成**：① 切 `deepseek-vision` 驗證 dsh 真的送像素（log prompt_tokens +300~400/圖）；
+② hermes 設定；③ 純文字 lane 的 graceful degradation（把 `image_url` 換成佔位文字而非 400）
+尚未實作 —— 只有它才能讓「一次性宣告」變成真正永久被動。
+
+**Files**：`docs/CLIENT_VISION_CAPABILITY_2026-11-26.md`（完整證據與選項）、`AGENTS.md`
+（新增 Fact）、`README.md` §3.3。
