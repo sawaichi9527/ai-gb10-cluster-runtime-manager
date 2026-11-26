@@ -115,6 +115,52 @@
 
 `PENDING`（稽核輸出：`vllm serve --help` 旗標、版本、`use_mm_prefix`、`/ple`）。
 
+### 7.1 稽核結果（node0，2026-11-26 18:5x）
+
+| | 09-18（基準） | 11-23（TP2） | 11-25（single） |
+|---|---|---|---|
+| python | `3.12.13` | `3.12.3` | `3.12.3` |
+| vLLM | `0.29.0+aeon.sm121a.dspark` | `0.33.0+aeon.sm121a` | 同左 |
+| torch | — | `2.14.0+cu130` | 同左 |
+| flashinfer | — | `0.7.2.post1` | 同左 |
+| site-packages | `/usr/local/lib/python3.12/…` | **`/opt/venv/lib/python3.12/…`** | 同左 |
+| 解壓後（node0 overlay2） | 52.3 GB | **26.13 GB** | 26.13 GB |
+| `.RepoDigests` | `cc91c515…` | **`71c2b82b…`** | **`4749bd06…`** |
+| `.Id`（node0 classic） | `b29f305f…` | `2893164a…`（＝config digest） | `2e8751e4…` |
+| 內容同一性（node0 vs node1 `.Config`+`.RootFS.Layers`） | — | **`be817fd1…` 相同** | **`7705f9db…` 相同** |
+
+**旗標稽核（`vllm serve --help=all`，159,504 B / 2,455 行）**：我們 profile 會送出的旗標
+**全部存在** —— `--tensor-parallel-size`、`--served-model-name`、`--api-key`、
+`--kv-cache-dtype`、`--attention-backend`、`--max-model-len`、`--max-num-seqs`、
+`--max-num-batched-tokens`、`--gpu-memory-utilization`、`--enable-chunked-prefill`、
+`--enable/--no-enable-prefix-caching`、`--generation-config`、`--reasoning-parser`、
+`--tool-call-parser`、`--enable-auto-tool-choice`、`--compilation-config`、
+`--speculative-config`、`--mm-encoder-tp-mode`、`--limit-mm-per-prompt`、
+`--disable-custom-all-reduce`、`--trust-remote-code`、`--dtype`、`--quantization`。
+唯一不在清單內的是 `--disable-log-requests`（**我們沒用到**）。
+`--kv-cache-dtype` 仍含 `fp8_e4m3`（27b）與 `bfloat16`（35b）；`CompilationConfig` 仍有
+`pass_config` 欄位（`{"pass_config":{"fuse_allreduce_rms":false}}` 的形狀不變，實際接受與否
+boot 時確認）；`qwen3_coder` 仍在 tool-parser enum 內、`reasoning/qwen3` 模組存在。
+`--mamba-cache-mode` 已標 **deprecated / no effect**（我們沒有使用，無影響）。
+
+**兩個 0.33 的 CLI 行為變化（寫給未來的自己）**：
+1. `vllm serve --help` 現在只印**摘要**，要完整清單得用 `--help=all`（或用
+   `--help=<flag>` 查單一旗標）。任何 grep `vllm serve --help` 的工具都會靜默失效。
+2. `--help` 需要可見 GPU：無 `--gpus all` 時會在 device 推斷階段 `RuntimeError`（與模型無關）。
+
+**0.29 的 `flash_attn` patch 已確定不需要**：`flash_attn.py` 的 `use_mm_prefix` 參照在
+0.29 是 2 處、0.33 是 **3 處**（含 signature），而 `qwen3_dflash2.py` 已無任何
+`use_mm_prefix` 參照。再加上 0.33 的 site-packages 已搬到 `/opt/venv/…`，舊 bind 的
+目標路徑**根本不存在** —— 所以 35b 的 `flash_attn_029_patched.py` 必須在換版時移除，
+不可重新綁定。
+
+**image 配對**：11-23 與 11-25 的 `vllm serve --help=all` 輸出**逐 byte 相同**（僅時間戳
+不同）→ 兩者的 CLI 介面一致，差別只在 baked 進去的 offload 程式碼。
+
+**MIXED / ModelOpt**：兩個世代的 `modelopt.py` 都沒有 `MergedColumnParallelLinear` 參照，
+而 27b body 在 0.29 上從未需要 bind → 0.33 也預期不需要（boot 時確認，不需預先準備 patch）。
+
+
 
 ## 8. Phase 1 — boot 與 bench
 
