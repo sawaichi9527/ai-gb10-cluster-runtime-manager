@@ -3303,6 +3303,59 @@ POST /v1/chat/completions (128×128 PNG "A")
 **Files**：`docs/CLIENT_VISION_CAPABILITY_2026-11-26.md`（完整證據與選項）、`AGENTS.md`
 （新增 Fact）、`README.md` §3.3。
 
+### 2026-11-26/27 — aeon 0.33 image bump：35B 升版、27B 維持 09-18
+
+**完整記錄：`docs/QWEN_27B_35B_AEON_033_UPGRADE_2026-11-26.md`**（選型、稽核、四臂全表、
+gate、排除過程）。此處只留交接重點。
+
+**選型**：TP2 = `2026-11-23-v0.33.0-omni-dflash2`、single = `2026-11-25-…-ngram-disk`
+（upstream：1-Spark 用後者、多 Spark 用前者）。兩顆 10.52 GB 壓縮、26.13 GB 解壓。
+
+**結果（同 session A/B，`bench-sweep.sh`，每格 3 reps 中位）**：
+
+| 車道 | 09-18 | 0.33 | ΔΣ | 判定 |
+|---|---|---|---|---|
+| 27B cluster（2 boots 均值） | 857.6 | 786.9 | **−8.2 %**（C1 −16 %、C7 −11 %、C8 −16 %，prefill **+12.4 %**） | **不升** |
+| 35B cluster（2 boots 均值） | 2639.7 | 2558.0 | **−3.1 %**（C1 **+12.8 %**，prefill +4.2 %） | **升 11-23** |
+| 27B single | 487.1 | 467.1 | −4.1 %（C1 −15.9 %，prefill +12.8 %） | 不升 |
+| 35B single | 1690.6 | 1668.3 | **−1.3 %**（C1 **+12.2 %**，prefill +4.8 %） | **升 11-25** |
+
+**必須記住的兩件事**：
+
+1. **這條 lane 的 A/A 漂移 ~8 %**：同一個 09-18 設定量到三個 Σ（819.3 公布／825.4／889.8）。
+   任何 <8 % 的跨 boot 差異都不是結果。
+2. **27B 的 0.33 退化是真實且可重現的**（兩 boot 區間 781.5–792.2 與基準 825.4–889.8
+   完全不重疊），形狀是「低併發掉、中併發持平、prefill 變快」。已排除 runner
+   （0.33 仍印 `Using V2 Model Runner`）、acceptance、0.29 patch、cache 重用，以及
+   `VLLM_USE_FLASHINFER_SAMPLER=1`。**尚未定位根因**；`27b-aeon033` 候選 conf 留在 repo。
+
+**promote 內容**：
+
+- `cluster-profiles.d/35b.conf`：`IMAGE` → 11-23、加 `IMG_SHA256`（**兩節點同一個 digest**，
+  因為 node0 的 CX7 傳輸後用一次 no-op `docker pull` 把 `RepoDigests` 接回來了 →
+  **不需要 `IMG_SHA256_NODE1`**）、移除 `VLLM_USE_V2_MODEL_RUNNER` 與
+  `flash_attn_029_patched.py` bind（0.33 的 `flash_attn.py` 已接受 `use_mm_prefix`，
+  且 site-packages 移到 `/opt/venv/…`）、`HEALTH_TIMEOUT=3600`。
+- 單節點：`AEON_IMAGE` 仍是全域預設（09-18，給 27b），新增 per-lane `AEON_IMAGE_35B`
+  （11-25），只有 `docker-compose-35b-single.yml` 讀 `${AEON_IMAGE_35B:-${AEON_IMAGE}}`。
+  兩節點的 `standalone.env` 與 compose 已改且 sha256 相同（`3b519a45…` / `88f5cc60…`），
+  舊檔備份 `*.bak-20261127-*`。
+- `29b` 的 `flash_attn_029_patched.py` **留在 stack 目錄不刪**（只解除 mount），回滾時加回即可。
+
+**踩到的坑**：
+
+- **node0（classic overlay2）拉不動大層**：7.45 GB 那層重試 45 分鐘後 `unexpected EOF`；
+  **改在 node1（containerd store）拉**（分塊＋續傳），再 `ssh node1 'docker save' | docker load`
+  走 CX7。`docker load` **不帶 `RepoDigests`**，但 layers 已在時一次 `docker pull` 60 秒內就能接回。
+- **`vllm serve --help` 在 0.33 只印摘要**（要 `--help=all`），且**需要可見 GPU**。
+- **`bench-multiturn` 300-token 預設對 35B 不成立**（09-18 自己也 2/6）→ 2048 才 6/6。
+- 誤把 `AEON_IMAGE` 留在測試值，差點讓 27b single 一起被換掉 → per-lane 覆寫就是為了這個。
+
+**現況**：35B 兩模式都在 0.33、27B 兩模式都在 09-18；`gb10 stop` + `gb10-single stop`
+後 `:1234` 已釋放（`deepseek-nvfp4` 由使用者自行恢復）。Cache：
+`~/.cache/vllm-27b-single`＝0.29（`-033bak` 保留）、`~/.cache/vllm-35b-single`＝0.33
+（`-029bak` 保留）、`~/.cache/vllm-35b-cluster`＝0.33。
+
 ### 2026-11-26（續）— AEON 佈局歸位：stack 改名 `aeon-vllm-ultimate` ＋ 權重進共用池
 
 **動機**：0.33 換版把 27b/35b 的 image **按部署模式拆成兩個 tag**（TP2 ＝

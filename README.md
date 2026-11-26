@@ -53,8 +53,8 @@ Node1  spark-8095  192.168.23.216 / 10.0.101.102   rank1 · headless worker
 
 | lane | 引擎／image | 權重 | 契約 | 最新實測 |
 |---|---|---|---|---|
-| `27b` | vLLM · `aeon-vllm-ultimate:2026-09-18-v0.29.0-omni` | 27B NVFP4-mixed ＋ DFlash2 n=7 | 262144 · 8 | C1 **41.0** → C8 **170.3** · 245k prefill 611.5 · 冷啟 250 s · 詳 **§5.1** |
-| `35b` | 同上 | 35B-A3B NVFP4 ＋ DFlash n=6 | 262144 · 8 | C1 **125.5** → C8 **471.8** · 245k prefill 3951.9 · 冷啟 386 s · 詳 **§5.1** |
+| `27b` | vLLM · `aeon-vllm-ultimate:2026-09-18-v0.29.0-omni`（**0.33 已測、未升**） | 27B NVFP4-mixed ＋ DFlash2 n=7 | 262144 · 8 | C1 **38.9** → C8 **166.1**（兩 boot 均值 Σ 857.6）· 245k prefill 616 · 冷啟 5m07s · 詳 **§5.1** |
+| `35b` | vLLM · `aeon-vllm-ultimate:2026-11-23-v0.33.0-omni-dflash2`（2026-11-26 升版） | 35B-A3B NVFP4 ＋ DFlash n=6 | 262144 · 8 | C1 **135.4** → C8 **476.2**（兩 boot 均值 Σ 2558）· 245k prefill 4167 · 冷啟 6m59s · 詳 **§5.1** |
 | `deepseek` | vLLM · `eugr/spark-vllm-b12x:nightly-20261102` | `deepseek-v4-flash-0731-dspark-ablit` | 262144 · 8 · KV fp8 | C1 **45.0** → C8 **122.0**（Σ 686.5 · 2 boots）· 261K prefill 1947.1 · **KV 499,760 tok** · 17m46s · 詳 **§5.2** |
 | `deepseek-nvfp4` | 同上（digest 雙節點 pin） | `DeepSeek-V4-Flash-0731-NVFP4` ＋ DSpark k=5 | 262144 · 8 · KV fp8 | C1 **45.6** → C8 **128.7**（2.82× · 3 boots）· 200K prefill 1984.6 · **KV 439,956 tok** · 24m46s · 詳 **§5.4** |
 | `deepseek-vision` | 同上 | `…vision-exp-ablit`（原生 vision）＋ DSpark k=6 | 262144 · 8 · KV fp8 | C1 **33.2** → C8 **92.0**（Σ 536.1 · 3 boots）· 261K prefill 1823.7 · **KV 487,718 tok** · 詳 **§5.3** |
@@ -240,22 +240,32 @@ compose 檔無法表達。`cluster-down` 會等（≤90 s）容器真的消失�
 
 **權重** 27B：`qwen3.8-27b-aeon-ultimate-uncensored-nvfp4-mixed` ＋ `qwen3.8-27b-dflash2`（n=7）；
 35B：`qwen3.6-35b-a3b-heretic-nvfp4` ＋ `qwen3.6-35b-a3b-dflash`（n=6）
-**Image** `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-09-18-v0.29.0-omni` · **契約** 262144 ctx · 8 併發 · 27b GMU 0.85／35b GMU 0.80
+**Image** 27B `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-09-18-v0.29.0-omni` ·
+35B **`…:2026-11-23-v0.33.0-omni-dflash2`**（TP2）／**`…:2026-11-25-…-ngram-disk`**（single）
+· **契約** 262144 ctx · 8 併發 · 27b GMU 0.85／35b GMU 0.80
 
-| 2026-10-22 全掃（`BENCH_IGNORE_EOS=1`、400 tok、warm） | C1 | C2 | C3 | C4 | C5 | C6 | C7 | C8 |
-|---|---|---|---|---|---|---|---|---|
-| 27B cluster | 41.0 | 57.2 | 82.8 | 91.1 | 101.0 | 144.2 | 131.7 | **170.3** |
-| 35B cluster | 125.5 | 221.4 | 290.6 | 311.9 | 355.4 | 387.7 | 414.0 | **471.8** |
-| 27B single（node0） | 22.3 | 33.3 | 45.4 | 61.2 | 59.3 | 69.1 | 76.2 | **101.2** |
-| 35B single（node0） | 93.5 | 160.4 | 187.9 | 204.3 | 230.7 | 257.7 | 304.2 | **346.6** |
+| 2026-11-26 全掃（`BENCH_IGNORE_EOS=1`、400 tok、warm、每格 3 reps 中位） | C1 | C2 | C3 | C4 | C5 | C6 | C7 | C8 | Σ |
+|---|---|---|---|---|---|---|---|---|---|
+| 27B cluster（09-18，**兩 boots 均值**） | 38.9 | 65.0 | 82.5 | 105.2 | 120.4 | 128.2 | 151.5 | 166.1 | 857.6 |
+| 35B cluster（**0.33**，兩 boots 均值） | 135.4 | 199.8 | 264.4 | 310.8 | 349.7 | 405.2 | 428.2 | **476.2** | 2558.0 |
+| 27B single（09-18） | 22.7 | 39.7 | 45.8 | 58.5 | 63.8 | 73.3 | 86.9 | 96.4 | 487.1 |
+| 35B single（**11-25**） | 97.6 | 132.9 | 160.0 | 199.0 | 246.5 | 251.5 | 282.6 | 298.2 | 1668.3 |
 
-- cluster／single 比值：27B **1.68×**（C8 170.3 / 101.2）、35B **1.36×**（471.8 / 346.6）。
-- 2026-09-19 舊記錄（`MAX_TOKENS=2048`、**非定長**）完整保留在 `docs/BENCHMARKS.md` §2.2；C8 兩次量級一致
-  （cluster 170.3 vs 172.7、single 101.2 vs 117.2），差異來自協定。
+- **27B 停在 09-18**：0.33 的 decode 退化可重現（叢集 Σ −8.2 %、C1/C7/C8 −11…−16 %），
+  但 prefill **+12~13 %**；單節點同形狀（Σ −4.1 %、C1 −16 %）。已試
+  `VLLM_USE_FLASHINFER_SAMPLER=1` → 無效。完整四臂表與排除過程見
+  `docs/QWEN_27B_35B_AEON_033_UPGRADE_2026-11-26.md`。
+- **35B 已升 0.33**（TP2 11-23／single 11-25）：Σ 在噪聲內（−3.1 %／−1.3 %）、**C1 +12 %**、
+  prefill +4 %；移除 0.29 的 `flash_attn` patch 後 dflash CUDA graph 8/8 正常。
+- **本 lane 的 boot-to-boot 漂移 ~8 %**：同一個 09-18 設定量到 819.3／825.4／889.8 三個 Σ，
+  小於此的差異不算結果。
+- cluster／single 比值（C8）：27B **1.72×**、35B **1.60×**。
+- 245k prefill：27B cluster 616／single 346；35B cluster 4167／single 2708。
+  2026-09-19 舊記錄（`MAX_TOKENS=2048`、非定長）保留在 `docs/BENCHMARKS.md` §2.2（不可互比）。
 - **27B prefix caching 刻意 OFF**（理由與復活條件：`docs/ADR_2026-09-01_prefix_caching_dflash2.md`）；
   35B 已開啟。**此規則不適用其他模型家族。**
-- 冷啟（2026-10-22）：27b cluster **250 s**／single **5m43s**、35b cluster **386 s**／single **7m06s**。
-  27B 可達 ~40 min → `27b.conf` 覆寫 `HEALTH_TIMEOUT=3600`
+- 冷啟（2026-11-26）：27b cluster **5m07s**／single **5m08s**、35b cluster **6m59s**（0.33）／
+  single **6m15s**（11-25）。27B 可達 ~40 min → `27b.conf` 覆寫 `HEALTH_TIMEOUT=3600`
   （`docs/ISSUE_27B_BROKEN_2026-09-18_IMAGE_2026-09-19.md`）。
 
 ### 5.2 `deepseek` — DeepSeek-V4-Flash-0731 mainline（fp8 DSpark）
