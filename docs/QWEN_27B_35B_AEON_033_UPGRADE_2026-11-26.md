@@ -283,6 +283,50 @@ boot 時確認）；`qwen3_coder` 仍在 tool-parser enum 內、`reasoning/qwen3
 compose-verify PASS、C1 140.5 / C8 461.8；35B single 以 11-25 開機 READY **6m15s**、C1 91.2。
 收工：`gb10 stop` + `gb10-single stop node0 35b`，`:1234` 已釋放（僅剩既有 `c0918` Created）。
 
+## 9. 27B drafter 調查（2026-11-27）— 找到 +32% 的組合，**不動 image**
+
+**觸發**：27B single 只有 C1 22.7 tok/s，而社群／官方同級配置報 32–38 tok/s。查 card 後發現
+我們用的是 **vLLM 預設 greedy draft**，且沒有用官方給單 Spark 的 **per-concurrency lattice**。
+
+**官方（AEON DFlash2）的 DGX Spark 設定**（`configs/dgx-spark.speculative-config.json`，
+經核對適用於我們的 image `2026-09-18-v0.29.0-omni`）：
+
+```json
+{"method":"dflash","model":"/draft","num_speculative_tokens":9,
+ "num_speculative_tokens_per_batch_size":[[1,2,9],[3,8,7],[9,12,6],[13,16,4]],
+ "attention_backend":"TRITON_ATTN","draft_sample_method":"probabilistic"}
+```
+
+**三臂（node0 single，09-18 image，`BENCH_IGNORE_EOS=1`／400 tok／預設取樣／3 reps 中位）**：
+
+| 臂 | drafter | spec config | C1 | C2 | C3 | C4 | C5 | C6 | C7 | C8 | Σ |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| **G0** 生產（09-18） | z-lab DFlash2 | K7 greedy | 22.7 | 39.7 | 45.8 | 58.5 | 63.8 | 73.3 | 86.9 | 96.4 | **487.1** |
+| **G1** `27b-tune-prob` | z-lab DFlash2 | K7 **probabilistic** | 25.2 | 39.2 | 56.8 | 64.8 | 73.9 | 85.9 | 112.4 | 108.3 | **566.5**（**+16.3 %**） |
+| **G2** `27b-tune-df2aeon` | **AEON DFlash2 NVFP4 1.93 GB** | **K9 + lattice + probabilistic** | 24.5 / 27.3 | 43.8 / 49.6 | 65.8 / 64.6 | 76.6 / 72.6 | 91.4 / 91.4 | 100.5 / 106.6 | 112.6 / 114.9 | 122.3 / 122.3 | **637.5 / 649.3 → 均值 643.4（+32.1 %）** |
+
+- **單一旋鈕（G1）就有 +16.3 %**：acceptance 由 21–28 % 升到 28–33 %。這是因為 vLLM 預設
+  `draft_sample_method="greedy"`，而官方 measured 設定是 `probabilistic`（原始碼註解：
+  多花一點 GPU 記憶體換取正確的機率比值檢定）。
+- **G2 再 +12.5 %（對 G1）**：AEON drafter 的 acceptance 更好（C8：G0 21.3 % → G1 31.0 % →
+  G2 34.0 %），且 lattice 讓低併發用 9 drafts、高併發自動降到 7/6/4。
+- **不動 image、不動權重（body 不變）**、lossless（rejection sampling 由 target 逐一驗證）。
+
+**新增的 A/B lane**（`runtimes.d/`，非服務）：`27b-tune-prob`、`27b-tune-df2aeon`；
+compose 由 `docker-compose-27b-single.yml` 腳本衍生，差異僅 container name／drafter mount／
+cache root／`--speculative-config`。
+
+**drafter 落地**：`~/docker-stacks/models/qwen3.8-27b-dflash2-aeon/`（30 檔，含
+`model.safetensors` 1,926,977,716 B、sha256 `02d956cf…` ＝ HF LFS oid、`SHA256SUMS`
+`4b0ada30…`，兩節點相同）。`bf16/` 未下載（NVFP4 W4A16 才是 Blackwell/vLLM 的正解）。
+
+**尚未做**：TP2 的對應測試（官方對 TP=2 建議 fixed **n=7**、不用 lattice，但同樣應開
+`probabilistic`）；以及 27B 0.33 是否會因為 drafter 設定正確而翻盤。
+
+**注意**：本節數字是「預設取樣（T=1.0）」。官方量到的 32.7 tok/s 是 **T=0.6 + thinking on +
+512 tok + util 0.57**，所以兩者不可直接相減；同一協定下的**相對**增益（+16 %／+32 %）才是結論。
+
+
 
 
 ## 9. 回滾
