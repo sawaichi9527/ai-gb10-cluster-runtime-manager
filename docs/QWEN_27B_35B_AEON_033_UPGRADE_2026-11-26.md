@@ -97,8 +97,24 @@
 
 ## 7. Phase 0 — image 稽核
 
-`PENDING`（pull 完成後執行 `vllm serve --help` 旗標稽核、版本、`use_mm_prefix` 檢查、
-`/ple` 需求；結果貼在下方）。
+### 7.0 下載路徑（2026-11-26 事故與處置）
+
+- **node0（classic `overlay2`）拉不動**：`docker pull` 的 classic fetcher 對 7.45 GB 那一層
+  （`sha256:a3f5a01f59ac…`）反覆 `Retrying`，每次重試都是**整層重下**，45 分鐘後以
+  `unexpected EOF` 失敗；同一層在 `11-25` 共用，所以第二顆也一定失敗。
+- **量測**：同一 blob 的 100 MB ranged GET，node0 **2.11 MB/s**、node1 **3.53 MB/s**；
+  1.82 GB 那層在 node0 撐了約 20 分鐘後成功 → 失敗是間歇性、不是權限或 blob 損壞
+  （HEAD 200、`206` ranged 正常）。
+- **處置**：改在 **node1** 拉。node1 的 `docker info` 是 `driver=overlayfs`
+  （containerd image store），其 fetcher 是**分塊 ranged ＋ 可續傳**，對斷線容忍度高得多。
+  兩顆拉完後用 **`ssh node1 'docker save' | docker load`** 走 CX7 回傳 node0（不落中間檔）。
+- **digest 的副作用**：`docker load` 出來的 image **不帶 `RepoDigests`**（docker-archive 只有
+  RepoTags），所以若之後要用 `IMG_SHA256` gate，需要先 `docker pull` 一次把 registry digest
+  接回去（layers 已存在時理論上不會重下）；本輪先不啟用 pin，以 `.Id`／`.Config`／
+  `.RootFS.Layers` 做內容同一性證明，並把 index／子 manifest digest 寫在本檔 §2。
+
+`PENDING`（稽核輸出：`vllm serve --help` 旗標、版本、`use_mm_prefix`、`/ple`）。
+
 
 ## 8. Phase 1 — boot 與 bench
 

@@ -42,6 +42,17 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   archived on 2026-09-20 (node0's copy did not), which made node1's 27b single un-bootable —
   Docker creates a **directory** for a missing bind source and masks the `.py`, so the failure
   only surfaces as an import error. Compare hashes, not intentions.
+- **Big image layers come in through node1, not node0 (2026-11-26).** node0's classic
+  `overlay2` fetcher restarts a whole layer on every retry, so a multi-GB layer on a flaky WAN
+  never lands: pulling `aeon-vllm-ultimate:2026-11-23` died with `unexpected EOF` on the
+  7.45 GB layer after ~45 min of 5-second retries (measured 2.1 MB/s on that blob). node1 runs
+  the **containerd image store** (`docker info` → `driver=overlayfs`), whose fetcher is chunked
+  and resumable (3.5 MB/s on the same blob) — pull there, then
+  `ssh -i ~/.ssh/id_gb10_cluster eye@10.0.101.102 'docker save <ref>' | docker load` on node0
+  over CX7. **`docker load` does not restore `RepoDigests`** (docker-archive carries RepoTags
+  only), so an `IMG_SHA256` gate on a tar-transferred image needs one `docker pull` afterwards
+  to re-attach the registry digest (the layers are already there) — otherwise prove content
+  identity with `.Config` + `.RootFS.Layers` hashes, exactly as for the b12x node1 transfer.
 - **Node-local layout (2026-09-20; vision updated 2026-10-09).** Every runtime's
   node-side artifacts live under `~/docker-stacks/<stack>/`, the stack named after
   the image source: `aeon-vllm-ultimate` (27b/35b), `anemll-dspark-vllm-gx10` (deepseek),
