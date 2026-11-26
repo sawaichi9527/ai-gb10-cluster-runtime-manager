@@ -25,6 +25,7 @@ CS=("$@")
 REPS="${REPS:-3}"
 MAXT="${MAXT:-400}"
 CTX_WORDS="${CTX_WORDS:-245000}"
+PREFILL_RUNS="${PREFILL_RUNS:-2}"
 
 LOG_DIR="${LOG_BASE}/${P}"
 mkdir -p "${LOG_DIR}"
@@ -79,7 +80,7 @@ fi
 
 echo "" | tee -a "${OUT}"
 echo "  cold prefill probe: ${CTX_WORDS} words, max_tokens=1, BENCH_COLD=1" | tee -a "${OUT}"
-for r in 1 2; do
+for r in $(seq 1 "${PREFILL_RUNS}"); do
   raw=$(BENCH_COLD=1 "${SCRIPT_DIR}/bench-ctx.sh" "${CTX_WORDS}" 1 2>&1 || true)
   pts=$(echo "${raw}" | grep -o 'prompt_tokens *= *[0-9]*' | head -1 | tr -dc '0-9')
   pps=$(echo "${raw}" | grep -o 'prefill_speed *= *[0-9.]*' | head -1 | grep -o '[0-9.]*$')
