@@ -654,6 +654,20 @@ Key rules:
   local store with `git credential fill` (LF-only request file + `cmd /c`) — never write
   them to any file in this repo and never echo them. The 2026-10-14 repair took both
   hosts to 13/13 byte-identical releases (`v1.0.0`…`v1.7.0`); details in `handoff.md`.
+- **Never run a destructive batch over `Invoke-RestMethod` output without flattening it
+  (2026-11-27).** PowerShell hands back a JSON array from `Invoke-RestMethod` wrapped in a
+  single object, so `$list | Where-Object { $_.tag_name -eq $tag }` evaluates
+  `[array] -eq 'v2.3.0'`, which returns the matching element(s) and passes the **whole
+  array** through. A `foreach (… | Where-Object …) { DELETE }` then deletes every release
+  — that is how all 19 releases on BOTH hosts were destroyed while publishing `v2.3.0`.
+  Rules: flatten first (`$a = @($x); if ($a.Count -eq 1 -and $a[0] -is [array]) { $a = @($a[0]) }`),
+  print the candidate list **and its count**, and refuse to delete when the count is not
+  the expected 1. Recovery is possible because the **annotated tag message is the source
+  of truth**: `git cat-file -p <tag>`, take everything after the first blank line, POST it
+  back with `name=<tag>`, `draft=false`, `prerelease=false`, `target_commitish=main`. The
+  2026-11-27 restore recreated all 19 on both hosts and verified `body -ceq tag message`
+  per tag, tight enough to also catch the wrapping bug above (which had made an earlier
+  verification claim "0 mismatches" while actually comparing whole arrays).
 
 ## Handoff lineage
 
