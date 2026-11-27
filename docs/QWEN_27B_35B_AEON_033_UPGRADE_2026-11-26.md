@@ -413,6 +413,13 @@ C1 **27.1**／C8 **123.2**、acceptance **39.3 %**。
 隨殘留 lane 一併刪除**（見 §12），回滾需先在兩節點重新 pull（digest `sha256:cc91c515…`），
 並從 `~/_archieve/v029-flash-attn-patch-20261127/` 還原 0.29 專用的 `flash_attn` patch。
 
+**已評估、刻意不採用（2026-11-27，使用者裁定）**：廠商 27B card 的 **TP=2 席位**
+（`max-model-len 1000000` + YaRN factor-4 hf-overrides、`max-num-seqs 16`、
+`gpu-memory-utilization 0.70`）。理由：對 **prefill/decode 效率沒有改善**，且這些屬
+**使用層面的配置**（要多大的上下文、幾路併發、留多少記憶體給其他服務），而目前的
+`262144 / 8 / 0.85` 契約在實務上沒有問題。**未來的維護者不要「順手對齊」vendor card** ——
+要動的話是一次產品決策（客戶端契約、KV pool、記憶體餘裕都會改變），不是效能調優。
+
 
 
 

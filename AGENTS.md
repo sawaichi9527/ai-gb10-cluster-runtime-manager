@@ -49,7 +49,11 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   `IMG_SHA256` in `cluster-profiles.d/27b.conf` (and `AEON_IMAGE` for the single lane).
   Image split by mode: TP2 = `2026-11-23-v0.33.0-omni-dflash2` (pinned `IMG_SHA256`
   `71c2b82b…`, same digest on both nodes) and single = `2026-11-25-…-ngram-disk`
-  (`AEON_IMAGE`). **Both single composes read plain `${AEON_IMAGE}`** — the per-lane
+  (`AEON_IMAGE`). **The vendor's 27B TP=2 "seat" (1M ctx + YaRN, 16 seqs, util 0.70) is
+  deliberately NOT adopted** (2026-11-27): it buys no prefill/decode throughput and the
+  ctx/seqs/util knobs are a product contract, not a tuning lever — the current
+  `262144 / 8 / 0.85` contract is validated and in use. Do not "align to the card" as a
+  drive-by change. **Both single composes read plain `${AEON_IMAGE}`** — the per-lane
   `AEON_IMAGE_35B` override introduced on 2026-11-26 was collapsed away on 2026-11-27
   once both lanes resolved to the same tag; reintroduce that shape
   (`${VAR:-${AEON_IMAGE}}`) only if the lanes ever need different single tags again, and
