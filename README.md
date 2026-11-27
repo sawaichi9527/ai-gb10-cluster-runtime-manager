@@ -25,10 +25,10 @@ Node1  spark-8095  192.168.23.216 / 10.0.101.102   rank1 · headless worker
 | 看現在誰在線／打一發 smoke | `gb10 status` · `gb10 smoke` |
 | 停掉／重啟上次的 lane | `gb10 stop` · `gb10 restart [lane]`（無參數＝`state/last-cluster-profile`） |
 
-**現役一律以 `gb10 status` 為準**。本文撰寫時（2026-10-22 10:30 CST）為 **`qwen38flash-tensorfold`**：
-`ready`、node0 up · node1 up、image `tensorfold-qwen38fn:zig-db28187`、`/v1/models` = `aeon`、
-`state/boot-ready` = `08:31:09 READY`、`kit.*.rc=0`（同日 16:50 CST 已由使用者切換為 `dsv41flash-tensorfold`）。
-「現役」只表示**此刻在線**——`qwen38flash-tensorfold` 與 `qwen38flash` 是**對等 lane**（無主/備），
+**現役一律以 `gb10 status` 為準**。本文最後一次校正：**2026-11-27**（`v2.4.0`），當時
+**所有 runtime 都在 `stop`**（`deepseek-nvfp4` 由維護者自行恢復），`:1234` 沒有 listener、
+兩節點只剩 0.33 兩顆 image。要看此刻誰在線就 `gb10 status`，不要相信本文的任何「現役」字樣。
+「現役」只表示**此刻在線**：`qwen38flash-tensorfold` 與 `qwen38flash` 是對等 lane（無主/備），
 1017 的兩條同理。
 
 ## 2. 目前狀態
@@ -239,12 +239,11 @@ compose 檔無法表達。`cluster-down` 會等（≤90 s）容器真的消失�
 ### 5.1 `27b` / `35b` — Qwen 27B / 35B-A3B NVFP4（vLLM，DFlash）
 
 **權重** 27B：`qwen3.8-27b-aeon-ultimate-uncensored-nvfp4-mixed` ＋ **`qwen3.8-27b-dflash2-aeon`**
-（AEON DFlash2 NVFP4 1.93 GB，n=7、`draft_sample_method=probabilistic`；single 另加
-per-batch lattice）；
-35B：`qwen3.6-35b-a3b-heretic-nvfp4` ＋ `qwen3.6-35b-a3b-dflash`（n=6）
-**Image** 27B **`…:2026-11-23-v0.33.0-omni-dflash2`**（TP2）／**`…:2026-11-25-…-ngram-disk`**（single）·
-35B 同上 ·
-· **契約** 262144 ctx · 8 併發 · 27b GMU 0.85／35b GMU 0.80
+（AEON DFlash2 NVFP4 W4A16 1.93 GB；TP2 fixed n=7、single K9 + per-batch lattice；兩者都
+`draft_sample_method=probabilistic`）；35B：`qwen3.6-35b-a3b-heretic-nvfp4` ＋
+`qwen3.6-35b-a3b-dflash`（AEON DFlash n=6）
+**Image** 兩條 lane 同一組：TP2 **`…:2026-11-23-v0.33.0-omni-dflash2`**／single
+**`…:2026-11-25-…-ngram-disk`** · **契約** 262144 ctx · 8 併發 · 27b GMU 0.85／35b GMU 0.80
 
 | 2026-11-26 全掃（`BENCH_IGNORE_EOS=1`、400 tok、warm、每格 3 reps 中位） | C1 | C2 | C3 | C4 | C5 | C6 | C7 | C8 | Σ |
 |---|---|---|---|---|---|---|---|---|---|
@@ -254,26 +253,21 @@ per-batch lattice）；
 | 27B single（0.29 → **0.33**） | 22.7 → 27.1 | 39.7 | 45.8 | 58.5 | 63.8 | 73.3 | 86.9 | 96.4 → 123.2 | — |
 | 35B single（**11-25**） | 97.6 | 132.9 | 160.0 | 199.0 | 246.5 | 251.5 | 282.6 | 298.2 | 1668.3 |
 
-- **27B 已遷入 0.33（2026-11-27，operator decision）**：TP2 Σ **−9.9 %**（C1–C4 持平或 +4~5 %、
-  **C5–C8 −13~−17 %**），但 245K prefill **+12.8 %**；單節點實測 C8 **96.4 → 123.2**、
-  acceptance 34 % → **39.3 %**。理由與取捨記錄在 `docs/QWEN_27B_35B_AEON_033_UPGRADE_2026-11-26.md` §10。
-- **27B drafter 升級（image 無關）**：z-lab → **AEON DFlash2** ＋ `probabilistic`，
-  TP2 Σ `857.6 → 978.3`（+14.1 %）、single `487.1 → 643.4`（+32.1 %）。詳 §2.4。
-
 - **27B 已遷入 0.33（2026-11-27，operator decision）**：TP2 Σ **−9.9 %**（881.5 vs 978.3，
   同 drafter、各兩 boot），形狀是 **C1–C4 持平或 +4~5 %、C5–C8 −13~−17 %**，而 245K prefill
-  **+12.8 %**。單節點實測反而變好（C8 **96.4 → 123.2**、acceptance 34 % → **39.3 %**）。
-  取捨理由：絕對值差距不大、引擎效率的改進只會落在 0.33+、0.29 分支維護將斷層 ——
+  **+12.8 %**；單節點反而變好（C8 **96.4 → 123.2**、acceptance 34 % → **39.3 %**）。取捨理由：
+  絕對值差距不大、引擎效率的改進只會落在 0.33+、0.29 分支維護將斷層 ——
   完整記錄 `docs/QWEN_27B_35B_AEON_033_UPGRADE_2026-11-26.md` §10。
-- **27B drafter 升級**：z-lab DFlash2 → **AEON DFlash2** ＋ `draft_sample_method=probabilistic`
-  （vLLM 預設 greedy）。**TP2 Σ 857.6 → 978.3（+14.1 %）**、**single 487.1 → 643.4（+32.1 %）**；
-  只開 probabilistic 一個旋鈕就 +16.3 %（single）。
+- **27B drafter 升級（與 image 無關）**：z-lab DFlash2 → **AEON DFlash2** ＋
+  `draft_sample_method=probabilistic`（vLLM 預設 greedy）。**TP2 Σ 857.6 → 978.3（+14.1 %）**、
+  **single 487.1 → 643.4（+32.1 %）**；單開 probabilistic 一個旋鈕就 +16.3 %（single）。詳 §2.4。
 - **35B 已升 0.33**（TP2 11-23／single 11-25）：Σ 在噪聲內（−3.1 %／−1.3 %）、**C1 +12 %**、
   prefill +4 %；移除 0.29 的 `flash_attn` patch 後 dflash CUDA graph 8/8 正常。
 - **本 lane 的 boot-to-boot 漂移 ~8 %**：同一個 09-18 設定量到 819.3／825.4／889.8 三個 Σ，
   小於此的差異不算結果。
-- cluster／single 比值（C8）：27B **1.72×**、35B **1.60×**。
-- 245k prefill：27B cluster 616／single 346；35B cluster 4167／single 2708。
+- cluster／single 比值（C8）：27B **1.23×**（0.29 時代 1.72×）、35B **1.60×**。
+- 245k prefill：27B cluster **618（0.29）→ 697（0.33）**／single 346（0.29 實測）；
+  35B cluster 4167／single 2708。
   2026-09-19 舊記錄（`MAX_TOKENS=2048`、非定長）保留在 `docs/BENCHMARKS.md` §2.2（不可互比）。
 - **27B prefix caching 刻意 OFF**（理由與復活條件：`docs/ADR_2026-09-01_prefix_caching_dflash2.md`）；
   35B 已開啟。**此規則不適用其他模型家族。**
@@ -497,6 +491,8 @@ compose 檔與 `patches/` staging 都放在該目錄內。`anemll-dspark-vllm-gx
 | MiMo／1017 選型 | [`docs/MIMO26FLASH_TP2_2026-10-03.md`](docs/MIMO26FLASH_TP2_2026-10-03.md)、[`docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md`](docs/DSV41_FLASH_EXL3_2X_SPARK_EVAL_2026-09-29.md) |
 | ComfyUI 部署／遠端使用指南 | [`docs/COMFYUI_JDALN_DEPLOYMENT_2026-10-14.md`](docs/COMFYUI_JDALN_DEPLOYMENT_2026-10-14.md)、[`docs/COMFYUI_JDALN_REMOTE_USAGE_GUIDE_2026-10-15.md`](docs/COMFYUI_JDALN_REMOTE_USAGE_GUIDE_2026-10-15.md) |
 | 上游查核（deepseek／vision／27B·35B） | [`docs/DEEPSEEK_UPSTREAM_REVERIFY_2026-09-30.md`](docs/DEEPSEEK_UPSTREAM_REVERIFY_2026-09-30.md)、[`docs/QWEN_27B_35B_UPSTREAM_REVERIFY_2026-09-30.md`](docs/QWEN_27B_35B_UPSTREAM_REVERIFY_2026-09-30.md) |
+| **27B/35B 換代 0.33 ＋ drafter A/B ＋ 決策與清理** | [`docs/QWEN_27B_35B_AEON_033_UPGRADE_2026-11-26.md`](docs/QWEN_27B_35B_AEON_033_UPGRADE_2026-11-26.md) |
+| **`aeon` 多模態＝client 端宣告**（dsh／OpenCode／hermes） | [`docs/CLIENT_VISION_CAPABILITY_2026-11-26.md`](docs/CLIENT_VISION_CAPABILITY_2026-11-26.md) |
 | ADR：27B prefix caching、舊版 README 備份 | [`docs/ADR_2026-09-01_prefix_caching_dflash2.md`](docs/ADR_2026-09-01_prefix_caching_dflash2.md)、[`docs/_archive/README_ARCHIVE_2026-10-22.md`](docs/_archive/README_ARCHIVE_2026-10-22.md) |
 | 交接與逐 session 證據 | [`handoff.md`](handoff.md)、[`AGENTS.md`](AGENTS.md) |
 
