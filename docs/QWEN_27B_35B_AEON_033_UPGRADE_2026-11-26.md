@@ -409,7 +409,9 @@ KV **3,796,677 tok**、spot C1 **39.3**／C8 **157.8**；single（11-25）READY 
 C1 **27.1**／C8 **123.2**、acceptance **39.3 %**。
 
 **回滾**：`IMAGE`/`IMG_SHA256` 兩行改回 `2026-09-18-v0.29.0-omni` + `sha256:cc91c515…`，
-單節點 `AEON_IMAGE` 改回 09-18，然後 `gb10 use 27b`。09-18 image 仍在兩節點。
+單節點 `AEON_IMAGE` 改回 09-18，然後 `gb10 use 27b`。**注意：09-18 image 已於 2026-11-27
+隨殘留 lane 一併刪除**（見 §12），回滾需先在兩節點重新 pull（digest `sha256:cc91c515…`），
+並從 `~/_archieve/v029-flash-attn-patch-20261127/` 還原 0.29 專用的 `flash_attn` patch。
 
 
 
@@ -417,10 +419,49 @@ C1 **27.1**／C8 **123.2**、acceptance **39.3 %**。
 
 
 
-## 9. 回滾
+## 11. 回滾
+
+> ⚠️ **2026-11-27 之後本節已部分失效**：0.29 image 與 `-029bak` cache tree 已隨殘留清理
+> 刪除（見 §11）。回滾現在要在兩節點重新 pull `2026-09-18-v0.29.0-omni`
+> （digest `sha256:cc91c515…`），0.29 專用的 `flash_attn_029_patched.py` 則要從
+> `~/_archieve/v029-flash-attn-patch-20261127/` 還原。
 
 1. revert 該 commit（conf 回到 09-18 `IMAGE`），或只改 `IMAGE`/`IMG_SHA256**`。
 2. `gb10 use 27b`／`gb10 restart`；cache 若已改名，`~/.cache/vllm-*-0.29bak` 可還原暖機。
-3. 09-18 image 仍在兩節點；`IMG_SHA256` 世代 pin 見 §3。
-4. 35b 的 `flash_attn_029_patched.py` 在 stack 目錄**保留未刪**，回滾時把 mount 加回
-   `cluster-profiles.d/35b.conf` 與 single compose 即可。
+3. `IMG_SHA256` 世代 pin 見 §3。
+4. `flash_attn_029_patched.py`（0.29-only bind）已移入 `~/_archieve/v029-flash-attn-patch-20261127/`；
+   回滾 35b 時要還原它並把 mount 加回 `cluster-profiles.d/35b.conf` 與 single compose。
+
+## 12. 2026-11-27 殘留清理（兩節點）
+
+27b 遷入 0.33 之後，0.29 世代與所有 A/B lane 都不再有任何使用者，一次清乾淨。
+
+**刪除**：
+
+| 項目 | node0 | node1 |
+|---|---|---|
+| `2016-09-18-v0.29.0-omni` image（實為 `2026-09-18`） | 52.3 GB | 74.6 GB |
+| 容器 `c0918`（Created 自 2026-09-18、掛著 0.29 image、無 mount） | — | — |
+| cache `vllm-27b-aeon033-cluster` / `vllm-27b-df2aeon-cluster` / `vllm-35b-aeon033-cluster` | 549 M / 267 M / 112 M | 551 M / 265 M / 110 M |
+| cache `vllm-27b-tune-{prob,df2aeon}-single`（僅 node0） | 278 M / 280 M | — |
+| cache `vllm-27b-single-033bak`（僅 node0） / `vllm-35b-single-029bak`（僅 node0） | 188 M / 148 M | — |
+| 候選 lane 渲染 compose（`*-aeon033-cluster.yml`、`*-df2aeon-cluster.yml`） | 3 檔 | 3 檔 |
+| tune lane 的 compose（`docker-compose-27b-tune-*-single.yml`，僅 node0） | 2 檔 | — |
+| repo `runtimes.d/27b-tune-{prob,df2aeon}.conf` | 已刪 | 已刪 |
+
+**合計回收約 175 GB**（node0 ~100 GB、node1 ~75 GB）；node0 `1.9T→1.8T used / 53 %→51 %`。
+
+**刻意保留**：
+
+- **生產 cache**：`~/.cache/vllm-{27b,35b}-cluster`、`~/.cache/vllm-{27b,35b}-single`
+- **`docker-compose-*.yml.bak-*`**：節點側唯一保存「0.29 時代 single compose」的副本
+  （repo 不含這些 compose），只有幾 KB，保留作為回滾/比對依據
+- **0.33 兩顆 image**（26.1 GB node0／37.1 GB node1）
+- `~/_archieve/aeon-vllm-omni-cleanup-20260920/`（更早的歷史封存，不動）
+
+**歸檔而非刪除**：`flash_attn_029_patched.py` → `~/_archieve/v029-flash-attn-patch-20261127/`
+（附 `README.txt` 說明它是 0.29 專用、回滾時要放回 stack 目錄並加回 35b 的 mount）。
+
+**踩到的坑（再次確認）**：`~/.cache/vllm-*` 的內容是**容器以 root 建立**的，以 `eye`
+身分 `rm -rf` 會「拒絕不符權限」且 `set -e` 會讓整支腳本中止。正確做法是把 **cache 的父目錄**
+掛進一次性容器，在容器內(root)`rm -rf /c/<dir>` —— 這樣連目錄本身都能刪掉。

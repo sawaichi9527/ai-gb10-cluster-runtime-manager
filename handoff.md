@@ -3427,7 +3427,33 @@ drafter 卡才發現我們用的是 **vLLM 預設的 greedy draft**，而官方 
 | single spot | C1 **27.1**、C8 **123.2**、acceptance **39.3 %**（0.29 時 34 %） |
 
 **回滾**：`27b.conf` 的 `IMAGE`/`IMG_SHA256` 兩行改回 `2026-09-18-v0.29.0-omni` +
-`sha256:cc91c515…`，`gb10 use 27b`；09-18 image 仍在兩節點。單節點把 `AEON_IMAGE` 改回 09-18。
+`sha256:cc91c515…`，`gb10 use 27b`；**0.29 image 已於同日刪除（§12 equivalent，見下節清理）**，
+回滾要先重新 pull；0.29 的 `flash_attn` patch 歸檔在 `~/_archieve/v029-flash-attn-patch-20261127/`。
+單節點把 `AEON_IMAGE` 改回 09-18。
+
+### 2026-11-27（續二）— 殘留清理：0.29 世代與 A/B lane 全部退場（兩節點，~175 GB）
+
+**前提**：27b 遷入 0.33 後，0.29 世代與所有 A/B lane 已無任何使用者。
+
+**刪除**：`2026-09-18-v0.29.0-omni` image（node0 **52.3 GB**、node1 **74.6 GB**）、
+容器 `c0918`（Created 自 2026-09-18、掛著 0.29 image、無 mount）、
+7 個退役 cache tree（`vllm-27b-aeon033-cluster`、`vllm-27b-df2aeon-cluster`、
+`vllm-27b-tune-{prob,df2aeon}-single`、`vllm-27b-single-033bak`、`vllm-35b-aeon033-cluster`、
+`vllm-35b-single-029bak`）、候選 lane 的渲染 compose（兩節點各 3 檔）、tune lane compose（node0 2 檔）、
+repo `runtimes.d/27b-tune-{prob,df2aeon}.conf`。**合計回收 ~175 GB**（node0 ~100、node1 ~75）；
+node0 `1.9T→1.8T used、53 %→51 %`。
+
+**刻意保留**：生產 cache（`vllm-{27b,35b}-{cluster,single}`）、每個
+`docker-compose-*.yml.bak-*`（節點側**唯一**保存 0.29 時代 single compose 的副本，只有幾 KB）、
+0.33 兩顆 image、`~/_archieve/aeon-vllm-omni-cleanup-20260920/`。
+
+**歸檔**：`flash_attn_029_patched.py` → `~/_archieve/v029-flash-attn-patch-20261127/`
+（附 `README.txt`：0.29 專用，回滾時要放回 stack 目錄並加回 35b 的 mount）。
+
+**踩到的坑（第二次確認）**：`~/.cache/vllm-*` 是**容器以 root 建立**的，以 `eye` 身分
+`rm -rf` 會「拒絕不符權限」，而且 `set -e` 會讓整支腳本停在第一個目錄（第一次就是這樣失敗的）。
+正解：把 **cache 的父目錄**掛進一次性容器，在容器內 root 執行 `rm -rf /c/<dir>` ——
+這樣連目錄本身都能刪掉，不必 sudo。
 
 
 

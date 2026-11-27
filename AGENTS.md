@@ -39,8 +39,14 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   two boots each) with C1–C4 at parity and C5–C8 −13…−17 %, while 245K prefill is
   +12.8 %. The trade was taken because absolute deltas are small, engine-efficiency work
   lands in 0.33+ and will not be backported to 0.29, and 0.29 maintenance is heading for
-  a cliff. **Do not "fix" this back to 0.29 by re-reading the benchmark table** — the
-  decision is recorded in `docs/QWEN_27B_35B_AEON_033_UPGRADE_2026-11-26.md` §10.
+  a cliff. **Do not "fix" this back to 0.29 by re-reading the benchmark table** — the full
+  decision record is `docs/QWEN_27B_35B_AEON_033_UPGRADE_2026-11-26.md` §10.
+  **The 0.29 image is GONE as of 2026-11-27** (retired together with the A/B lanes and the
+  leftover caches, ~175 GB reclaimed across both nodes), so a rollback to
+  `2026-09-18-v0.29.0-omni` now means **re-pulling it on both nodes** (digest
+  `sha256:cc91c515…`) and restoring the 0.29-only `flash_attn_029_patched.py` from
+  `~/_archieve/v029-flash-attn-patch-20261127/`. Restore one `IMAGE` line plus
+  `IMG_SHA256` in `cluster-profiles.d/27b.conf` (and `AEON_IMAGE` for the single lane).
   Image split by mode: TP2 = `2026-11-23-v0.33.0-omni-dflash2` (pinned `IMG_SHA256`
   `71c2b82b…`, same digest on both nodes) and single = `2026-11-25-…-ngram-disk`
   (`AEON_IMAGE`). **Both single composes read plain `${AEON_IMAGE}`** — the per-lane
