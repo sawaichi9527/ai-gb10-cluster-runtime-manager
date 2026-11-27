@@ -3356,6 +3356,42 @@ gate、排除過程）。此處只留交接重點。
 `~/.cache/vllm-27b-single`＝0.29（`-033bak` 保留）、`~/.cache/vllm-35b-single`＝0.33
 （`-029bak` 保留）、`~/.cache/vllm-35b-cluster`＝0.33。
 
+### 2026-11-27 — 27B drafter 升級（image 與 body 都不動，+14 % TP2／+32 % single）
+
+**完整數據：`docs/QWEN_27B_35B_AEON_033_UPGRADE_2026-11-26.md` §9；摘要見
+`docs/BENCHMARKS.md` §2.4。**
+
+**起因**：27B single 只有 C1 22.7 tok/s，而官方／社群同級配置報 32–38。查 AEON 的
+drafter 卡才發現我們用的是 **vLLM 預設的 greedy draft**，而官方 measured 設定是
+**probabilistic**，且單 Spark 應該用 **per-concurrency lattice**（我們也在跑 fixed n=7）。
+
+**做了三件事**：
+
+1. **下載 `AEON-7/AEON-DFlash2-Qwen3.8-27B`**（NVFP4 W4A16，1.93 GB；`bf16/` 不抓）。
+   注意：HF 頁面仍寫「request access」但 **API `gated=false`、匿名 range GET 直接 206**
+   —— gate 實際上是關的，不需要授權。落地 `~/docker-stacks/models/qwen3.8-27b-dflash2-aeon/`
+   （sha256 `02d956cf…` ＝ HF LFS oid、`SHA256SUMS` `4b0ada30…`、兩節點相同）。
+2. **兩個 A/B lane**（`27b-tune-prob` / `27b-tune-df2aeon`，`runtimes.d/`，非服務）量出
+   單一旋鈕 **+16.3 %**、整套 **+32.1 %**。
+3. **Promote**：
+   - **single**：`docker-compose-27b-single.yml`（兩節點 byte-identical）→ AEON drafter
+     ＋ 官方 K9＋lattice＋probabilistic。
+   - **TP2**：`cluster-profiles.d/27b.conf` → `DRAF_REL=qwen3.8-27b-dflash2-aeon` ＋
+     `SPEC_CONFIG`（fixed n=7＋probabilistic）；實測 **Σ 857.6 → 978.3（+14.1 %）**。
+   - 候選 TP2 lane `27b-df2aeon` 已退役（它就是新生產設定）。
+
+**順帶確認的兩件事**：
+
+- **0.33 沒有翻盤**：換上最佳 drafter 後 0.29+tuned 978.3 vs **0.33+tuned 881.5（−9.9 %）**，
+  而且形狀更清楚 —— 0.33 在 **C1–C4 持平或略勝**、**C5–C8 低 13–17 %**，prefill 仍 +12.7 %。
+  所以那不是 drafter/acceptance 的問題，是 0.33 引擎在高併發端的每步成本；`27b` 兩模式維持 09-18。
+- **prefix caching 要維持 OFF**（drafter card：through 0.31 對 hybrid GDN 目標必須
+  `--no-enable-prefix-caching`，vllm#58894／#55601）→ 我們 2026-09-01 的 ADR 被上游文字背書。
+
+**量測紀律**：這條 lane 的 **C1 run-to-run 變異 ±18 %**（單節點 23.6–33.5），且 boot 後第一個
+請求會偏低；判定一律看 Σ（每格 3 reps 中位、兩 boot 均值），單格 C1 不作結論。
+
+
 ### 2026-11-26（續）— AEON 佈局歸位：stack 改名 `aeon-vllm-ultimate` ＋ 權重進共用池
 
 **動機**：0.33 換版把 27b/35b 的 image **按部署模式拆成兩個 tag**（TP2 ＝

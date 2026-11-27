@@ -53,7 +53,7 @@ Node1  spark-8095  192.168.23.216 / 10.0.101.102   rank1 · headless worker
 
 | lane | 引擎／image | 權重 | 契約 | 最新實測 |
 |---|---|---|---|---|
-| `27b` | vLLM · `aeon-vllm-ultimate:2026-09-18-v0.29.0-omni`（**0.33 已測、未升**） | 27B NVFP4-mixed ＋ DFlash2 n=7 | 262144 · 8 | C1 **38.9** → C8 **166.1**（兩 boot 均值 Σ 857.6）· 245k prefill 616 · 冷啟 5m07s · 詳 **§5.1** |
+| `27b` | vLLM · `aeon-vllm-ultimate:2026-09-18-v0.29.0-omni`（**0.33 已測、未升**） | 27B NVFP4-mixed ＋ **AEON DFlash2** n=7 | 262144 · 8 | C1 **40.8** → C8 **183.5**（兩 boot 均值 Σ 978.3）· 245k prefill 618 · 冷啟 5m07s · 詳 **§5.1** |
 | `35b` | vLLM · `aeon-vllm-ultimate:2026-11-23-v0.33.0-omni-dflash2`（2026-11-26 升版） | 35B-A3B NVFP4 ＋ DFlash n=6 | 262144 · 8 | C1 **135.4** → C8 **476.2**（兩 boot 均值 Σ 2558）· 245k prefill 4167 · 冷啟 6m59s · 詳 **§5.1** |
 | `deepseek` | vLLM · `eugr/spark-vllm-b12x:nightly-20261102` | `deepseek-v4-flash-0731-dspark-ablit` | 262144 · 8 · KV fp8 | C1 **45.0** → C8 **122.0**（Σ 686.5 · 2 boots）· 261K prefill 1947.1 · **KV 499,760 tok** · 17m46s · 詳 **§5.2** |
 | `deepseek-nvfp4` | 同上（digest 雙節點 pin） | `DeepSeek-V4-Flash-0731-NVFP4` ＋ DSpark k=5 | 262144 · 8 · KV fp8 | C1 **45.6** → C8 **128.7**（2.82× · 3 boots）· 200K prefill 1984.6 · **KV 439,956 tok** · 24m46s · 詳 **§5.4** |
@@ -238,7 +238,9 @@ compose 檔無法表達。`cluster-down` 會等（≤90 s）容器真的消失�
 
 ### 5.1 `27b` / `35b` — Qwen 27B / 35B-A3B NVFP4（vLLM，DFlash）
 
-**權重** 27B：`qwen3.8-27b-aeon-ultimate-uncensored-nvfp4-mixed` ＋ `qwen3.8-27b-dflash2`（n=7）；
+**權重** 27B：`qwen3.8-27b-aeon-ultimate-uncensored-nvfp4-mixed` ＋ **`qwen3.8-27b-dflash2-aeon`**
+（AEON DFlash2 NVFP4 1.93 GB，n=7、`draft_sample_method=probabilistic`；single 另加
+per-batch lattice）；
 35B：`qwen3.6-35b-a3b-heretic-nvfp4` ＋ `qwen3.6-35b-a3b-dflash`（n=6）
 **Image** 27B `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-09-18-v0.29.0-omni` ·
 35B **`…:2026-11-23-v0.33.0-omni-dflash2`**（TP2）／**`…:2026-11-25-…-ngram-disk`**（single）
@@ -251,10 +253,14 @@ compose 檔無法表達。`cluster-down` 會等（≤90 s）容器真的消失�
 | 27B single（09-18） | 22.7 | 39.7 | 45.8 | 58.5 | 63.8 | 73.3 | 86.9 | 96.4 | 487.1 |
 | 35B single（**11-25**） | 97.6 | 132.9 | 160.0 | 199.0 | 246.5 | 251.5 | 282.6 | 298.2 | 1668.3 |
 
-- **27B 停在 09-18**：0.33 的 decode 退化可重現（叢集 Σ −8.2 %、C1/C7/C8 −11…−16 %），
-  但 prefill **+12~13 %**；單節點同形狀（Σ −4.1 %、C1 −16 %）。已試
-  `VLLM_USE_FLASHINFER_SAMPLER=1` → 無效。完整四臂表與排除過程見
-  `docs/QWEN_27B_35B_AEON_033_UPGRADE_2026-11-26.md`。
+- **27B 停在 09-18**：0.33 的 decode 退化可重現，且**換上最佳 drafter 後仍然成立**
+  （0.29+tuned Σ 978.3 vs 0.33+tuned 881.5 = **−9.9 %**；0.33 在 C1–C4 持平或略勝、
+  C5–C8 低 13–17 %），但 prefill **+12~13 %**。已試 `VLLM_USE_FLASHINFER_SAMPLER=1`
+  → 無效。完整四臂表與排除過程見 `docs/QWEN_27B_35B_AEON_033_UPGRADE_2026-11-26.md`。
+- **27B drafter 升級（2026-11-27，image 與 body 不變）**：z-lab DFlash2 → **AEON DFlash2**
+  ＋ `draft_sample_method=probabilistic`（vLLM 預設是 greedy）。**TP2 Σ 857.6 → 978.3
+  （+14.1 %）**、**single 487.1 → 643.4（+32.1 %）**；acceptance C8 由 24.6 % 升到 29–30 %。
+  只開 probabilistic 一個旋鈕就 +16.3 %（single）。
 - **35B 已升 0.33**（TP2 11-23／single 11-25）：Σ 在噪聲內（−3.1 %／−1.3 %）、**C1 +12 %**、
   prefill +4 %；移除 0.29 的 `flash_attn` patch 後 dflash CUDA graph 8/8 正常。
 - **本 lane 的 boot-to-boot 漂移 ~8 %**：同一個 09-18 設定量到 819.3／825.4／889.8 三個 Σ，

@@ -140,8 +140,13 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   under `~/docker-stacks/logs/<profile>/` (boot + compose/container), not per-stack.
 - **Cluster profiles are data-driven** (verified 2026-09-05) from `cluster-profiles.d/`
   and loaded by `scripts/cluster-common.sh` (`load_profile`/`build_vllm_args`/`build_docker_env`).
-  27b = body `qwen3.8-27b-aeon-ultimate-uncensored-nvfp4` + drafter `qwen3.8-27b-dflash2`
-  (dflash n=7, maxlen 262144, GMU 0.85, num_seqs 8, API :1234); 35b = body
+  27b = body `qwen3.8-27b-aeon-ultimate-uncensored-nvfp4-mixed` + drafter
+  `qwen3.8-27b-dflash2-aeon` (dflash n=7, maxlen 262144, GMU 0.85, num_seqs 8,
+  API :1234). That drafter is the **AEON DFlash2 NVFP4 W4A16 pack (1.93 GB),
+  promoted 2026-11-27 together with `draft_sample_method=probabilistic`** —
+  TP2 keeps the fixed 7 drafts, single-node adds the vendor's per-batch-size
+  lattice; evidence in `docs/QWEN_27B_35B_AEON_033_UPGRADE_2026-11-26.md` §9
+  (+14.1 % TP2, +32.1 % single, same image, same body). 35b = body
   `qwen3.6-35b-a3b-heretic-nvfp4` + drafter `qwen3.6-35b-a3b-dflash` (n=6, maxlen
   262144, GMU 0.80, num_seqs 8). Both on `:1234` through Node0. Do NOT re-hard-code
   profile data in `cluster-*` scripts — the registry is the only authoritative set.

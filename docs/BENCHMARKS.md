@@ -140,10 +140,40 @@ Image `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-09-18-v0.29.0-omni`；
 - **35B 已升版**（叢集 11-23／單節點 11-25）；35B 0.33 的 **KV pool 3,293,548 tok**。
 - `bench-multiturn` 的 300-token 預設對 35B 不成立（09-18 基準自己也只有 2/6）→ gate 統一 2048。
 
+### 2.4 27B drafter 升級（2026-11-27；image 與 body 不變）
+
+z-lab DFlash2 → **AEON DFlash2 NVFP4 W4A16（1.93 GB）**，並打開
+`draft_sample_method=probabilistic`（vLLM 預設是 **greedy**，官方 measured 設定是
+probabilistic）。協議同 §2.1/2.3（`BENCH_IGNORE_EOS=1`、400 tok、預設取樣、3 reps 中位）。
+
+**單節點演化**（node0）：
+
+| 設定 | C1 | C8 | Σ | Δ vs 原 |
+|---|---|---|---|---|
+| z-lab K7 greedy（原生產） | 22.7 | 96.4 | 487.1 | — |
+| z-lab K7 **probabilistic**（只改這一個旋鈕） | 25.2 | 108.3 | **566.5** | **+16.3 %** |
+| **AEON K9 + lattice + probabilistic** | 25.9 | 122.3 | **643.4**（637.5 / 649.3） | **+32.1 %** |
+
+**TP2**（官方對 TP=2 指定 fixed n=7、不用 lattice）：
+
+| 設定 | C1 | C4 | C6 | C8 | Σ | 245K prefill |
+|---|---|---|---|---|---|---|
+| z-lab K7 greedy（原生產，兩 boot 均值） | 38.9 | 105.2 | 128.2 | 166.1 | 857.6 | 616 |
+| **AEON K7 + probabilistic（兩 boot）** | **40.8** | **111.8** | **160.7** | **183.5** | **978.3**（965.1 / 991.5） | 618 |
+
+- 25 % 的 gains 來自 **probabilistic** 一個旋鈕（acceptance C8 21.3 % → 31.0 %），
+  其餘來自 AEON drafter 本身的接受率（→ 34.0 %）與 lattice。
+- TP2 兩個 boot（965.1 / 991.5）與原生產兩個 boot（825.4 / 889.8）**完全不重疊**。
+- **C1 的 run-to-run 變異 ±18 %**（單節點 23.6–33.5）→ 只看 Σ，單格 C1 不作結論；
+  boot 後第一個請求會偏低。
+- **0.33 重測（同 drafter）仍然 −9.9 %**：0.29+tuned 978.3 vs 0.33+tuned 881.5；
+  0.33 在 C1–C4 持平或略勝，**C5–C8 低 13–17 %**，prefill 仍 +12.7 %。
+  → 27B 兩模式維持 09-18，drafter 升級照常生效。
+
+
 ---
 
 ## 3. `deepseek` — DeepSeek-V4-Flash-0731 mainline
-
 ### 3.1 舊配方（官方 fp8 ＋ Anemll `dspark-vllm-gx10:0.1.1`）— **已封存**
 
 `docs/DEEPSEEK_TUNE_AB_2026-10-06.md`（E0–E5 六格完整記錄、Winner table、Verdict）。
