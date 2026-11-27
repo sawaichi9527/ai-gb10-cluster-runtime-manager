@@ -3455,6 +3455,54 @@ node0 `1.9T→1.8T used、53 %→51 %`。
 正解：把 **cache 的父目錄**掛進一次性容器，在容器內 root 執行 `rm -rf /c/<dir>` ——
 這樣連目錄本身都能刪掉，不必 sudo。
 
+#### 2026-11-27 session close — Validation evidence
+
+**範圍**：27B/35B 換代 0.33、27B drafter 升級（AEON DFlash2 ＋ probabilistic）、佈局與權重歸位、
+0.29 世代與 A/B lane 退場、`bench-sweep.sh`、README 首頁校正、`v2.4.0` 發版。
+**Runtime 變更：是**（27b/35b 兩模式都重開過，共 14 次 boot）。
+**環境**：node0 `spark-25d5`（10.0.101.101）／node1 `spark-8095`（10.0.101.102）；
+image `eugr…`／`aeon-vllm-ultimate` 0.33 兩顆（`71c2b82b…`／`4749bd06…`）；Ubuntu 24.04.5、kernel 7.0.0-1019-nvidia。
+
+| # | 檢查 | 命令／方式 | 時間（CST） | 結果 |
+|---|---|---|---|---|
+| 1 | Repo 狀態 | `git status --short --branch`、`git diff --stat` | 10:33 | **clean**，HEAD `52eba96` ＝ `origin/main` |
+| 2 | Shell 語法 | node0：repo 內 bash 檔＋`cluster-profiles.d/*.conf{,.base}`＋`runtimes.d/*.conf`＋`bin/gb10` 逐檔 `bash -n` | 10:33 | **checked=50 failures=0** |
+| 3 | Python 語法 | node0 `python3 -m py_compile scripts/**/*.py patches/**/*.py` | 10:33 | **files=20 rc=0** |
+| 4 | 同步閘門 | node0 `bash scripts/check-git-sync.sh --block` | 10:33 | **rc=0** |
+| 5 | 換行／編碼 | `git ls-files` 的 sh/conf/md/py/bin 掃 CRLF | 10:33 | **1 檔**：`docs/ADR_2026-09-01_prefix_caching_dflash2.md`（blob 內 31 行 CRLF、2026-09-20 `d1d085b` 起即如此，**非本次引入**）→ 已知未修，見下「未驗證」 |
+| 6 | 執行期狀態 | `docker ps`／`curl :1234/health`／`docker images`／`gb10 list`／`gb10-single list node0` | 10:33 | 容器 **0**、`health=000`、image 只有 **0.33 兩顆**（26.1 GB each）、**0.29 已不存在**、TP2 **10 條服務＋1 條 A/B**、single **3 條**、退役 tune lane **0** |
+| 7 | Cache 現況 | `ls -d ~/.cache/vllm-{27b,35b}-*` | 10:33 | 只剩 4 個**生產** tree（27b/35b × cluster/single） |
+| 8 | 發版一致 | 兩 remote 各取 release 清單，逐筆比 `body`（大小寫敏感）與 tag message | 10:30 | **20 vs 20、0 mismatch**、集合相同、`draft/prerelease=false`、`target=main` |
+| 9 | Image gate | 遷移後實 boot `27b`：`verify_profile_image_gate` | 10:05 | **PASS** `71c2b82b…`（兩節點同值） |
+| 10 | Compose 一致 | `scripts/cluster-compose-verify 27b` | 10:05 | **PASS 2/2 rank** |
+
+**Runtime 證據（同一 session，已記錄在各章節）**：
+
+- 27B drafter：single `487.1 → 643.4`（+32.1 %，兩 boot 637.5/649.3）、TP2 `857.6 → 978.3`
+  （+14.1 %，兩 boot 965.1/991.5）；只開 `probabilistic` 一個旋鈕 +16.3 %。
+- 27B 0.33：同 drafter 的 A/B `978.3 → 881.5`（**−9.9 %**，C5–C8 −13…−17 %、prefill +12.8 %），
+  兩組區間不重疊；遷移後 spot `C1 39.3 / C8 157.8`、`KV 3,796,677 tok`。
+- 27B single（11-25）：READY **8m52s**、`C1 27.1 / C8 123.2`、acceptance **39.3 %**。
+- 35B：cluster Σ 2542.2/2573.8（−3.1 %）、single Σ 1668.3（−1.3 %）、prefill +4 %、
+  dflash graph **8/8**；遷移後 restart READY **7m05s**、`C1 140.5 / C8 461.8`。
+- 清理：兩節點回收 **~175 GB**（node0 `1.9T→1.8T used / 53 %→51 %`）。
+
+**Artifacts**：node0 `~/docker-stacks/logs/{27b,35b,27b-tune-prob,27b-tune-df2aeon,27b-aeon033,27b-df2aeon}/bench-sweep-*.txt`
+與 `boot-*.log`；repo `docs/QWEN_27B_35B_AEON_033_UPGRADE_2026-11-26.md`（§8–§12）、
+`docs/BENCHMARKS.md` §2.3/§2.4、`README.md` §5.1/§9。
+
+**未驗證（明確範圍）**：
+
+1. **0.33 單節點 ＋ 新 drafter 沒有完整 C1–C8**，只有 spot（C1/C8）；11-25 的正式全掃是
+   用舊 drafter 做的。
+2. **35B 的 0.33 各自只有 1 boot**（cluster 有 2）；本輪未做它的第二 boot 複驗。
+3. **長時間 soak／多輪 agent chain** 本輪完全沒做（只做 multiturn 6/6）。
+4. **其餘 8 條 lane（deepseek×3、qwen38flash×2、mimo、1017×2）本輪未重測**，也未被本次
+   變更觸及（除共用 `cluster-common.sh` 的 `IMG` fallback 預設值）。
+5. `docs/ADR_2026-09-01_prefix_caching_dflash2.md` 仍是 CRLF（既有），未在本次順手改寫。
+6. `deepseek-nvfp4` 未由本 session 恢復（使用者自行處理）。
+
+
 
 
 ### 2026-11-26（續）— AEON 佈局歸位：stack 改名 `aeon-vllm-ultimate` ＋ 權重進共用池
