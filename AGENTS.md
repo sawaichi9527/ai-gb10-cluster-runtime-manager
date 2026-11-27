@@ -32,16 +32,21 @@ Rules for any agent/maintainer working in this repo (DGX Spark GB10 runtime mana
   `flash_attn_029_patched.py` (a **0.29-only** bind; it must NOT be mounted on 0.33).
   **The weights moved to the shared pool `~/docker-stacks/models/` in the same change** (they
   were `aeon-vllm-omni/models/`; 27b/35b were the last two lanes overriding `MODELS_BASE`).
-  The dir is named after the **image source**, never a generation or a deployment mode —
-  **the two lanes are now on different generations** (2026-11-26): `35b` runs
-  `2026-11-23-v0.33.0-omni-dflash2` for TP2 and `2026-11-25-…-ngram-disk` for single,
-  while `27b` stays on `2026-09-18-v0.29.0-omni` because its 0.33 decode regression is real
-  (Σ −8.2 %, C1/C7/C8 −11…−16 %) even though 0.33 prefill is +12–13 % faster.
-  Evidence + the full four-arm table: `docs/QWEN_27B_35B_AEON_033_UPGRADE_2026-11-26.md`.
-  **Single-node image selection is per-lane**: `AEON_IMAGE` is the default for every
-  single runtime, and `docker-compose-35b-single.yml` reads `${AEON_IMAGE_35B:-${AEON_IMAGE}}`
-  so 35b single can ride a newer tag without dragging 27b single along. When adding another
-  per-lane override, follow the same shape (default-preserving `${VAR:-${AEON_IMAGE}}`) and
+  The dir is named after the **image source**, never a generation or a deployment mode.
+  **Both lanes are on the 0.33 generation since 2026-11-27** — `35b` went first
+  (2026-11-26) and `27b` followed **by operator decision, accepting a measured decode
+  trade-off**: on TP2 the 0.33 engine is Σ −9.9 % (881.5 vs 978.3 with the same drafter,
+  two boots each) with C1–C4 at parity and C5–C8 −13…−17 %, while 245K prefill is
+  +12.8 %. The trade was taken because absolute deltas are small, engine-efficiency work
+  lands in 0.33+ and will not be backported to 0.29, and 0.29 maintenance is heading for
+  a cliff. **Do not "fix" this back to 0.29 by re-reading the benchmark table** — the
+  decision is recorded in `docs/QWEN_27B_35B_AEON_033_UPGRADE_2026-11-26.md` §10.
+  Image split by mode: TP2 = `2026-11-23-v0.33.0-omni-dflash2` (pinned `IMG_SHA256`
+  `71c2b82b…`, same digest on both nodes) and single = `2026-11-25-…-ngram-disk`
+  (`AEON_IMAGE`). **Both single composes read plain `${AEON_IMAGE}`** — the per-lane
+  `AEON_IMAGE_35B` override introduced on 2026-11-26 was collapsed away on 2026-11-27
+  once both lanes resolved to the same tag; reintroduce that shape
+  (`${VAR:-${AEON_IMAGE}}`) only if the lanes ever need different single tags again, and
   keep both nodes' `.env` + compose byte-identical.
   `aeon-vllm-reasoning-eos/` is retired. **The two nodes' `docker-compose-*-single.yml` are
   the deploy contract and must stay byte-identical**: a 2026-11-26 audit found node1's

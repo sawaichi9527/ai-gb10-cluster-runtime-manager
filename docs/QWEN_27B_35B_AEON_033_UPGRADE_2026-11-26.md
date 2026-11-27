@@ -379,6 +379,39 @@ boot 後第一個請求會偏低（本例 20.7），量測前先暖機。
 **最終判定（2026-11-27）**：`27b` 兩種模式都留在 **`2026-09-18-v0.29.0-omni`**，
 並採用 AEON DFlash2 drafter（TP2 +14.1 %、single +32.1 %）。`35b` 兩模式在 0.33。
 
+> **2026-11-27 後續（operator decision）：上面的「留在 0.29」已推翻。** `27b` 已遷入 0.33
+> —— 理由與驗證見 §10。本節保留的是「引擎層 0.33 對 27B 較慢」的量測事實，兩者不衝突。
+
+## 10. 決策記錄：`27b` 遷入 0.33（2026-11-27，operator decision）
+
+**量測事實**（不變）：同 drafter、各兩 boot 的 TP2 A/B 顯示 0.33 = **Σ −9.9 %**
+（881.5 vs 978.3），形狀是 C1–C4 持平或 +4~5 %、**C5–C8 −13~−17 %**；245K prefill **+12.8 %**。
+單節點反而更好（C8 96.4 → 123.2、acceptance 34 % → 39.3 %）。
+
+**決定：仍然遷入 0.33。** 理由（使用者裁定）：
+
+1. 百分比放大了小基數 —— 以絕對 tok/s 看差距不大，且 C1–C4 持平或更好。
+2. 主流配方會往 **0.33+** 收斂，**引擎效率的改進不會回饋到 0.29 分支**。
+3. **0.29 的維護活躍度會斷層式下跌** —— 留在舊分支等於把「未來無法升級」當成風險。
+4. 附帶：qwen3.8-27b 接近 qwen4-27b 的發佈窗口，落後一個引擎世代會複利。
+
+**落地內容**：
+
+| 項目 | 變更 |
+|---|---|
+| `cluster-profiles.d/27b.conf` | `IMAGE` → `2026-11-23-v0.33.0-omni-dflash2`、`IMG_SHA256` pin、`VLLM_USE_V2_MODEL_RUNNER=1` 保留並註明（V1 → 靜默降級 DFlash 1） |
+| 候選 lane | `27b-aeon033` 退役（即新生產設定） |
+| `scripts/cluster-common.sh` | `IMG` fallback → 0.33（已無 lane 使用 0.29） |
+| 節點側 | 兩節點 `AEON_IMAGE` → `2026-11-25-…-ngram-disk`；`AEON_IMAGE_35B` 覆寫收掉（兩條 single 同 tag），35b single compose 回 `${AEON_IMAGE}`；兩節點 byte-identical |
+
+**遷移後驗證**：cluster READY、image gate **PASS**（`71c2b82b…` 兩節點）、compose-verify **PASS**、
+KV **3,796,677 tok**、spot C1 **39.3**／C8 **157.8**；single（11-25）READY **8m52s**、
+C1 **27.1**／C8 **123.2**、acceptance **39.3 %**。
+
+**回滾**：`IMAGE`/`IMG_SHA256` 兩行改回 `2026-09-18-v0.29.0-omni` + `sha256:cc91c515…`，
+單節點 `AEON_IMAGE` 改回 09-18，然後 `gb10 use 27b`。09-18 image 仍在兩節點。
+
+
 
 
 

@@ -3391,6 +3391,45 @@ drafter 卡才發現我們用的是 **vLLM 預設的 greedy draft**，而官方 
 **量測紀律**：這條 lane 的 **C1 run-to-run 變異 ±18 %**（單節點 23.6–33.5），且 boot 後第一個
 請求會偏低；判定一律看 Σ（每格 3 reps 中位、兩 boot 均值），單格 C1 不作結論。
 
+### 2026-11-27（續）— `27b` 遷入 0.33：**operator decision，接受 decode 取捨**
+
+**決定**：即使同 drafter 的 A/B 顯示 TP2 的 0.33 是 **Σ −9.9 %**（881.5 vs 978.3），仍然
+把 `27b` 從 `2026-09-18-v0.29.0-omni` 遷到 **`2026-11-23-v0.33.0-omni-dflash2`**（TP2）／
+`2026-11-25-…-ngram-disk`（single）。
+
+**理由（使用者裁定，非數據推翻）**：
+
+1. **絕對值差距不大**：百分比放大了小基數；C1–C4 更是持平或 +4~5 %，只有 C5–C8 掉 13–17 %。
+2. **上游效率改進只會落在 0.33+**：主流配方會往新版收斂，0.29 分支不會收到引擎層的改善。
+3. **0.29 分支維護將斷層**：留在舊分支等於把風險換成「未來無法升級」。
+4. 附帶：qwen3.8-27b 接近 qwen4-27b 的發佈窗口，落後一個引擎世代會複利。
+
+**改了什麼**：
+
+- `cluster-profiles.d/27b.conf`：`IMAGE` → 0.33、加 `IMG_SHA256`（`71c2b82b…`，
+  兩節點同 digest）、`VLLM_USE_V2_MODEL_RUNNER=1` 保留並加註（V1 會**靜默降級成 DFlash 1**）。
+- 候選 lane `27b-aeon033` 退役（它就是新的生產設定）。
+- `scripts/cluster-common.sh` 的 `IMG` fallback → 0.33（此後沒有 lane 用 0.29）。
+- 節點側：兩節點 `standalone.env` `AEON_IMAGE` → `2026-11-25-…-ngram-disk`；**per-lane
+  `AEON_IMAGE_35B` 覆寫收掉**（兩條 single 現在同 tag），`docker-compose-35b-single.yml`
+  回到 `${AEON_IMAGE}`；兩節點 `.env` 與 compose 仍 byte-identical。
+
+**遷移後實測驗證**：
+
+| 檢查 | 結果 |
+|---|---|
+| cluster boot → READY | **6m10s**（`gb10 use 27b`，09:59 → 10:05 區間） |
+| image gate（兩節點） | **PASS** `71c2b82b…` |
+| compose-verify | **PASS**（2/2 rank） |
+| KV pool | **3,796,677 tok** |
+| spot decode | C1 **39.3**、C8 **157.8**（與量測臂 39.8／151.7 同水位） |
+| single boot（11-25） | **8m52s**，image `…ngram-disk`、drafter `qwen3.8-27b-dflash2-aeon` |
+| single spot | C1 **27.1**、C8 **123.2**、acceptance **39.3 %**（0.29 時 34 %） |
+
+**回滾**：`27b.conf` 的 `IMAGE`/`IMG_SHA256` 兩行改回 `2026-09-18-v0.29.0-omni` +
+`sha256:cc91c515…`，`gb10 use 27b`；09-18 image 仍在兩節點。單節點把 `AEON_IMAGE` 改回 09-18。
+
+
 
 ### 2026-11-26（續）— AEON 佈局歸位：stack 改名 `aeon-vllm-ultimate` ＋ 權重進共用池
 
