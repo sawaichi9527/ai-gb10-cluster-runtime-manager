@@ -25,7 +25,9 @@
 ## 目前狀態（本機 checkout）
 
 - 分支：`main`，HEAD = 本檔所在的 commit（`git log -1`）；最新正式版本 tag = **`v2.4.0`**（2026-11-27，tag 物件 `2b75384` → commit `1070ba7`，兩 remote 各一 Release：Forgejo `id=42`、GitHub `id=460095096`，body 與 tag message 逐字相同；兩邊 release 清單皆 **20 個**、逐筆 `body -ceq` tag message、`draft/prerelease=false`、`target=main`）。往前 `v2.3.0`→`a1f0966`（commit `8fdc662`）、`v2.2.0`→`4d4ccc7`（tag 物件 `5587e62`）、`v2.1.0`→`bf75e07`、`v2.0.0`→`85ae333`、`v1.9.0`→`d7a1d17`、`v1.8.0`→`271b1e9`、`v1.7.0`→`32e79c4`、`v1.6.0`→`84f343c`、`v1.5.0`→`3201363`、`v1.4.1`→`cc76cbd`、`v1.4.0`→`6aff00d`、`v1.3.4`→`a92d2bc`、`v1.3.0`→`2474cf8`、`v1.3.1`→`276348c`、`v1.3.2`→`168cb99`、`v1.3.3`→`9bb2006`）。**2026-11-27 事故與修復**：發 `v2.3.0` 時一段 PowerShell 批次把**兩邊 19 個 Release 全刪**（原因見下），已用 annotated tag message 當唯一來源**全部重建**；`v2.4.0` 起改用只新增、先展平＋檢查筆數的腳本。**破壞性批次前必須先展平 IRM 回傳並印出候選清單與筆數**（`Invoke-RestMethod` 會把 JSON 陣列包成單一物件，`Where-Object` 因此把整個陣列判為命中）。早期：2026-09-20 session 共 22 個 commit `a1cba34`…`79a79cb`，其後為本檔的 sync commit。
-- **cluster profile 現況（2026-10-22 校正）**：`cluster-profiles.d/` 有 **10 條服務 lane**（`27b`/`35b`/`deepseek`/`deepseek-vision`/`deepseek-nvfp4`/`qwen38flash`/`qwen38flash-tensorfold`/`mimo26flash` ＋ 兩條 1017：`dsv41flash-exl3-vllm`/`dsv41flash-tensorfold`，**兩組皆為對等 lane、無主/備**）＋ 1 條 A/B 專用（`deepseek-nvfp4-tune`）；`deepseek-nvfp4` 於 **2026-10-08** Phase 3 完成上線。**2026-10-09 兩次配方繼承（promote）**：`deepseek`（mainline）與 `deepseek-vision` 皆改為 `eugr/spark-vllm-b12x:latest` ＋ dspark-ablit 系 checkpoint（舊 Anemll 配方 byte-identical 封存於 `_overdue_recipe/`，僅為備份）。`mimo26flash` 自 10-03 上線做 NVFP4 A/B ＋ cliff 探測後**定案 MXFP4**、待命（見 `docs/…2026-10-03.md` §11）。**現役＝`qwen38flash-tensorfold`**（2026-10-22 00:18 READY）。body/image 詳見下方「Profile 現況」表。
+- **cluster profile 現況（2026-10-22 校正）**：`cluster-profiles.d/` 有 **10 條服務 lane**（`27b`/`35b`/`deepseek`/`deepseek-vision`/`deepseek-nvfp4`/`qwen38flash`/`qwen38flash-tensorfold`/`mimo26flash` ＋ 兩條 1017：`dsv41flash-exl3-vllm`/`dsv41flash-tensorfold`，**兩組皆為對等 lane、無主/備**）＋ 1 條 A/B 專用（`deepseek-nvfp4-tune`）；`deepseek-nvfp4` 於 **2026-10-08** Phase 3 完成上線。**2026-10-09 兩次配方繼承（promote）**：`deepseek`（mainline）與 `deepseek-vision` 皆改為 `eugr/spark-vllm-b12x:latest` ＋ dspark-ablit 系 checkpoint（舊 Anemll 配方 byte-identical 封存於 `_overdue_recipe/`，僅為備份）。`mimo26flash` 自 10-03 上線做 NVFP4 A/B ＋ cliff 探測後**定案 MXFP4**、待命（見 `docs/…2026-10-03.md` §11）。
+  **2026-11-28 收工時無 lane 在線**（`gb10 stop` ＋ 兩條 single 已停；上一條在線是
+  `deepseek-nvfp4`，依使用者裁示未恢復）。body/image 詳見下方「Profile 現況」表。
 - 同步狀態：**本機＝Forgejo（origin，`829522`）＝GitHub（`sawaichi9527`）**，本次文件校正即為最新 commit。**node0 live lane 依使用者裁定不校正**：2026-10-15 09:22 快照實際為 `aeon-vllm-27b`（`comfyui-jdaln` 調試態）；使用者已裁定此為**刻意進行中**的 `gb10-single` 部署／調試狀態，TP2 `deepseek`／`deepseek-nvfp4` 為**後續目標態**（詳見 2026-10-15 章節）。
 - `handoff.md` 已納版控（`37bee4c` 起；本次更新亦將 commit）
 - `.gitignore` 已覆蓋 `config/cluster.env`、`state/last-runtime`、logs、`*.bak-*`
@@ -3494,14 +3496,73 @@ image `eugr…`／`aeon-vllm-ultimate` 0.33 兩顆（`71c2b82b…`／`4749bd06�
 **未驗證（明確範圍）**：
 
 1. **0.33 單節點 ＋ 新 drafter 沒有完整 C1–C8**，只有 spot（C1/C8）；11-25 的正式全掃是
-   用舊 drafter 做的。
+   用舊 drafter 做的。→ **已補（2026-11-28）**，見下節。
 2. **35B 的 0.33 各自只有 1 boot**（cluster 有 2）；本輪未做它的第二 boot 複驗。
+   → **已補（2026-11-28）**：第二 boot Σ 1719.7，兩 boots 均值 **1694.0**（parity +0.2 %）。
 3. **長時間 soak／多輪 agent chain** 本輪完全沒做（只做 multiturn 6/6）。
 4. **其餘 8 條 lane（deepseek×3、qwen38flash×2、mimo、1017×2）本輪未重測**，也未被本次
    變更觸及（除共用 `cluster-common.sh` 的 `IMG` fallback 預設值）。
 5. `docs/ADR_2026-09-01_prefix_caching_dflash2.md` 的 stray CRLF **已修**（`5542e72`，
    內容逐字相同），修正後全 repo 文字檔重掃 **0 檔 CRLF**。
 6. `deepseek-nvfp4` 未由本 session 恢復（使用者自行處理）。
+
+### 2026-11-28 — 0.33 單節點補測：27B 全掃 ＋ 35B 第二 boot（缺口關閉）
+
+**背景**：上一節「未驗證」#1／#2 —— 27B single 只有 spot、35B single 只有 1 boot。
+
+**前置**：node0 當時在線的是 `deepseek-nvfp4`（Up 18 h、`:1234` 200）。使用者裁示
+**「拆掉、量完不恢復」** → `gb10 stop`（兩節點容器 0、health 000）。
+
+**量測**：`bash scripts/bench-sweep.sh`，`BENCH_IGNORE_EOS=1`、400 tok、預設取樣、
+每格 3 reps 中位、`PREFILL_RUNS=1`（245K words）；每次掃描前 3 個暖機請求。
+image 皆 `2026-11-25-v0.33.0-omni-dflash2-ngram-disk`。
+
+| 27B single（0.33，AEON tuned、1 boot） | C1 | C2 | C3 | C4 | C5 | C6 | C7 | C8 | Σ | 245K |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 本輪 | 28.4 | 38.4 | 60.6 | 74.1 | 80.1 | 84.7 | 104.7 | 112.4 | **583.4** | 393.5 |
+| 同 drafter 的 0.29（G2 兩 boot 均值） | 25.9 | 46.7 | 65.2 | 74.6 | 91.4 | 103.6 | 113.8 | 122.3 | 643.4 | — |
+| Δ | +9.7 % | −17.8 % | −7.1 % | −0.7 % | −12.4 % | −18.2 % | −8.0 % | −8.1 % | **−9.3 %** | — |
+
+| 35B single | C1 | C2 | C3 | C4 | C5 | C6 | C7 | C8 | Σ | 245K |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 09-18 基準 | 87.0 | 144.9 | 173.5 | 200.1 | 235.5 | 260.2 | 266.4 | 323.0 | 1690.6 | 2584.4 |
+| 11-25 boot1（11-26） | 97.6 | 132.9 | 160.0 | 199.0 | 246.5 | 251.5 | 282.6 | 298.2 | 1668.3 | 2708.2 |
+| **11-25 boot2（本輪）** | 79.5 | 131.4 | 183.1 | 204.0 | 245.7 | 267.4 | 305.5 | 303.1 | **1719.7** | 2774.6 |
+| **兩 boots 均值** | 88.6 | 132.2 | 171.6 | 201.5 | 246.1 | 259.5 | 294.1 | 300.7 | **1694.0** | 2741.4 |
+| Δ 均值 vs 09-18 | +1.8 % | −8.8 % | −1.1 % | +0.7 % | +4.5 % | −0.3 % | +10.4 % | −6.9 % | **+0.2 %** | **+6.1 %** |
+
+**結論**：
+
+- **27B single 與 TP2 同形狀**（−9.3 % vs −9.9 %）。先前寫的「單節點反而變好
+  （C8 96.4 → 123.2）」是 **0.29＋舊 drafter vs 0.33＋新 drafter** 的跨代比較；同 drafter
+  下 single 一樣是 −9.3 %。**drafter 升級本身在 0.33 上仍有效**：467.1 → 583.4 = **+24.9 %**
+  （0.29 上同期 +32.1 %）。§13／README／BENCHMARKS 已同步更正此句。
+- **35B single 由「−1.3 %」修正為 parity**：兩 boots 均值 **1694.0 vs 1690.6 = +0.2 %**；
+  Σ 的 boot 離散 3.1 %（1668.3／1719.7），但 **C1 18.5 %**（97.6／79.5）→ 再次印證
+  「只看 Σ」。
+- READY：27b **6m55s**、35b **6m51s**（既有 cache）；兩份 boot log `ERROR` 0、
+  `bench-sweep` 每格 `any_errors=0`。
+
+**同輪修掉兩個既有落差**：
+
+1. **35B single 原本開不起來**：兩節點 `docker-compose-35b-single.yml`（md5 `0f4a9c7f…`）
+   仍 bind 2026-11-27 已歸檔的 0.29 專用 `aeon-vllm-ultimate/flash_attn_029_patched.py`，
+   而該檔在兩節點都不存在 → docker 會建**目錄**覆蓋容器內 `flash_attn.py`。兩端同步移除
+   該 bind＋註解（備份 `*.bak-20261128-flashattn`），md5 → **`b255c216…`**（兩端相同）、
+   `compose --env-file … config --quiet` 兩端 OK；27b single compose 兩端仍 `9df31673…`。
+   **0.33 容器內已無該路徑**（`ls` 確認），此 mount 只在 0.29 有意義。
+2. **`scripts/bench-sweep.sh`／`bench-ab.sh` 版控 mode 是 `100644`** → 直接執行被拒
+   （`拒絕不符權限的操作`），只能 `bash scripts/…`；已改 `100755`。
+
+**未擷取**：**KV pool**（容器先移除，engine log 隨之消失；`boot-single-node0.log` 只有
+launcher 輪詢）→ §5 的「KV 掉 >5 % 註記」本輪無法判定。下次量測**停止前**先抓
+`docker logs`／`/metrics`。
+
+**收工狀態**：兩節點容器 **0**、`:1234` `health=000`、`27b`／`35b`／`comfyui-jdaln` inactive；
+**`deepseek-nvfp4` 未恢復**（使用者裁示）。工件：node0
+`~/docker-stacks/logs/27b/bench-sweep-S1-27b-033-tuned-20261128-075204.txt`、
+`~/docker-stacks/logs/35b/bench-sweep-S1-35b-033-boot2-20261128-081930.txt`。
+完整記錄：`docs/QWEN_27B_35B_AEON_033_UPGRADE_2026-11-26.md` §13、`docs/BENCHMARKS.md` §2.5。
 
 
 

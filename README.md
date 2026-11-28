@@ -53,8 +53,8 @@ Node1  spark-8095  192.168.23.216 / 10.0.101.102   rank1 · headless worker
 
 | lane | 引擎／image | 權重 | 契約 | 最新實測 |
 |---|---|---|---|---|
-| `27b` | vLLM · `aeon-vllm-ultimate:2026-11-23-v0.33.0-omni-dflash2`（2026-11-27 遷入，**接受 decode 取捨**） | 27B NVFP4-mixed ＋ **AEON DFlash2** n=7 | 262144 · 8 | C1 **39.8** → C8 **151.7**（兩 boot 均值 Σ 881.5）· 245k prefill **697** · 詳 **§5.1** |
-| `35b` | vLLM · `aeon-vllm-ultimate:2026-11-23-v0.33.0-omni-dflash2`（2026-11-26 升版） | 35B-A3B NVFP4 ＋ DFlash n=6 | 262144 · 8 | C1 **135.4** → C8 **476.2**（兩 boot 均值 Σ 2558）· 245k prefill 4167 · 冷啟 6m59s · 詳 **§5.1** |
+| `27b` | vLLM · `aeon-vllm-ultimate:2026-11-23-v0.33.0-omni-dflash2`（2026-11-27 遷入，**接受 decode 取捨**） | 27B NVFP4-mixed ＋ **AEON DFlash2** n=7 | 262144 · 8 | C1 **39.8** → C8 **151.7**（兩 boot 均值 Σ 881.5）· 245k prefill **697** · single Σ **583.4** · 詳 **§5.1** |
+| `35b` | vLLM · `aeon-vllm-ultimate:2026-11-23-v0.33.0-omni-dflash2`（2026-11-26 升版） | 35B-A3B NVFP4 ＋ DFlash n=6 | 262144 · 8 | C1 **135.4** → C8 **476.2**（兩 boot 均值 Σ 2558）· 245k prefill 4167 · single Σ **1694.0**（兩 boots）· 冷啟 6m59s · 詳 **§5.1** |
 | `deepseek` | vLLM · `eugr/spark-vllm-b12x:nightly-20261102` | `deepseek-v4-flash-0731-dspark-ablit` | 262144 · 8 · KV fp8 | C1 **45.0** → C8 **122.0**（Σ 686.5 · 2 boots）· 261K prefill 1947.1 · **KV 499,760 tok** · 17m46s · 詳 **§5.2** |
 | `deepseek-nvfp4` | 同上（digest 雙節點 pin） | `DeepSeek-V4-Flash-0731-NVFP4` ＋ DSpark k=5 | 262144 · 8 · KV fp8 | C1 **45.6** → C8 **128.7**（2.82× · 3 boots）· 200K prefill 1984.6 · **KV 439,956 tok** · 24m46s · 詳 **§5.4** |
 | `deepseek-vision` | 同上 | `…vision-exp-ablit`（原生 vision）＋ DSpark k=6 | 262144 · 8 · KV fp8 | C1 **33.2** → C8 **92.0**（Σ 536.1 · 3 boots）· 261K prefill 1823.7 · **KV 487,718 tok** · 詳 **§5.3** |
@@ -250,29 +250,35 @@ compose 檔無法表達。`cluster-down` 會等（≤90 s）容器真的消失�
 | 27B cluster（0.29，AEON drafter，兩 boots 均值） | 40.8 | 72.0 | 94.1 | 111.8 | 140.9 | 160.7 | 174.7 | 183.5 | 978.3 |
 | 27B cluster（**0.33**，同 drafter，兩 boots 均值） | 39.8 | 69.6 | 98.1 | 117.2 | 119.4 | 134.2 | 151.8 | 151.7 | **881.5** |
 | 35B cluster（**0.33**，兩 boots 均值） | 135.4 | 199.8 | 264.4 | 310.8 | 349.7 | 405.2 | 428.2 | **476.2** | 2558.0 |
-| 27B single（0.29 → **0.33**） | 22.7 → 27.1 | 39.7 | 45.8 | 58.5 | 63.8 | 73.3 | 86.9 | 96.4 → 123.2 | — |
-| 35B single（**11-25**） | 97.6 | 132.9 | 160.0 | 199.0 | 246.5 | 251.5 | 282.6 | 298.2 | 1668.3 |
+| 27B single（0.29，AEON drafter，兩 boots 均值） | 25.9 | 46.7 | 65.2 | 74.6 | 91.4 | 103.6 | 113.8 | 122.3 | 643.4 |
+| 27B single（**0.33**，同 drafter，1 boot） | 28.4 | 38.4 | 60.6 | 74.1 | 80.1 | 84.7 | 104.7 | 112.4 | **583.4** |
+| 35B single（**11-25**，兩 boots 均值） | 88.6 | 132.2 | 171.6 | 201.5 | 246.1 | 259.5 | 294.1 | 300.7 | **1694.0** |
 
 - **27B 已遷入 0.33（2026-11-27，operator decision）**：TP2 Σ **−9.9 %**（881.5 vs 978.3，
   同 drafter、各兩 boot），形狀是 **C1–C4 持平或 +4~5 %、C5–C8 −13~−17 %**，而 245K prefill
-  **+12.8 %**；單節點反而變好（C8 **96.4 → 123.2**、acceptance 34 % → **39.3 %**）。取捨理由：
-  絕對值差距不大、引擎效率的改進只會落在 0.33+、0.29 分支維護將斷層 ——
-  完整記錄 `docs/QWEN_27B_35B_AEON_033_UPGRADE_2026-11-26.md` §10。
+  **+12.8 %**。**單節點同 drafter 也是 −9.3 %**（583.4 vs 643.4，C1 +9.7 %）；早期寫的
+  「單節點反而變好（C8 96.4 → 123.2）」是 0.29＋舊 drafter 對 0.33＋新 drafter 的跨代比較。
+  取捨理由：絕對值差距不大、引擎效率的改進只會落在 0.33+、0.29 分支維護將斷層 ——
+  完整記錄 `docs/QWEN_27B_35B_AEON_033_UPGRADE_2026-11-26.md` §10／§13。
 - **27B drafter 升級（與 image 無關）**：z-lab DFlash2 → **AEON DFlash2** ＋
   `draft_sample_method=probabilistic`（vLLM 預設 greedy）。**TP2 Σ 857.6 → 978.3（+14.1 %）**、
   **single 487.1 → 643.4（+32.1 %）**；單開 probabilistic 一個旋鈕就 +16.3 %（single）。詳 §2.4。
-- **35B 已升 0.33**（TP2 11-23／single 11-25）：Σ 在噪聲內（−3.1 %／−1.3 %）、**C1 +12 %**、
-  prefill +4 %；移除 0.29 的 `flash_attn` patch 後 dflash CUDA graph 8/8 正常。
+- **35B 已升 0.33**（TP2 11-23／single 11-25）：TP2 Σ 在噪聲內（−3.1 %）、single 兩 boots
+  **parity（+0.2 %：1694.0 vs 1690.6）**、**C1 +12 %**、prefill +4~6 %；移除 0.29 的
+  `flash_attn` patch 後 dflash CUDA graph 8/8 正常。
 - **本 lane 的 boot-to-boot 漂移 ~8 %**：同一個 09-18 設定量到 819.3／825.4／889.8 三個 Σ，
-  小於此的差異不算結果。
-- cluster／single 比值（C8）：27B **1.23×**（0.29 時代 1.72×）、35B **1.60×**。
-- 245k prefill：27B cluster **618（0.29）→ 697（0.33）**／single 346（0.29 實測）；
-  35B cluster 4167／single 2708。
+  小於此的差異不算結果。35B single 的兩次 0.33 boot 是 1668.3／1719.7（Σ 差 3.1 %，但
+  C1 差 18.5 %）—— **只看 Σ，單格 C1 不作結論**。
+- cluster／single 比值（C8）：27B **1.35×**（0.33／0.33 同 drafter：151.7 vs 112.4；
+  0.29 時代 1.50×）、35B **1.58×**（476.2 vs 300.7）。
+- 245k prefill：27B cluster **618（0.29）→ 697（0.33）**／single **393.5（0.33）**（0.29 實測 346）；
+  35B cluster 4167／single 2741（兩 boots 均值）。
   2026-09-19 舊記錄（`MAX_TOKENS=2048`、非定長）保留在 `docs/BENCHMARKS.md` §2.2（不可互比）。
 - **27B prefix caching 刻意 OFF**（理由與復活條件：`docs/ADR_2026-09-01_prefix_caching_dflash2.md`）；
   35B 已開啟。**此規則不適用其他模型家族。**
 - 冷啟（2026-11-26）：27b cluster **5m07s**／single **5m08s**、35b cluster **6m59s**（0.33）／
-  single **6m15s**（11-25）。27B 可達 ~40 min → `27b.conf` 覆寫 `HEALTH_TIMEOUT=3600`
+  single **6m15s**（11-25）。2026-11-28 補測（既有 cache）：27b single **6m55s**、
+  35b single **6m51s**。27B 可達 ~40 min → `27b.conf` 覆寫 `HEALTH_TIMEOUT=3600`
   （`docs/ISSUE_27B_BROKEN_2026-09-18_IMAGE_2026-09-19.md`）。
 
 ### 5.2 `deepseek` — DeepSeek-V4-Flash-0731 mainline（fp8 DSpark）
@@ -502,6 +508,7 @@ compose 檔與 `patches/` staging 都放在該目錄內。`anemll-dspark-vllm-gx
 
 | 版本 | 日期 | 重點 |
 |---|---|---|
+| —（未發版） | 2026-11-28 | **0.33 單節點補測收束**：27B single 首次完整 C1–C8（Σ **583.4**；同 drafter 對 0.29 = **−9.3 %**，同時修正「單節點反而變好」的跨代誤讀）、35B single 第二次 boot（兩 boots **parity +0.2 %**，1694.0 vs 1690.6）；**修掉 35B single 開不起來的過期 0.29 `flash_attn` bind**（兩節點 compose `0f4a9c7f…` → `b255c216…`、`compose config` 兩端 OK）；bench harness mode `0644` → `0755` |
 | **v2.4.0** | 2026-11-27 | **27B 也遷入 aeon 0.33**（operator decision，接受 TP2 Σ −9.9 % 的 decode 取捨換引擎世代與 prefill +12.8 %）；**27B drafter 升級 z-lab → AEON DFlash2 ＋ `draft_sample_method=probabilistic`**（TP2 Σ 857.6→978.3 = **+14.1 %**、single 487.1→643.4 = **+32.1 %**；單開 probabilistic 就 +16.3 %）；單節點 image 收斂回單一 `AEON_IMAGE`；**0.29 世代與所有 A/B lane 退場**（image＋cache＋compose＋repo conf，兩節點回收 **~175 GB**，回滾改為需重新 pull）；記錄廠商 TP=2 席位（1M/YaRN/16 seqs/0.70）**刻意不採用** |
 | **v2.3.0** | 2026-11-27 | **35B 升 aeon 0.33**（TP2 `2026-11-23`／single `2026-11-25`，per-lane `AEON_IMAGE_35B`）、**27B 維持 09-18**（0.33 decode Σ −8.2 %、C1 −16 %，prefill +12 %）；同 session 四臂 A/B（35B Σ −3.1 %／−1.3 %、C1 +12 %）；**stack 目錄改名 `aeon-vllm-ultimate`、權重移入共用池**、補 `SHA256SUMS`（`verify-models` 變成真 gate）、修掉 node1 的 27b single 三個已封存 patch bind；新增 `scripts/bench-sweep.sh`；量到本 lane **A/A 漂移 ~8 %** |
 | **v2.2.0** | 2026-11-05 | 三條 DeepSeek lane（＋A/B tune lane）image 由 `nightly-20261006` 升到 **`nightly-20261102`**；`IMAGE` 改不可變 dated tag、雙節點 digest 重 pin；跨越 eugr「B12X 併入 FlashInfer」分界（kernel 來源改 FlashInfer `9873d7a3…`）；`deepseek-nvfp4` 的 draft-MXFP4 hotfix re-pin；**C1–C8 ×3 以 2–3 boots 複驗**（Σ 686.5／536.1／729.5，皆在 ±1 % 內）、prefix-hit 40.0×／44.1×／48.4× 逐字一致、garble 3/3、262K、影像全過；**KV 容量 +17.8~27.8 %**（GMU 未動）；舊世代設定封存 `_overdue_recipe/…nightly-20261006_20261105/`、舊 image 與三個退役 checkpoint 刪除（兩節點合計回收 ~1 TB） |
