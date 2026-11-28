@@ -3570,6 +3570,45 @@ image 皆 `2026-11-25-v0.33.0-omni-dflash2-ngram-disk`。
 `~/docker-stacks/logs/35b/bench-sweep-S1-35b-033-boot2-20261128-081930.txt`。
 完整記錄：`docs/QWEN_27B_35B_AEON_033_UPGRADE_2026-11-26.md` §13、`docs/BENCHMARKS.md` §2.5。
 
+#### 2026-11-28 session close — Validation evidence
+
+**範圍**：0.33 單節點補測（27B 全掃、35B 第二 boot）＋ node1 35B single 複驗 ＋ 35b single
+compose 修正（兩節點）＋ bench harness mode ＋ `v2.5.0` 發版。
+**Runtime 變更：是**（3 次實 boot：27b single node0、35b single node0、35b single node1；
+另 `gb10 stop` 拆掉在線 18 h 的 `deepseek-nvfp4`）。
+**環境**：node0 `spark-25d5`（10.0.101.101）／node1 `spark-8095`（10.0.101.102）；
+Ubuntu 24.04、kernel `7.0.0-1019-nvidia`；image `2026-11-25-v0.33.0-omni-dflash2-ngram-disk`
+（vLLM `0.33.0+aeon.sm121a`）；repo HEAD `a6e94c8`（tag `v2.5.0` → `2f982b4`）。
+
+| # | 檢查 | 命令／方式 | 時間（CST） | 結果 |
+|---|---|---|---|---|
+| 1 | Repo 狀態 | `git status --short --branch`、`git diff --stat` | 17:4x | **clean**，HEAD `a6e94c8` ＝ `origin/main` ＝ `github/main` |
+| 2 | Shell 語法 | node0：repo 內 `scripts/*.sh`／`bin/*`／`cluster-profiles.d/*.conf`／`runtimes.d/*.conf` 逐檔 `bash -n` | 17:5x | **checked=29 failures=0** |
+| 3 | Python 語法 | node0 `python3 -m py_compile scripts/*.py` | 17:5x | **6 files, rc=0** |
+| 4 | 同步閘門 | node0 `bash scripts/check-git-sync.sh --block` | 17:5x | **rc=0** |
+| 5 | 換行／編碼 | 本機 `git ls-files` 的 sh/conf/md/py/yml/bin 掃 CRLF | 17:5x | **scanned=156 crlf_files=0** |
+| 6 | 執行期狀態 | 兩節點 `docker ps -a`、`curl :1234/health` | 17:5x | 容器 **0**、health **000**（兩節點）；node0 aeon image **2** 顆（0.33 對） |
+| 7 | 27B single boot | `gb10-single use node0 27b` ＋ `wait` | 07:44:34→07:51:26 | **READY 6m55s**、health 200、image／spec 與生產設定相同 |
+| 8 | 27B single 全掃 | `REPS=3 PREFILL_RUNS=1 bash scripts/bench-sweep.sh 27b S1-27b-033-tuned` | 07:52–08:11 | **Σ 583.4**、每格 `any_errors=0`、245K prefill 393.5 |
+| 9 | 35B single boot（node0） | `gb10-single use node0 35b` ＋ `wait` | 08:12:13→08:19:04 | **READY 6m51s**、health 200 |
+| 10 | 35B single 全掃 | `… bench-sweep.sh 35b S1-35b-033-boot2` | 08:19–08:2x | **Σ 1719.7**、`any_errors=0`、prefill 2774.6 |
+| 11 | 35B single 複驗（node1） | `gb10-single use node1 35b` → 健康探測 ＋ 2 次推論 ＋ `docker logs` | 12:58:35→13:05:27 | **READY 6m52s**、health 200、`17*19`→**323**、`NODE1-35B-OK`、**KV 1,426,500 tok**、container／launcher `ERROR` **0** |
+| 12 | Compose 修正 | 兩節點 `sed` 移除過期 bind ＋ `docker compose --env-file … config --quiet` ＋ `md5sum` | 08:12 | 35b single **`b255c216…`**（兩端相同）、27b single `9df31673…`（兩端相同）、config 兩端 **OK** |
+| 13 | 發版一致 | 兩 remote 各取 release 清單，逐筆比 `body`（大小寫敏感）與 tag message | 17:3x | **21 vs 21、0 mismatch**、`draft/prerelease=false`、`target=main`；Forgejo `id=45`／GitHub `id=461342963` |
+| 14 | bench harness mode | `git ls-files -s scripts/bench-{sweep,ab}.sh`、node0 `ls -l` | 09:0x | 版控 **100755**、node0 `-rwxrwxr-x`，直接執行可用 |
+
+**Runtime 證據**：27B single 0.33＋tuned **Σ 583.4**（同 drafter 的 0.29 643.4 = −9.3 %）；
+35B single 兩 boots **1694.0** vs 09-18 1690.6 = **+0.2 %**；詳見 §13.1／§13.2／§13.5。
+
+**未驗證（明確範圍）**：
+
+1. **KV pool 僅 node1 有值**（1,426,500 tok）；node0 兩個量測 boot 的 engine log 隨容器移除，
+   §5 的 KV 5 % 門檻未判定。
+2. 本輪**未做**長時間 soak／多輪 agent chain／garble soak（只做量測與兩次推論驗證）。
+3. **其餘 8 條 lane 未重測**（deepseek×3、qwen38flash×2、mimo、1017×2），本次變更也未觸及
+   它們的 profile／compose。
+4. **`deepseek-nvfp4` 未恢復**（使用者裁示），下次使用需 `gb10 use deepseek-nvfp4`。
+
 
 
 
