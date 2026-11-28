@@ -3554,9 +3554,15 @@ image 皆 `2026-11-25-v0.33.0-omni-dflash2-ngram-disk`。
 2. **`scripts/bench-sweep.sh`／`bench-ab.sh` 版控 mode 是 `100644`** → 直接執行被拒
    （`拒絕不符權限的操作`），只能 `bash scripts/…`；已改 `100755`。
 
-**未擷取**：**KV pool**（容器先移除，engine log 隨之消失；`boot-single-node0.log` 只有
-launcher 輪詢）→ §5 的「KV 掉 >5 % 註記」本輪無法判定。下次量測**停止前**先抓
-`docker logs`／`/metrics`。
+**未擷取**：**KV pool**（node0 兩個量測 boot 在容器移除後才想到，engine log 隨之消失；
+`boot-single-node0.log` 只有 launcher 輪詢）→ §5 的「KV 掉 >5 % 註記」本輪無法判定。
+下次量測**停止前**先抓 `docker logs`／`/metrics`。
+
+**node1 複驗**（同日 12:58→13:05）：同一份 compose 在 node1 實 boot —— READY **6m52s**、
+`:1234/health` 200、`17*19` → **323**、指定字串回 `NODE1-35B-OK`、container／launcher log
+`ERROR` 皆 0、容器內 `flash_attn.py` 確認不存在、**KV 1,426,500 tok**（68.89 GiB、5.44×）。
+驗證後已 `gb10-single stop node1 35b`。注意 27b/35b 的 thinking 是 model 預設，
+`max_tokens=64` 會被 reasoning 吃光（`content=null`）—— 給 1024 即正常，不是故障。
 
 **收工狀態**：兩節點容器 **0**、`:1234` `health=000`、`27b`／`35b`／`comfyui-jdaln` inactive；
 **`deepseek-nvfp4` 未恢復**（使用者裁示）。工件：node0

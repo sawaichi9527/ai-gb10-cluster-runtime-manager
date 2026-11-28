@@ -547,9 +547,31 @@ READY **6m51s**（08:12:13 → 08:19:04）。image 與 argv 與 11-26 首臂相�
 
 ### 13.4 未擷取／未驗證
 
-- **KV pool 這輪沒抓到**：兩個 boot 的 engine log 隨容器移除而消失（`boot-single-node0.log`
-  只有 launcher 輪詢），因此無法對 §5 的「KV 掉 >5 % 註記」做客觀判定。下次量測**停止前**
-  先 `docker logs <ctr> | tail`／抓 `/metrics`，或在 boot 期間讀 `GPU KV cache size`。
+- **KV pool（node0 量測的兩個 boot）沒抓到**：engine log 隨容器移除而消失
+  （`boot-single-node0.log` 只有 launcher 輪詢），因此無法對 §5 的「KV 掉 >5 % 註記」
+  做客觀判定。下次量測**停止前**先 `docker logs <ctr>`／抓 `/metrics`。
+  （node1 的複驗 boot 有抓到，見 §13.5：**1,426,500 tok**。）
 - 兩份 boot log 的 `ERROR` 行數皆 **0**；`bench-sweep` 每格 `any_errors=0`。
 - 收工：`gb10-single stop node0 35b` → 兩節點容器 0、`:1234` `health=000`、
   `27b`/`35b`/`comfyui-jdaln` 皆 inactive；**`deepseek-nvfp4` 未恢復**（使用者裁示）。
+
+### 13.5 node1 的 35B single 複驗（2026-11-28 13:00 前後）
+
+§13.3 的 compose 修正只在 node0 實 boot 過；為確認 **node1 也能正常運行**（兩節點 compose
+md5 相同 `b255c216…`），另外在 node1 以 `gb10-single use node1 35b` 實開一次：
+
+| 檢查 | 結果 |
+|---|---|
+| READY | **6m52s**（12:58:35 → 13:05:27） |
+| image | `2026-11-25-v0.33.0-omni-dflash2-ngram-disk` |
+| `:1234/health`（node1 loopback） | **200** |
+| 容器內 `flash_attn.py` | **不存在** → 證明 bind 真的移除，沒有被 Docker 建成目錄 |
+| 推論 | `17*19` → **323**；指定字串回 `NODE1-35B-OK`（`finish_reason=stop`） |
+| container log `ERROR` | **0**（launcher `boot-single-node1.log` 也是 0） |
+| KV pool | **1,426,500 tok**（`Available KV cache memory: 68.89 GiB`、262144 下 5.44× 併發） |
+
+- 注意：27b/35b 的 thinking 是 **model 預設**，`max_tokens=64` 會整個被 reasoning 吃掉
+  （`finish_reason=length`、`content=null`，usage 顯示 64 reasoning tokens）；給
+  `max_tokens=1024` 即正常。這與 1017 lane 的 `chat_template_kwargs.thinking` 開關不是
+  同一個旋鈕，別拿來當「模型壞了」的證據。
+- 驗證後已 `gb10-single stop node1 35b`：兩節點容器 **0**、`:1234` `health=000`。

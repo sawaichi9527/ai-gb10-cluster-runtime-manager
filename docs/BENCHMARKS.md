@@ -202,9 +202,10 @@ probabilistic）。協議同 §2.1/2.3（`BENCH_IGNORE_EOS=1`、400 tok、預設
 - 27B single 與 TP2 同形狀（Σ −9.3 % vs −9.9 %）；drafter 升級本身在 0.33 上仍有
   **+24.9 %**（467.1 → 583.4）。
 - READY：27B **6m55s**、35B **6m51s**；兩份 boot log `ERROR` = 0、每格 `any_errors=0`。
-- **KV pool 未擷取**（容器先移除才想到），因此沒有 KV 5 % 門檻的判定。完整記錄與同輪修掉的
-  兩個落差（35b single 的過期 0.29 patch bind、bench harness mode 0644）見
-  `docs/QWEN_27B_35B_AEON_033_UPGRADE_2026-11-26.md` §13。
+- **KV pool 未擷取**（node0 量測的兩個 boot 在容器移除後才想到），因此沒有 KV 5 % 門檻的
+  判定；**node1 的複驗 boot 有值**：35B single **KV 1,426,500 tok**（68.89 GiB、5.44×）。
+  完整記錄與同輪修掉的兩個落差（35b single 的過期 0.29 patch bind、bench harness
+  mode 0644）與 node1 複驗，見 `docs/QWEN_27B_35B_AEON_033_UPGRADE_2026-11-26.md` §13。
 
 
 
